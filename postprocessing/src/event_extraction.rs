@@ -2,57 +2,58 @@ use nohash_hasher::IntMap;
 use polars::df;
 use polars::prelude::*;
 use rust_qsim::simulation::events::{
-    EventHandlerRegisterFn, EventTrait, EventsManager, LinkEnterEvent, PersonDepartureEvent,
-    VehicleEntersTrafficEvent, VehicleLeavesTrafficEvent,
+    EventHandlerRegisterFn, EventsManager, LinkEnterEvent, VehicleEntersTrafficEvent,
+    VehicleLeavesTrafficEvent,
 };
 use rust_qsim::simulation::id::Id;
-use rust_qsim::simulation::io::proto::proto_events::ProtoEventsWriter;
 use rust_qsim::simulation::scenario::network::Link;
 use rust_qsim::simulation::scenario::vehicles::InternalVehicle;
 use rust_qsim::simulation::time::SimTime;
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::fs::File;
-use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
-use tracing::{info, warn};
+use tracing::info;
 
-struct VehiclePathData {
-    departure_time: SimTime,
-    took_path: usize,
-    travel_time: Duration,
-}
-
+/// The status of a vehicle that has been encountered in the events, either because it entered
+/// traffic, because it entered a link that indicates a certain path or because it left traffic.
+/// This is used and updated by the `TravelTimePerPathCSVWriter` event handler when processing
+/// events, with the first two variants as a sort of cache, and the last state later being used
+/// to extract the travel times.
 enum VehicleStatus {
     HasDeparted(SimTime),                 // departure time
     IsOnPath(usize, SimTime),             // path index, departure time
     HasArrived(usize, SimTime, Duration), // path index, departure time, travel time
 }
 
-pub struct SomeEventTimeExtractor {
-    vehicle_data: IntMap<Id<InternalVehicle>, VehicleStatus>,
+/// An events handler that writes travel times, grouped by path taken, and averaged across all
+/// vehicles with the same departure time,into a csv file.
+/// Expected use case is scenarios where paths can be uniquely determined by a single link and every
+/// vehicle is only used once.
+pub struct TravelTimePerPathCSVWriter {
+    /// data about departure time, travel time and path are stored here once found in the events
+    vehicle_data_cache: IntMap<Id<InternalVehicle>, VehicleStatus>,
+    /// vector of links, which the link at index `i` being interpreted as an indicator for path `i`
     link_to_path_lookup: IntMap<Id<Link>, usize>,
-    writer: BufWriter<File>,
-    csv_path: PathBuf,
+    /// path to the csv file that is to be written
+    output_csv_path: PathBuf,
 }
 
-impl SomeEventTimeExtractor {
+impl TravelTimePerPathCSVWriter {
     pub fn new(link_to_path_map: IntMap<Id<Link>, usize>, csv_path: impl AsRef<Path>) -> Self {
-        let file = File::create(csv_path.as_ref()).unwrap();
-        let writer = BufWriter::new(file);
         Self {
-            vehicle_data: IntMap::default(),
+            vehicle_data_cache: IntMap::default(),
             link_to_path_lookup: link_to_path_map,
-            writer,
-            csv_path: csv_path.as_ref().to_owned(),
+            output_csv_path: csv_path.as_ref().to_owned(),
         }
     }
 
+    /// when processing vehicle enters traffic event, store that the vehicle has departed
     pub fn on_vet(&mut self, e: &VehicleEntersTrafficEvent) {
-        match self.vehicle_data.entry(e.vehicle.clone()) {
+        match self.vehicle_data_cache.entry(e.vehicle.clone()) {
+            // if the vehicle is already in the map, something is wrong, panic correspondingly.
             Entry::Occupied(data) => match data.get() {
                 VehicleStatus::HasDeparted(dep_time) => {
                     panic!(
@@ -62,25 +63,31 @@ impl SomeEventTimeExtractor {
                 }
                 VehicleStatus::IsOnPath(path, dep_time) => {
                     panic!(
-                        "Vehicle {} entered traffic again while already on path {}, having entered traffic at time {}",
+                        "Vehicle {} entered traffic again while already on path {}, having entered \
+                        traffic at time {}",
                         e.vehicle, path, dep_time
                     )
                 }
                 VehicleStatus::HasArrived(_path, dep_time, travel_time) => {
-                    warn!(
-                        "Vehicle {} entered traffic again after leaving at time {}, and having arrived after a duration of {:?}",
+                    panic!(
+                        "Vehicle {} entered traffic again after leaving at time {}, and having \
+                        arrived after a duration of {:?}. Panicking, since otherwise the first \
+                        trip would not be recorded.",
                         e.vehicle, dep_time, travel_time
                     )
                 }
             },
+            // if the vehicle is not yet in the map, all good
             Entry::Vacant(_data) => {}
         }
-        self.vehicle_data
+        self.vehicle_data_cache
             .insert(e.vehicle.clone(), VehicleStatus::HasDeparted(e.time));
     }
 
+    /// when processing vehicle leaves traffic events, verify that the vehicle has entered traffic
+    /// and has a path assigned, and then store that it has arrived, with the travel time
     pub fn on_vlt(&mut self, e: &VehicleLeavesTrafficEvent) {
-        match self.vehicle_data.entry(e.vehicle.clone()) {
+        match self.vehicle_data_cache.entry(e.vehicle.clone()) {
             Entry::Occupied(mut entry) => match entry.get() {
                 VehicleStatus::HasDeparted(dep_time) => {
                     panic!(
@@ -88,6 +95,7 @@ impl SomeEventTimeExtractor {
                         e.vehicle, dep_time
                     )
                 }
+                // expected current status: vehicle is on some path
                 VehicleStatus::IsOnPath(path, dep_time) => {
                     entry.insert(VehicleStatus::HasArrived(
                         *path,
@@ -108,17 +116,20 @@ impl SomeEventTimeExtractor {
             }
         }
     }
+
+    /// when processing link enter events, check if the link is an indicator for a path, if yes,
+    /// update the vehicle status to being on that path.
     pub fn on_entered_link(&mut self, e: &LinkEnterEvent) {
         // check if the entered link is one that is mapped to a path index
         // (e.g. center, top, bottom in Braess)
         match self.link_to_path_lookup.get(&e.link.clone()) {
-            Some(index) => match self.vehicle_data.entry(e.vehicle.clone()) {
+            Some(index) => match self.vehicle_data_cache.entry(e.vehicle.clone()) {
                 Entry::Occupied(mut veh_entry) => match veh_entry.get() {
                     // update the vehicle status to IsOnPath with the path index
                     VehicleStatus::HasDeparted(dep_time) => {
                         veh_entry.insert(VehicleStatus::IsOnPath(*index, dep_time.clone()));
                     }
-                    VehicleStatus::IsOnPath(path, dep_time) => {
+                    VehicleStatus::IsOnPath(path, _dep_time) => {
                         // if vehicle is already on a path, check if the path index matches the one for the entered link
                         if path != index {
                             panic!(
@@ -148,64 +159,101 @@ impl SomeEventTimeExtractor {
     }
 
     pub fn on_finish(&mut self) {
-        let mut successful_vehicle_data = self.vehicle_data.iter().filter(|(vehicle, status)| match status {
-            VehicleStatus::HasDeparted(time) => {
-                info!(
-                        "Vehicle {} departed at time {} but did not arrive at any named path. Ignored in travel time extraction.",
+        let successful_vehicle_data = self
+            .vehicle_data_cache
+            .iter()
+            .filter(|(vehicle, status)| match status {
+                VehicleStatus::HasDeparted(time) => {
+                    info!(
+                        "Vehicle {} departed at time {} but did not arrive at any named path. \
+                        Ignored in travel time extraction.",
                         vehicle, time
                     );
-                false
-            }
-            VehicleStatus::IsOnPath(path, time) => {
-                info!(
-                        "Vehicle {} departed at time {} and entered path {} but did not arrive. Ignored in travel time extraction.",
+                    false
+                }
+                VehicleStatus::IsOnPath(path, time) => {
+                    info!(
+                        "Vehicle {} departed at time {} and entered path {} but did not arrive. \
+                        Ignored in travel time extraction.",
                         vehicle, time, path
                     );
-                false
-            }
-            VehicleStatus::HasArrived(_, _, _) => true,
-        }).collect::<IntMap<&Id<InternalVehicle>, &VehicleStatus>>();
+                    false
+                }
+                VehicleStatus::HasArrived(_, _, _) => true,
+            })
+            .collect::<IntMap<&Id<InternalVehicle>, &VehicleStatus>>();
 
         let veh_df: DataFrame = df!(
-            "vehicle_id" => successful_vehicle_data.keys().map(|id| id.to_string()).collect::<Vec<_>>(),
-            "departure_time" => successful_vehicle_data.values().map(|status| match status {
-                VehicleStatus::HasArrived(_path, departure_time, _travel_time) => departure_time.as_duration().as_secs_f64(),
-                _ => panic!("Unexpected vehicle status, only successfully arrived vehicles expected"),
-            }).collect::<Vec<_>>(),
-            "travel_time" => successful_vehicle_data.values().map(|status| match status {
-                VehicleStatus::HasArrived(_path, _departure_time, travel_time) => travel_time.as_secs_f64(),
-                _ => panic!("Unexpected vehicle status, only successfully arrived vehicles expected"),
-            }).collect::<Vec<_>>(),
-        ).expect("Failed to create vehicle DataFrame");
+            "vehicle_id" => successful_vehicle_data
+                .keys()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>(),
+            "departure_time" => successful_vehicle_data
+                .values()
+                .map(|status| match status {
+                    VehicleStatus::HasArrived(_path, departure_time, _travel_time) => {
+                        departure_time.as_duration().as_secs_f64()
+                    },
+                    _ => panic!("Unexpected vehicle status, only arrived vehicles expected"),
+                })
+                .collect::<Vec<_>>(),
+            "travel_time" => successful_vehicle_data
+                .values()
+                .map(|status| match status {
+                    VehicleStatus::HasArrived(_path, _departure_time, travel_time) => {
+                        travel_time.as_secs_f64()
+                    },
+                    _ => panic!("Unexpected vehicle status, only arrived vehicles expected"),
+                })
+                .collect::<Vec<_>>(),
+            "path_index" => successful_vehicle_data
+                .values()
+                .map(|status| match status {
+                    VehicleStatus::HasArrived(path, _departure_time, _travel_time) => {
+                        *path as u32
+                    },
+                    _ => panic!("Unexpected vehicle status, only arrived vehicles expected"),
+                })
+                .collect::<Vec<_>>(),
+        )
+        .expect("Failed to create vehicle DataFrame");
 
-        dbg!(&veh_df);
+        let unique_path_indices = {
+            // get all path indices
+            let mut path_indices: Vec<_> = self.link_to_path_lookup.values().collect();
+            // sort and then remove duplicates
+            path_indices.sort_unstable();
+            path_indices.dedup();
+            path_indices
+        };
+
+        // define how to aggregate the data for all vehicles with the same departure time
+        let aggs = unique_path_indices // go through all path indices
+            .into_iter()
+            .map(|path_index| {
+                // for each path index, aggregate mean travel times
+                col("travel_time")
+                    .filter(col("path_index").eq(lit(*path_index as u32)))
+                    .mean()
+                    .alias(format!("avg_travel_time_path_{}", path_index))
+            })
+            // then also aggregate the mean travel time for all vehicles, regardless of path
+            .chain(std::iter::once(
+                col("travel_time").mean().alias("avg_travel_time"),
+            ))
+            .collect::<Vec<_>>();
 
         let result = veh_df
             .clone()
             .lazy()
             .group_by([col("departure_time")])
-            .agg([
-                col("travel_time"),
-                col("travel_time").mean().alias("avg_travel_time"),
-            ]);
+            .agg(aggs)
+            .sort(["departure_time"], SortMultipleOptions::default());
 
-        dbg!(&result.collect().expect("Failed to collect result"));
-        //TODO continue here: maybe repair the other things and start testing with data.
-        // makes it easier to verify correctness
-
-        //
-        // //     smth write things to file or print them out
-        // let mut writer =
-        //     csv::Writer::from_path(&self.csv_path).expect("Failed to create CSV writer");
-        // writer
-        //     .write_record(&[
-        //         "departure time",
-        //         "avg tt top",
-        //         "avg tt mid",
-        //         "avg tt bot",
-        //         "avg tt all",
-        //     ])
-        //     .expect("Failed to write CSV header");
+        let mut file = File::create(&self.output_csv_path).expect("Failed to create csv file");
+        CsvWriter::new(&mut file)
+            .finish(&mut result.collect().expect("Failed to collect result"))
+            .expect("Failed to write csv file");
     }
 
     pub fn register_fn(
@@ -214,7 +262,7 @@ impl SomeEventTimeExtractor {
     ) -> Box<EventHandlerRegisterFn> {
         // register the function to extract event times from the simulation
         Box::new(move |events_mgr: &mut EventsManager| {
-            let event_time_extractor = Rc::new(RefCell::new(SomeEventTimeExtractor::new(
+            let event_time_extractor = Rc::new(RefCell::new(TravelTimePerPathCSVWriter::new(
                 link_to_path_map,
                 csv_path,
             )));
@@ -241,33 +289,25 @@ impl SomeEventTimeExtractor {
 }
 
 mod test {
-    use crate::event_extraction::SomeEventTimeExtractor;
+    use crate::event_extraction::TravelTimePerPathCSVWriter;
     use nohash_hasher::IntMap;
     use rust_qsim::simulation::events::EventsManager;
     use rust_qsim::simulation::events::utils::read_events;
     use rust_qsim::simulation::id::Id;
-    use rust_qsim::simulation::scenario::network::Link;
     use std::fs::create_dir_all;
     use std::path::PathBuf;
 
     #[test]
     fn test_event_extractor() {
         let input_path = PathBuf::from(
-            // "./runs_tmp/260605-cmp_braess_to_java/reroute_proba_10_until_08it_logitmu_1_proba09msa_from_08it/beta1/random1/output/events/events.0.xml.gz",
-            "/home/andreas/RustroverProjects/parallel_qsim_rust_vs_fot/runs_tmp/260605-cmp_braess_to_java/reroute_proba_10_until_08it_logitmu_1_proba09msa_from_08it/beta1/random1/output/events/events.0.xml.gz",
+            "./../runs_tmp/260605-cmp_braess_to_java/reroute_proba_10_until_08it_logitmu_1_proba09msa_from_08it/beta1/random1/output/events/events.0.xml.gz",
         );
-        // TODO continue here: why can it not open this file? Only works with the full local path right now
-
-        // TODO and then: why are my dataframes empty?? Is it because they are lazy? probably not. Then something is wrong.
-
-        //TODO !!!! it seems I don't have any vehicle enters, vehicle leaves traffic, linkenter events in the given file.
-        // WHY???
 
         let output_path = PathBuf::from("./test_output/io/event_time_extraction")
             .join("test_event_extractor.csv");
         create_dir_all(output_path.parent().unwrap()).expect("Failed to create output directory");
         let mut event_mgr = EventsManager::new();
-        let register_fn = SomeEventTimeExtractor::register_fn(
+        let register_fn = TravelTimePerPathCSVWriter::register_fn(
             IntMap::from_iter([
                 (Id::create("3_5"), 0),
                 (Id::create("3_4"), 1),

@@ -291,21 +291,32 @@ impl TravelTimePerPathCSVWriter {
 mod test {
     use crate::event_extraction::TravelTimePerPathCSVWriter;
     use nohash_hasher::IntMap;
+    use polars::prelude::*;
     use rust_qsim::simulation::events::EventsManager;
     use rust_qsim::simulation::events::utils::read_events;
     use rust_qsim::simulation::id::Id;
     use std::fs::create_dir_all;
     use std::path::PathBuf;
 
+    /// test the travel time per path extractor.
+    /// Reads a simplified/shortened events file based on a run on the braess network, and verifies
+    /// that the (avg) travel times (per path) extracted match the expected results.
     #[test]
-    fn test_event_extractor() {
-        let input_path = PathBuf::from(
-            "./../runs_tmp/260605-cmp_braess_to_java/reroute_proba_10_until_08it_logitmu_1_proba09msa_from_08it/beta1/random1/output/events/events.0.xml.gz",
-        );
+    fn test_tt_per_path_extractor() {
+        // this is an "extract" (shortened version) of an events output file from a run on the
+        // braess network, with all events not related to vehicles 0, 1, 2, 3, 16, 28 removed,
+        // and also for those vehicles, only events relevant for the traveltime extraction left.
+        // This makes it possible to verify paths and travel times by hand
+        let input_path =
+            PathBuf::from("./../postprocessing/src/tests/resources/simplified_braess_events.xml");
 
+        // the travel time extractor always writes to csv, so we have to test by writing to csv as
+        // well
         let output_path = PathBuf::from("./test_output/io/event_time_extraction")
             .join("test_event_extractor.csv");
         create_dir_all(output_path.parent().unwrap()).expect("Failed to create output directory");
+
+        // register the travel time extractor with the events manager
         let mut event_mgr = EventsManager::new();
         let register_fn = TravelTimePerPathCSVWriter::register_fn(
             IntMap::from_iter([
@@ -313,11 +324,50 @@ mod test {
                 (Id::create("3_4"), 1),
                 (Id::create("2_4"), 2),
             ]),
-            output_path,
+            output_path.clone(),
         );
         register_fn(&mut event_mgr);
 
+        // read the events from the input file and process them with the events manager, which will
+        // publish them to the travel time csv writer
         read_events(&mut event_mgr, &input_path).expect("Failed to read events from input file");
+        // finishing will trigger the travel time csv writer to write the results to the output file
         event_mgr.finish();
+
+        // read the csv file that was just written into a DataFrame, so that we can compare it to
+        // the expected results
+        let read_result = CsvReadOptions::default()
+            .try_into_reader_with_file_path(Some(output_path))
+            .expect("Failed to read output csv file")
+            .finish()
+            .unwrap();
+
+        // we expect:
+        // this can be verified by hand by considering the departure and arrival times (i.e., enters
+        // traffic and leaves traffic times) of vehicles 0, 1, 2, 3, 16 and 28, respectively in the
+        // simplified_braess_events.xml file; and the path the vehicles took
+        // ┌────────────────┬─────────────────────┬────────────────────┬────────────────────┬─────────────────┐
+        // │ departure_time ┆ avg_travel_time_pat ┆ avg_travel_time_pa ┆ avg_travel_time_pa ┆ avg_travel_time │
+        // │ ---            ┆ h_0                 ┆ th_1               ┆ th_2               ┆ ---             │
+        // │ f64            ┆ ---                 ┆ ---                ┆ ---                ┆ f64             │
+        // │                ┆ f64                 ┆ f64                ┆ f64                ┆                 │
+        // ╞════════════════╪═════════════════════╪════════════════════╪════════════════════╪═════════════════╡
+        // │ 0.0            ┆ null                ┆ 25.0               ┆ null               ┆ 25.0            │
+        // │ 1.0            ┆ null                ┆ 27.0               ┆ null               ┆ 27.0            │
+        // │ 2.0            ┆ null                ┆ 29.0               ┆ null               ┆ 29.0            │
+        // │ 3.0            ┆ null                ┆ 31.0               ┆ null               ┆ 31.0            │
+        // │ 16.0           ┆ null                ┆ null               ┆ 56.0               ┆ 56.0            │
+        // │ 28.0           ┆ 67.0                ┆ null               ┆ null               ┆ 67.0            │
+        // └────────────────┴─────────────────────┴────────────────────┴────────────────────┴─────────────────┘
+        let expected_result = df!(
+            "departure_time" => &[0.0, 1.0, 2.0, 3.0, 16.0, 28.0].to_vec(),
+            "avg_travel_time_path_0" => &[None, None, None, None, None, Some(67.0)].to_vec(),
+            "avg_travel_time_path_1" => &[Some(25.0), Some(27.0), Some(29.0), Some(31.0), None, None].to_vec(),
+            "avg_travel_time_path_2" => &[None, None, None, None, Some(56.0), None].to_vec(),
+            "avg_travel_time" => &[25.0, 27.0, 29.0, 31.0, 56.0, 67.0].to_vec(),
+        )
+        .expect("Failed to create expected result DataFrame");
+
+        assert_eq!(read_result, expected_result)
     }
 }

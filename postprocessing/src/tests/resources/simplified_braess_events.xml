@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<events version="1.0">
+    <event time="0" type="vehicle enters traffic" person="0" link="0_1" vehicle="0" networkMode="car"
+           relativePosition="1"/>
+    <event time="1" type="left link" link="0_1" vehicle="0"/>
+    <event time="1" type="entered link" link="1_2" vehicle="0"/>
+    <event time="1" type="vehicle enters traffic" person="1" link="0_1" vehicle="1" networkMode="car"
+           relativePosition="1"/>
+    <event time="2" type="PersonEntersVehicle" person="2" vehicle="2"/>
+    <event time="2" type="left link" link="0_1" vehicle="1"/>
+    <event time="2" type="entered link" link="1_2" vehicle="1"/>
+    <event time="2" type="vehicle enters traffic" person="2" link="0_1" vehicle="2" networkMode="car"
+           relativePosition="1"/>
+    <event time="3" type="left link" link="0_1" vehicle="2"/>
+    <event time="3" type="entered link" link="1_2" vehicle="2"/>
+    <event time="3" type="vehicle enters traffic" person="3" link="0_1" vehicle="3" networkMode="car"
+           relativePosition="1"/>
+    <event time="4" type="left link" link="0_1" vehicle="3"/>
+    <event time="4" type="entered link" link="1_2" vehicle="3"/>
+    <event time="6" type="left link" link="1_2" vehicle="0"/>
+    <event time="6" type="entered link" link="2_3" vehicle="0"/>
+    <event time="7" type="left link" link="1_2" vehicle="1"/>
+    <event time="7" type="entered link" link="2_3" vehicle="1"/>
+    <event time="8" type="left link" link="1_2" vehicle="2"/>
+    <event time="8" type="entered link" link="2_3" vehicle="2"/>
+    <event time="9" type="left link" link="1_2" vehicle="3"/>
+    <event time="9" type="entered link" link="2_3" vehicle="3"/>
+    <event time="11" type="left link" link="2_3" vehicle="0"/>
+    <event time="11" type="entered link" link="3_4" vehicle="0"/>
+    <event time="13" type="left link" link="2_3" vehicle="1"/>
+    <event time="13" type="entered link" link="3_4" vehicle="1"/>
+    <event time="15" type="left link" link="2_3" vehicle="2"/>
+    <event time="15" type="entered link" link="3_4" vehicle="2"/>
+    <event time="16" type="left link" link="3_4" vehicle="0"/>
+    <event time="16" type="entered link" link="4_5" vehicle="0"/>
+    <event time="16" type="vehicle enters traffic" person="16" link="0_1" vehicle="16" networkMode="car"
+           relativePosition="1"/>
+    <event time="17" type="left link" link="0_1" vehicle="16"/>
+    <event time="17" type="entered link" link="1_2" vehicle="16"/>
+    <event time="17" type="left link" link="2_3" vehicle="3"/>
+    <event time="17" type="entered link" link="3_4" vehicle="3"/>
+    <event time="19" type="left link" link="3_4" vehicle="1"/>
+    <event time="19" type="entered link" link="4_5" vehicle="1"/>
+    <event time="21" type="left link" link="4_5" vehicle="0"/>
+    <event time="21" type="entered link" link="5_6" vehicle="0"/>
+    <event time="22" type="left link" link="1_2" vehicle="16"/>
+    <event time="22" type="entered link" link="2_4" vehicle="16"/>
+    <event time="22" type="left link" link="3_4" vehicle="2"/>
+    <event time="22" type="entered link" link="4_5" vehicle="2"/>
+    <event time="22" type="entered link" link="2_4" vehicle="16"/>
+    <event time="24" type="left link" link="4_5" vehicle="1"/>
+    <event time="24" type="entered link" link="5_6" vehicle="1"/>
+    <event time="25" type="left link" link="3_4" vehicle="3"/>
+    <event time="25" type="entered link" link="4_5" vehicle="3"/>
+    <event time="25" type="vehicle leaves traffic" person="0" link="5_6" vehicle="0" networkMode="car"
+           relativePosition="1"/>
+    <event time="27" type="left link" link="4_5" vehicle="2"/>
+    <event time="27" type="entered link" link="5_6" vehicle="2"/>
+    <event time="28" type="vehicle enters traffic" person="28" link="0_1" vehicle="28" networkMode="car"
+           relativePosition="1"/>
+    <event time="28" type="vehicle leaves traffic" person="1" link="5_6" vehicle="1" networkMode="car"
+           relativePosition="1"/>
+    <event time="29" type="left link" link="0_1" vehicle="28"/>
+    <event time="29" type="entered link" link="1_2" vehicle="28"/>
+    <event time="30" type="left link" link="4_5" vehicle="3"/>
+    <event time="30" type="entered link" link="5_6" vehicle="3"/>
+    <event time="31" type="vehicle leaves traffic" person="2" link="5_6" vehicle="2" networkMode="car"
+           relativePosition="1"/>
+    <event time="34" type="left link" link="1_2" vehicle="28"/>
+    <event time="34" type="entered link" link="2_3" vehicle="28"/>
+    <event time="34" type="vehicle leaves traffic" person="3" link="5_6" vehicle="3" networkMode="car"
+           relativePosition="1"/>
+    <event time="51" type="left link" link="2_3" vehicle="28"/>
+    <event time="51" type="entered link" link="3_5" vehicle="28"/>
+    <event time="51" type="entered link" link="3_5" vehicle="28"/>
+    <event time="62" type="left link" link="2_4" vehicle="16"/>
+    <event time="62" type="entered link" link="4_5" vehicle="16"/>
+    <event time="68" type="left link" link="4_5" vehicle="16"/>
+    <event time="72" type="vehicle leaves traffic" person="16" link="5_6" vehicle="16" networkMode="car"
+           relativePosition="1"/>
+    <event time="68" type="entered link" link="5_6" vehicle="16"/>
+    <event time="91" type="left link" link="3_5" vehicle="28"/>
+    <event time="91" type="entered link" link="5_6" vehicle="28"/>
+    <event time="95" type="vehicle leaves traffic" person="28" link="5_6" vehicle="28" networkMode="car"
+           relativePosition="1"/>
+</events>

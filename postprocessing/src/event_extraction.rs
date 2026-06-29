@@ -11,6 +11,8 @@ use rust_qsim::simulation::scenario::vehicles::InternalVehicle;
 use rust_qsim::simulation::time::SimTime;
 use std::cell::RefCell;
 use std::collections::hash_map::Entry;
+use std::error::Error;
+use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -28,6 +30,35 @@ enum VehicleStatus {
     HasArrived(usize, SimTime, Duration), // path index, departure time, travel time
 }
 
+#[derive(Debug)]
+pub struct UnimplementedNamedMapError(String);
+
+impl Display for UnimplementedNamedMapError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl Error for UnimplementedNamedMapError {}
+
+pub struct LinkToPathMap(IntMap<Id<Link>, usize>);
+
+impl LinkToPathMap {
+    pub fn named(name: &str) -> Result<Self, UnimplementedNamedMapError> {
+        match name.to_lowercase().as_str() {
+            "braess" => Ok(LinkToPathMap(IntMap::from_iter([
+                (Id::create("3_5"), 0),
+                (Id::create("3_4"), 1),
+                (Id::create("2_4"), 2),
+            ]))),
+            _ => Err(UnimplementedNamedMapError(format!(
+                "No link to path map with name {} implemented",
+                name,
+            ))),
+        }
+    }
+}
+
 /// An events handler that writes travel times, grouped by path taken, and averaged across all
 /// vehicles with the same departure time,into a csv file.
 /// Expected use case is scenarios where paths can be uniquely determined by a single link and every
@@ -35,14 +66,14 @@ enum VehicleStatus {
 pub struct TravelTimePerPathCSVWriter {
     /// data about departure time, travel time and path are stored here once found in the events
     vehicle_data_cache: IntMap<Id<InternalVehicle>, VehicleStatus>,
-    /// vector of links, which the link at index `i` being interpreted as an indicator for path `i`
-    link_to_path_lookup: IntMap<Id<Link>, usize>,
+    /// map from link ids to an integer representing a path
+    link_to_path_lookup: LinkToPathMap, // = IntMap<Id<Link>, usize>
     /// path to the csv file that is to be written
     output_csv_path: PathBuf,
 }
 
 impl TravelTimePerPathCSVWriter {
-    pub fn new(link_to_path_map: IntMap<Id<Link>, usize>, csv_path: impl AsRef<Path>) -> Self {
+    pub fn new(link_to_path_map: LinkToPathMap, csv_path: impl AsRef<Path>) -> Self {
         Self {
             vehicle_data_cache: IntMap::default(),
             link_to_path_lookup: link_to_path_map,
@@ -122,7 +153,7 @@ impl TravelTimePerPathCSVWriter {
     pub fn on_entered_link(&mut self, e: &LinkEnterEvent) {
         // check if the entered link is one that is mapped to a path index
         // (e.g. center, top, bottom in Braess)
-        match self.link_to_path_lookup.get(&e.link.clone()) {
+        match self.link_to_path_lookup.0.get(&e.link.clone()) {
             Some(index) => match self.vehicle_data_cache.entry(e.vehicle.clone()) {
                 Entry::Occupied(mut veh_entry) => match veh_entry.get() {
                     // update the vehicle status to IsOnPath with the path index
@@ -220,7 +251,7 @@ impl TravelTimePerPathCSVWriter {
 
         let unique_path_indices = {
             // get all path indices
-            let mut path_indices: Vec<_> = self.link_to_path_lookup.values().collect();
+            let mut path_indices: Vec<_> = self.link_to_path_lookup.0.values().collect();
             // sort and then remove duplicates
             path_indices.sort_unstable();
             path_indices.dedup();
@@ -257,7 +288,7 @@ impl TravelTimePerPathCSVWriter {
     }
 
     pub fn register_fn(
-        link_to_path_map: IntMap<Id<Link>, usize>,
+        link_to_path_map: LinkToPathMap,
         csv_path: impl AsRef<Path> + Send + 'static,
     ) -> Box<EventHandlerRegisterFn> {
         // register the function to extract event times from the simulation
@@ -289,7 +320,7 @@ impl TravelTimePerPathCSVWriter {
 }
 
 mod test {
-    use crate::event_extraction::TravelTimePerPathCSVWriter;
+    use crate::event_extraction::{LinkToPathMap, TravelTimePerPathCSVWriter};
     use nohash_hasher::IntMap;
     use polars::prelude::*;
     use rust_qsim::simulation::events::EventsManager;
@@ -297,6 +328,9 @@ mod test {
     use rust_qsim::simulation::id::Id;
     use std::fs::create_dir_all;
     use std::path::PathBuf;
+    //TODO next:
+    // I need to make the binary use this
+    // Then continue with python.
 
     /// test the travel time per path extractor.
     /// Reads a simplified/shortened events file based on a run on the braess network, and verifies
@@ -319,11 +353,7 @@ mod test {
         // register the travel time extractor with the events manager
         let mut event_mgr = EventsManager::new();
         let register_fn = TravelTimePerPathCSVWriter::register_fn(
-            IntMap::from_iter([
-                (Id::create("3_5"), 0),
-                (Id::create("3_4"), 1),
-                (Id::create("2_4"), 2),
-            ]),
+            LinkToPathMap::named("braess").unwrap(),
             output_path.clone(),
         );
         register_fn(&mut event_mgr);

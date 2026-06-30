@@ -319,18 +319,14 @@ impl TravelTimePerPathCSVWriter {
     }
 }
 
+#[cfg(test)]
 mod test {
     use crate::event_extraction::{LinkToPathMap, TravelTimePerPathCSVWriter};
-    use nohash_hasher::IntMap;
     use polars::prelude::*;
     use rust_qsim::simulation::events::EventsManager;
     use rust_qsim::simulation::events::utils::read_events;
-    use rust_qsim::simulation::id::Id;
     use std::fs::create_dir_all;
     use std::path::PathBuf;
-    //TODO next:
-    // I need to make the binary use this
-    // Then continue with python.
 
     /// test the travel time per path extractor.
     /// Reads a simplified/shortened events file based on a run on the braess network, and verifies

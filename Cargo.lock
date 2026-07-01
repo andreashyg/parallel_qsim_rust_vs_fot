@@ -3156,6 +3156,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "runners"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "rust_qsim",
+ "tracing",
+]
+
+[[package]]
 name = "rust_qsim"
 version = "0.2.0"
 dependencies = [

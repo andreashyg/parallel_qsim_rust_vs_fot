@@ -37,7 +37,6 @@ struct OverrideHandler {
 inventory::collect!(OverrideHandler);
 
 #[derive(Parser, Debug, Clone)]
-#[command(author, version, about, long_about = None)]
 pub struct CommandLineArgs {
     #[arg(long, short)]
     pub config: String,
@@ -54,7 +53,7 @@ impl CommandLineArgs {
     }
 }
 
-fn parse_key_val(s: &str) -> Result<(String, String), String> {
+pub fn parse_key_val(s: &str) -> Result<(String, String), String> {
     let pos = s.find('=');
     match pos {
         Some(pos) => Ok((s[..pos].to_string(), s[pos + 1..].to_string())),
@@ -141,7 +140,7 @@ impl Config {
     }
 
     /// Apply generic key-value overrides to the config, e.g. protofiles.population=path
-    fn apply_overrides(&mut self, overrides: &[(String, String)]) {
+    pub fn apply_overrides(&mut self, overrides: &[(String, String)]) {
         info!("Applying overrides: {:?}", overrides);
 
         for (key, value) in overrides {

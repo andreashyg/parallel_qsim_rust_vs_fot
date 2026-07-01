@@ -13,7 +13,7 @@ use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-use std::fs::File;
+use std::fs::{File, create_dir_all};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
@@ -281,6 +281,12 @@ impl TravelTimePerPathCSVWriter {
             .agg(aggs)
             .sort(["departure_time"], SortMultipleOptions::default());
 
+        create_dir_all(
+            self.output_csv_path
+                .parent()
+                .expect("Failed to get parent directory of output csv path"),
+        )
+        .expect("Failed to create output directory");
         let mut file = File::create(&self.output_csv_path).expect("Failed to create csv file");
         CsvWriter::new(&mut file)
             .finish(&mut result.collect().expect("Failed to collect result"))

@@ -1,6 +1,12 @@
+#![allow(ambiguous_glob_imports)]
 use nohash_hasher::IntMap;
 use polars::df;
 use polars::prelude::*;
+// this function is technically automatically imported in the prelude above, but it is ambiguous,
+// which throws warnings or errors depending on the rust version.
+// Unclear if it is even fixed in the newest polars version.as
+// So we import the one we want explicitly here, with a custom name.
+use polars_lazy::prelude::sum_horizontal as polars_lazy_sum_horizontal;
 use rust_qsim::simulation::events::{
     EventHandlerRegisterFn, EventsManager, LinkEnterEvent, VehicleEntersTrafficEvent,
     VehicleLeavesTrafficEvent,
@@ -63,21 +69,28 @@ impl LinkToPathMap {
 /// vehicles with the same departure time,into a csv file.
 /// Expected use case is scenarios where paths can be uniquely determined by a single link and every
 /// vehicle is only used once.
-pub struct TravelTimePerPathCSVWriter {
+pub struct TravelTimeAndSumDepPerPathCSVWriter {
     /// data about departure time, travel time and path are stored here once found in the events
     vehicle_data_cache: IntMap<Id<InternalVehicle>, VehicleStatus>,
     /// map from link ids to an integer representing a path
     link_to_path_lookup: LinkToPathMap, // = IntMap<Id<Link>, usize>
-    /// path to the csv file that is to be written
-    output_csv_path: PathBuf,
+    /// path to the csv file into which travel times are written
+    tt_output_csv_path: PathBuf,
+    /// path to the csv file into which summed departures are written
+    sd_output_csv_path: PathBuf,
 }
 
-impl TravelTimePerPathCSVWriter {
-    pub fn new(link_to_path_map: LinkToPathMap, csv_path: impl AsRef<Path>) -> Self {
+impl TravelTimeAndSumDepPerPathCSVWriter {
+    pub fn new(
+        link_to_path_map: LinkToPathMap,
+        tt_csv_path: impl AsRef<Path>,
+        sd_csv_path: impl AsRef<Path>,
+    ) -> Self {
         Self {
             vehicle_data_cache: IntMap::default(),
             link_to_path_lookup: link_to_path_map,
-            output_csv_path: csv_path.as_ref().to_owned(),
+            tt_output_csv_path: tt_csv_path.as_ref().to_owned(),
+            sd_output_csv_path: sd_csv_path.as_ref().to_owned(),
         }
     }
 
@@ -251,7 +264,7 @@ impl TravelTimePerPathCSVWriter {
 
         let unique_path_indices = {
             // get all path indices
-            let mut path_indices: Vec<_> = self.link_to_path_lookup.0.values().collect();
+            let mut path_indices: Vec<_> = self.link_to_path_lookup.0.values().copied().collect();
             // sort and then remove duplicates
             path_indices.sort_unstable();
             path_indices.dedup();
@@ -260,11 +273,12 @@ impl TravelTimePerPathCSVWriter {
 
         // define how to aggregate the data for all vehicles with the same departure time
         let aggs = unique_path_indices // go through all path indices
-            .into_iter()
+            .iter()
+            .copied()
             .map(|path_index| {
                 // for each path index, aggregate mean travel times
                 col("travel_time")
-                    .filter(col("path_index").eq(lit(*path_index as u32)))
+                    .filter(col("path_index").eq(lit(path_index as u32)))
                     .mean()
                     .alias(format!("avg_travel_time_path_{}", path_index))
             })
@@ -274,35 +288,93 @@ impl TravelTimePerPathCSVWriter {
             ))
             .collect::<Vec<_>>();
 
-        let result = veh_df
+        let tt_df = veh_df
             .clone()
             .lazy()
             .group_by([col("departure_time")])
             .agg(aggs)
             .sort(["departure_time"], SortMultipleOptions::default());
 
+        let sd_df = veh_df
+            .clone()
+            .lazy()
+            .group_by([col("departure_time")])
+            .agg(
+                unique_path_indices
+                    .iter()
+                    .copied()
+                    .map(|path_index| {
+                        col("path_index")
+                            .filter(col("path_index").eq(lit(path_index as u32)))
+                            .count()
+                            .alias(format!("sum_departures_path_{}", path_index))
+                    })
+                    .collect::<Vec<_>>(),
+            )
+            .sort(["departure_time"], SortMultipleOptions::default())
+            .with_columns(
+                unique_path_indices
+                    .iter()
+                    .copied()
+                    .map(|path_index| {
+                        col(format!("sum_departures_path_{}", path_index))
+                            .cum_sum(false)
+                            .alias(format!("sum_departures_path_{}", path_index))
+                    })
+                    .collect::<Vec<_>>(),
+            )
+            .with_columns([polars_lazy_sum_horizontal(
+                unique_path_indices
+                    .iter()
+                    .copied()
+                    .map(|path_index| col(format!("sum_departures_path_{}", path_index)))
+                    .collect::<Vec<_>>(),
+                true,
+            )
+            .unwrap()
+            .alias("sum_departures_total")]);
+
         create_dir_all(
-            self.output_csv_path
+            self.tt_output_csv_path
                 .parent()
                 .expect("Failed to get parent directory of output csv path"),
         )
         .expect("Failed to create output directory");
-        let mut file = File::create(&self.output_csv_path).expect("Failed to create csv file");
+        let mut file = File::create(&self.tt_output_csv_path).expect("Failed to create csv file");
         CsvWriter::new(&mut file)
-            .finish(&mut result.collect().expect("Failed to collect result"))
+            .finish(&mut tt_df.collect().expect("Failed to collect result"))
+            .expect("Failed to write csv file");
+
+        create_dir_all(
+            self.sd_output_csv_path
+                .parent()
+                .expect("Failed to get parent directory of output csv path"),
+        )
+        .expect("Failed to create output directory");
+        let mut file = File::create(&self.sd_output_csv_path).expect("Failed to create csv file");
+        CsvWriter::new(&mut file)
+            .finish(
+                &mut sd_df
+                    .sort(["departure_time"], SortMultipleOptions::default())
+                    .collect()
+                    .expect("Failed to collect result"),
+            )
             .expect("Failed to write csv file");
     }
 
     pub fn register_fn(
         link_to_path_map: LinkToPathMap,
-        csv_path: impl AsRef<Path> + Send + 'static,
+        tt_csv_path: impl AsRef<Path> + Send + 'static,
+        sd_csv_path: impl AsRef<Path> + Send + 'static,
     ) -> Box<EventHandlerRegisterFn> {
         // register the function to extract event times from the simulation
         Box::new(move |events_mgr: &mut EventsManager| {
-            let event_time_extractor = Rc::new(RefCell::new(TravelTimePerPathCSVWriter::new(
-                link_to_path_map,
-                csv_path,
-            )));
+            let event_time_extractor =
+                Rc::new(RefCell::new(TravelTimeAndSumDepPerPathCSVWriter::new(
+                    link_to_path_map,
+                    tt_csv_path,
+                    sd_csv_path,
+                )));
             let event_time_extractor_1 = event_time_extractor.clone();
             let event_time_extractor_2 = event_time_extractor.clone();
             let event_time_extractor_3 = event_time_extractor.clone();
@@ -327,7 +399,7 @@ impl TravelTimePerPathCSVWriter {
 
 #[cfg(test)]
 mod test {
-    use crate::event_extraction::{LinkToPathMap, TravelTimePerPathCSVWriter};
+    use crate::event_extraction::{LinkToPathMap, TravelTimeAndSumDepPerPathCSVWriter};
     use polars::prelude::*;
     use rust_qsim::simulation::events::EventsManager;
     use rust_qsim::simulation::events::utils::read_events;
@@ -348,15 +420,19 @@ mod test {
 
         // the travel time extractor always writes to csv, so we have to test by writing to csv as
         // well
-        let output_path = PathBuf::from("./test_output/io/event_time_extraction")
-            .join("test_event_extractor.csv");
-        create_dir_all(output_path.parent().unwrap()).expect("Failed to create output directory");
+        let tt_output_path = PathBuf::from("./test_output/io/event_time_extraction")
+            .join("test_event_extractor_travel_times.csv");
+        let sd_output_path = PathBuf::from("./test_output/io/event_time_extraction")
+            .join("test_event_extractor_sum_departures.csv");
+        create_dir_all(tt_output_path.parent().unwrap())
+            .expect("Failed to create output directory");
 
         // register the travel time extractor with the events manager
         let mut event_mgr = EventsManager::new();
-        let register_fn = TravelTimePerPathCSVWriter::register_fn(
+        let register_fn = TravelTimeAndSumDepPerPathCSVWriter::register_fn(
             LinkToPathMap::named("braess").unwrap(),
-            output_path.clone(),
+            tt_output_path.clone(),
+            sd_output_path.clone(),
         );
         register_fn(&mut event_mgr);
 
@@ -366,10 +442,10 @@ mod test {
         // finishing will trigger the travel time csv writer to write the results to the output file
         event_mgr.finish();
 
-        // read the csv file that was just written into a DataFrame, so that we can compare it to
+        // read the tt csv file that was just written into a DataFrame, so that we can compare it to
         // the expected results
-        let read_result = CsvReadOptions::default()
-            .try_into_reader_with_file_path(Some(output_path))
+        let read_tt_csv = CsvReadOptions::default()
+            .try_into_reader_with_file_path(Some(tt_output_path))
             .expect("Failed to read output csv file")
             .finish()
             .unwrap();
@@ -391,15 +467,48 @@ mod test {
         // │ 16.0           ┆ null                ┆ null               ┆ 56.0               ┆ 56.0            │
         // │ 28.0           ┆ 67.0                ┆ null               ┆ null               ┆ 67.0            │
         // └────────────────┴─────────────────────┴────────────────────┴────────────────────┴─────────────────┘
-        let expected_result = df!(
+        let expected_tt_result = df!(
             "departure_time" => &[0.0, 1.0, 2.0, 3.0, 16.0, 28.0].to_vec(),
             "avg_travel_time_path_0" => &[None, None, None, None, None, Some(67.0)].to_vec(),
             "avg_travel_time_path_1" => &[Some(25.0), Some(27.0), Some(29.0), Some(31.0), None, None].to_vec(),
             "avg_travel_time_path_2" => &[None, None, None, None, Some(56.0), None].to_vec(),
             "avg_travel_time" => &[25.0, 27.0, 29.0, 31.0, 56.0, 67.0].to_vec(),
         )
-        .expect("Failed to create expected result DataFrame");
+        .expect("Failed to create expected tt result DataFrame");
+        assert_eq!(read_tt_csv, expected_tt_result);
 
-        assert_eq!(read_result, expected_result)
+        // for the summed departures same thing:
+        let read_sd_csv = CsvReadOptions::default()
+            .try_into_reader_with_file_path(Some(sd_output_path))
+            .expect("Failed to read sd output csv file")
+            .finish()
+            .unwrap();
+
+        // we expect:
+        // (this can also be verified by hand, by considering the departure times of vehicles 0, 1,
+        // 2, 3, 16 and 28, and the path they took)
+        // ┌────────────────┬────────────────────┬────────────────────┬───────────────────┬───────────────────┐
+        // │ departure_time ┆ sum_departures_pat ┆ sum_departures_pat ┆ sum_departures_pa ┆ sum_departures_to │
+        // │ ---            ┆ h_0                ┆ h_1                ┆ th_2              ┆ tal               │
+        // │ f64            ┆ ---                ┆ ---                ┆ ---               ┆ ---               │
+        // │                ┆ i64                ┆ i64                ┆ i64               ┆ i64               │
+        // ╞════════════════╪════════════════════╪════════════════════╪═══════════════════╪═══════════════════╡
+        // │ 0.0            ┆ 0                  ┆ 1                  ┆ 0                 ┆ 1                 │
+        // │ 1.0            ┆ 0                  ┆ 2                  ┆ 0                 ┆ 2                 │
+        // │ 2.0            ┆ 0                  ┆ 3                  ┆ 0                 ┆ 3                 │
+        // │ 3.0            ┆ 0                  ┆ 4                  ┆ 0                 ┆ 4                 │
+        // │ 16.0           ┆ 0                  ┆ 4                  ┆ 1                 ┆ 5                 │
+        // │ 28.0           ┆ 1                  ┆ 4                  ┆ 1                 ┆ 6                 │
+        // └────────────────┴────────────────────┴────────────────────┴───────────────────┴───────────────────┘
+        let expected_sd_result = df!(
+            "departure_time" => &[0.0, 1.0, 2.0, 3.0, 16.0, 28.0].to_vec(),
+            "sum_departures_path_0" => &[0,0,0,0,0,1].to_vec(),
+            "sum_departures_path_1" => &[1,2,3,4,4,4].to_vec(),
+            "sum_departures_path_2" => &[0,0,0,0,1,1].to_vec(),
+            "sum_departures_total" => &[1,2,3,4,5,6].to_vec(),
+        )
+        .expect("Failed to create expected sd result DataFrame");
+
+        assert_eq!(read_sd_csv, expected_sd_result);
     }
 }

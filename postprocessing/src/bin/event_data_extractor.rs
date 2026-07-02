@@ -1,5 +1,5 @@
 use clap::Parser;
-use postprocessing::event_extraction::{LinkToPathMap, TravelTimePerPathCSVWriter};
+use postprocessing::event_extraction::{LinkToPathMap, TravelTimeAndSumDepPerPathCSVWriter};
 use rust_qsim::simulation::events::EventsManager;
 use rust_qsim::simulation::events::utils::{read_events, read_partitioned_events};
 use rust_qsim::simulation::id;
@@ -20,9 +20,12 @@ struct InputArgs {
     /// `extension()` only considers the part after the last dot to be the extension.
     #[arg(long)]
     pub input_file_format: String,
-    /// complete output path for the csv file to be written (including extension)
+    /// complete output path (including extension) for the travel times csv file to be written
     #[arg(long)]
-    pub csv_path: String,
+    pub tt_csv_path: String,
+    /// complete output path (including extension) for the summed departures csv file to be written
+    #[arg(long)]
+    pub sd_csv_path: String,
     /// optional complete path to an id store to be loaded (required when reading proto files)
     #[arg(long)]
     pub id_store_path: Option<String>,
@@ -50,14 +53,19 @@ fn main() {
     }
 
     let input_path_stem = PathBuf::from(&args.input_file_stem);
-    let output_file_path = PathBuf::from(&args.csv_path);
+    let tt_output_file_path = PathBuf::from(&args.tt_csv_path);
+    let sd_output_file_path = PathBuf::from(&args.sd_csv_path);
 
     let link_to_path_map = LinkToPathMap::named(args.link_to_path_map_name.as_str())
         .expect("Failed to load link to path map");
 
-    let register_fn = TravelTimePerPathCSVWriter::register_fn(link_to_path_map, output_file_path);
+    let ttppsd_register_fn = TravelTimeAndSumDepPerPathCSVWriter::register_fn(
+        link_to_path_map,
+        tt_output_file_path,
+        sd_output_file_path,
+    );
 
-    register_fn(&mut event_mgr);
+    ttppsd_register_fn(&mut event_mgr);
     match args.num_parts {
         0u32 => {
             read_events(
@@ -84,12 +92,12 @@ fn main() {
     }
 
     // read the events from the input file and process them with the events manager, which will
-    // publish them to the travel time csv writer
-    // finishing will trigger the travel time csv writer to write the results to the output file
+    // publish them to the travel time + summed departures csv writer
+    // finishing will trigger the travel time csv writer to write the results to the output files
     event_mgr.finish();
 
     info!(
-        "Event data extractor finished writing event data to file {}",
-        args.csv_path
+        "Event data extractor finished writing event data to files {},\n{}",
+        args.tt_csv_path, args.sd_csv_path
     );
 }

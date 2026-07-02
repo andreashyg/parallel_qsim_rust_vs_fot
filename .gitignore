@@ -4,6 +4,7 @@
 *.iml
 .idea/
 rust_qsim/test_output/
+postprocessing/test_output
 /assets/routing_tests/*
 
 .DS_Store

@@ -327,8 +327,8 @@ impl TravelTimeAndSumDepPerPathCSVWriter {
                     .map(|path_index| {
                         col(format!("sum_departures_path_{}", path_index))
                             .cum_sum(false)
-                            // divide entire column by beta to get the sum of departures in PCU's/PCE's
-                            .div(lit(self.beta as f64))
+                            // divide entire column by beta^2 to get the sum of departures in PCU's/PCE's
+                            .div(lit(self.beta.pow(2) as f64))
                             .alias(format!("sum_departures_path_{}", path_index))
                     })
                     .collect::<Vec<_>>(),

@@ -304,7 +304,9 @@ impl TravelTimeAndSumDepPerPathCSVWriter {
         let sd_df = veh_df
             .clone()
             .lazy()
-            .group_by([col("departure_time")])
+            // call departure time "time" here, since what we want to report is the amount of
+            // vehicles that have departed up to that time
+            .group_by([col("departure_time").alias("time")])
             .agg(
                 unique_path_indices
                     .iter()

@@ -20,6 +20,7 @@ use std::collections::hash_map::Entry;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::fs::{File, create_dir_all};
+use std::ops::Div;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
@@ -78,6 +79,9 @@ pub struct TravelTimeAndSumDepPerPathCSVWriter {
     tt_output_csv_path: PathBuf,
     /// path to the csv file into which summed departures are written
     sd_output_csv_path: PathBuf,
+    /// parameter `beta` that was used when simulating the scenario; this is used to scale the
+    /// summed departures value (we want it to be given in PCU's/PCE's)
+    beta: usize,
 }
 
 impl TravelTimeAndSumDepPerPathCSVWriter {
@@ -85,12 +89,14 @@ impl TravelTimeAndSumDepPerPathCSVWriter {
         link_to_path_map: LinkToPathMap,
         tt_csv_path: impl AsRef<Path>,
         sd_csv_path: impl AsRef<Path>,
+        beta: usize,
     ) -> Self {
         Self {
             vehicle_data_cache: IntMap::default(),
             link_to_path_lookup: link_to_path_map,
             tt_output_csv_path: tt_csv_path.as_ref().to_owned(),
             sd_output_csv_path: sd_csv_path.as_ref().to_owned(),
+            beta,
         }
     }
 
@@ -319,6 +325,8 @@ impl TravelTimeAndSumDepPerPathCSVWriter {
                     .map(|path_index| {
                         col(format!("sum_departures_path_{}", path_index))
                             .cum_sum(false)
+                            // divide entire column by beta to get the sum of departures in PCU's/PCE's
+                            .div(lit(self.beta as f64))
                             .alias(format!("sum_departures_path_{}", path_index))
                     })
                     .collect::<Vec<_>>(),
@@ -366,6 +374,7 @@ impl TravelTimeAndSumDepPerPathCSVWriter {
         link_to_path_map: LinkToPathMap,
         tt_csv_path: impl AsRef<Path> + Send + 'static,
         sd_csv_path: impl AsRef<Path> + Send + 'static,
+        beta: usize,
     ) -> Box<EventHandlerRegisterFn> {
         // register the function to extract event times from the simulation
         Box::new(move |events_mgr: &mut EventsManager| {
@@ -374,6 +383,7 @@ impl TravelTimeAndSumDepPerPathCSVWriter {
                     link_to_path_map,
                     tt_csv_path,
                     sd_csv_path,
+                    beta,
                 )));
             let event_time_extractor_1 = event_time_extractor.clone();
             let event_time_extractor_2 = event_time_extractor.clone();
@@ -433,6 +443,7 @@ mod test {
             LinkToPathMap::named("braess").unwrap(),
             tt_output_path.clone(),
             sd_output_path.clone(),
+            1,
         );
         register_fn(&mut event_mgr);
 
@@ -474,7 +485,7 @@ mod test {
             "avg_travel_time_path_2" => &[None, None, None, None, Some(56.0), None].to_vec(),
             "avg_travel_time" => &[25.0, 27.0, 29.0, 31.0, 56.0, 67.0].to_vec(),
         )
-        .expect("Failed to create expected tt result DataFrame");
+            .expect("Failed to create expected tt result DataFrame");
         assert_eq!(read_tt_csv, expected_tt_result);
 
         // for the summed departures same thing:
@@ -491,14 +502,14 @@ mod test {
         // │ departure_time ┆ sum_departures_pat ┆ sum_departures_pat ┆ sum_departures_pa ┆ sum_departures_to │
         // │ ---            ┆ h_0                ┆ h_1                ┆ th_2              ┆ tal               │
         // │ f64            ┆ ---                ┆ ---                ┆ ---               ┆ ---               │
-        // │                ┆ i64                ┆ i64                ┆ i64               ┆ i64               │
+        // │                ┆ f64                ┆ f64                ┆ f64               ┆ f64               │
         // ╞════════════════╪════════════════════╪════════════════════╪═══════════════════╪═══════════════════╡
-        // │ 0.0            ┆ 0                  ┆ 1                  ┆ 0                 ┆ 1                 │
-        // │ 1.0            ┆ 0                  ┆ 2                  ┆ 0                 ┆ 2                 │
-        // │ 2.0            ┆ 0                  ┆ 3                  ┆ 0                 ┆ 3                 │
-        // │ 3.0            ┆ 0                  ┆ 4                  ┆ 0                 ┆ 4                 │
-        // │ 16.0           ┆ 0                  ┆ 4                  ┆ 1                 ┆ 5                 │
-        // │ 28.0           ┆ 1                  ┆ 4                  ┆ 1                 ┆ 6                 │
+        // │ 0.0            ┆ 0.0                ┆ 1.0                ┆ 0.0               ┆ 1.0               │
+        // │ 1.0            ┆ 0.0                ┆ 2.0                ┆ 0.0               ┆ 2.0               │
+        // │ 2.0            ┆ 0.0                ┆ 3.0                ┆ 0.0               ┆ 3.0               │
+        // │ 3.0            ┆ 0.0                ┆ 4.0                ┆ 0.0               ┆ 4.0               │
+        // │ 16.0           ┆ 0.0                ┆ 4.0                ┆ 1.0               ┆ 5.0               │
+        // │ 28.0           ┆ 1.0                ┆ 4.0                ┆ 1.0               ┆ 6.0               │
         // └────────────────┴────────────────────┴────────────────────┴───────────────────┴───────────────────┘
         let expected_sd_result = df!(
             "departure_time" => &[0.0, 1.0, 2.0, 3.0, 16.0, 28.0].to_vec(),

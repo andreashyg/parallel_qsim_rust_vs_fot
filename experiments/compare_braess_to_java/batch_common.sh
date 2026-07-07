@@ -15,15 +15,18 @@ REPLANNING_VARIANTS=(
 # One time step has length 1/beta seconds (i.e., we have beta ticks per second).
 # Vehicles have pce 1/(beta^2) and length 7.5/(beta^2)
 BETAS=(1 2 4 8 16)
+
 # these are the counters for the reruns with different random seeds that were performed in Java. Meaning that these
 # values are used to read the corresponding output plans from the Java implementation of the Braess experiment.
-READ_FROM_RANDOM_VALUES=({1..20})
-# random seed used in the rust simulations is fixed so far.
-USE_RANDOM_SEED=42
+READ_FROM_RANDOM_VALUES=({1..1})  # only use the first random seed used in Java, because the differences there are not
+# what we are interested in here, instead it's more relevant to compare different random seeds in Rust.
+
+# random seeds used in the rust simulations
+USE_RANDOM_SEED_VALUES=({42..61})  # arbitrary range of 20 random seeds to use in the Rust simulations
 
 OUTPUT_BASE_DIR="./../runs-svn/Abschlussarbeiten/2026/andreas-hygrell-rust-vs-fot/compare_braess_to_java"
 
-# Collect failures so the scripts can finish the full matrix and report problems at the end.
+# Collect failures so the scripts can finish all experiments/extractions and only report problems at the end.
 EXPERIMENT_FAILURES=()
 EXTRACTION_FAILURES=()
 
@@ -46,7 +49,7 @@ parse_common_args() {
         ;;
       *)
         echo "Unknown argument: $arg" >&2
-        echo "Usage: $0 [--delete-output-dir-if-existing]" >&2
+        echo "Usage: $0 [--delete-output-dir-if-existing  --skip-existing-output-dir]" >&2
         exit 1
         ;;
     esac
@@ -66,14 +69,17 @@ for_each_experiment_case() {
     local output_root_dir="${OUTPUT_BASE_DIR}/${replanning_variant}"
     for beta in "${BETAS[@]}"; do
       for read_from_random in "${READ_FROM_RANDOM_VALUES[@]}"; do
-        local output_dir="${output_root_dir}/beta${beta}/read_from_random_${read_from_random}_use_random_seed_${USE_RANDOM_SEED}"
+        for use_random_seed in "${USE_RANDOM_SEED_VALUES[@]}"; do
+          local output_dir="${output_root_dir}/beta${beta}/read_from_random_${read_from_random}_use_random_seed_${use_random_seed}"
 
-        skip=false
-        if [ -d "$output_dir" ] && [ "${skip_existing_output_dir}" = "true" ]; then
-          skip=true
-          echo "Skipping due to existing output directory: $output_dir"
-        fi
-        "$callback" "$replanning_variant" "$beta" "$read_from_random" "$USE_RANDOM_SEED" "$output_root_dir" "$output_dir" "$skip"
+          # if the output directory already exists and the corresponding cla was given, skip this experiment
+          skip=false
+          if [ -d "$output_dir" ] && [ "${skip_existing_output_dir}" = "true" ]; then
+            skip=true
+            echo "Skipping due to existing output directory: $output_dir"
+          fi
+          "$callback" "$replanning_variant" "$beta" "$read_from_random" "$use_random_seed" "$output_root_dir" "$output_dir" "$skip"
+        done
       done
     done
   done
@@ -82,7 +88,8 @@ for_each_experiment_case() {
 # function to called to record a failure in either the experiment run or the extraction run.
 # Called with the arguments:
 #   kind: either "experiment" or "extraction"
-#   replanning_variant, beta, read_from_random, output_dir, skip
+# and
+#   replanning_variant, beta, read_from_random, output_dir, use_random_seed
 # Will append a string describing the failure to the corresponding array (EXPERIMENT_FAILURES or EXTRACTION_FAILURES).
 record_failure() {
   local kind="$1"
@@ -90,13 +97,14 @@ record_failure() {
   local beta="$3"
   local read_from_random="$4"
   local output_dir="$5"
+  local use_random_seed="$6"
 
   case "$kind" in
     experiment)
-      EXPERIMENT_FAILURES+=("${replanning_variant} beta=${beta} read_from_random=${read_from_random} dir=${output_dir}")
+      EXPERIMENT_FAILURES+=("${replanning_variant} beta=${beta} read_from_random=${read_from_random} dir=${output_dir} use_random_seed=${use_random_seed}")
       ;;
     extraction)
-      EXTRACTION_FAILURES+=("${replanning_variant} beta=${beta} read_from_random=${read_from_random} dir=${output_dir}")
+      EXTRACTION_FAILURES+=("${replanning_variant} beta=${beta} read_from_random=${read_from_random} dir=${output_dir} use_random_seed=${use_random_seed}")
       ;;
     *)
       echo "Unknown failure kind: $kind" >&2
@@ -148,7 +156,7 @@ run_experiment_case() {
   fi
 
 
-  echo "Running with replanning_variant=$replanning_variant, beta=$beta, read_from_random=$read_from_random, use_random_seed=$use_random_seed"
+  echo "Running rust simulation with parameters: replanning_variant=$replanning_variant, beta=$beta, read_from_random=$read_from_random, use_random_seed=$use_random_seed"
 
   echo "Output directory: $output_dir"
 
@@ -167,22 +175,22 @@ run_experiment_case() {
     "${delete_output_dir_arg[@]}"
   then
     echo "Experiment failed, continuing with next case." >&2
-    record_failure experiment "$replanning_variant" "$beta" "$read_from_random" "$output_dir"
+    record_failure experiment "$replanning_variant" "$beta" "$read_from_random" "$output_dir" "$use_random_seed"
     return 1
   fi
 
   return 0
 }
 
-# function to run the travel time extraction for a single experiment case. Called with the arguments:
-#   replanning_variant, beta, read_from_random, use_random_seed, output_root_dir, output_dir
+# function to run the travel time & summed departures extraction for a single experiment case. Called with the arguments:
+#   replanning_variant, beta, read_from_random, use_random_seed, output_root_dir, output_dir, skip
 # Will read the events written by the simulation in the given output directory and write the average travel times per
 # route to a CSV file in the analysis subdirectory of the output root directory.
-extract_travel_time_case() {
+extract_travel_time_sum_dep_case() {
   local replanning_variant="$1"
   local beta="$2"
   local read_from_random="$3"
-  local _use_random_seed="$4"
+  local use_random_seed="$4"
   local output_root_dir="$5"
   local output_dir="$6"
   local skip="$7"
@@ -192,24 +200,27 @@ extract_travel_time_case() {
   fi
 
 
-  echo "Extracting average travel times for replanning_variant=$replanning_variant, beta=$beta, read_from_random=$read_from_random"
+  echo "Extracting average travel times and summed departures for parameters: replanning_variant=$replanning_variant, beta=$beta, read_from_random=$read_from_random"
 
   local input_file_stem="${output_dir}/events/events"
-  local csv_path="${output_root_dir}/analysis/average_route_tts_per_deptime_beta${beta}_read_from_random_${read_from_random}.csv"
+  local tt_csv_path="${output_root_dir}/analysis/average_route_tts_per_deptime_beta${beta}_read_from_random_${read_from_random}_use_random_seed_${use_random_seed}.csv"
+  local sd_csv_path="${output_root_dir}/analysis/summed_deps_per_time_beta${beta}_read_from_random_${read_from_random}_use_random_seed_${use_random_seed}.csv"
 
-  echo "writing into $csv_path"
+  echo "writing into $tt_csv_path and $sd_csv_path"
 
-  # Extract travel times from the events written by the simulation.
+  # Extract travel times and summed departures from the events written by the simulation.
   if ! cargo run --release --bin event_data_extractor -- \
     --input-file-stem "$input_file_stem" \
     --input-file-format "binpb" \
-    --csv-path "$csv_path" \
+    --tt-csv-path "$tt_csv_path" \
+    --sd-csv-path "$sd_csv_path" \
     --num-parts 1 \
     --link-to-path-map-name "braess" \
-    --id-store-path "${output_dir}/output_ids.binpb"
+    --id-store-path "${output_dir}/output_ids.binpb" \
+    --beta "$beta"
   then
-    echo "Travel-time extraction failed, continuing with next case." >&2
-    record_failure extraction "$replanning_variant" "$beta" "$read_from_random" "$output_dir"
+    echo "Travel-time/summed departures extraction failed, continuing with next case." >&2
+    record_failure extraction "$replanning_variant" "$beta" "$read_from_random" "$output_dir" "$use_random_seed"
     return 1
   fi
 
@@ -220,9 +231,9 @@ extract_travel_time_case() {
 run_and_extract_case() {
   # Only extract travel times if the simulation run finished successfully.
   if run_experiment_case "$@"; then
-    extract_travel_time_case "$@"
+    extract_travel_time_sum_dep_case "$@"
   else
-    echo "Skipping extraction because the experiment failed." >&2
+    echo "Skipping travel time/summed departures extraction because the experiment failed." >&2
   fi
 
   return 0

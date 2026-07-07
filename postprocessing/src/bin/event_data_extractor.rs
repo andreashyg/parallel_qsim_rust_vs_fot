@@ -38,6 +38,10 @@ struct InputArgs {
     /// represent the paths that are analyzed. Currently, only "braess" is implemented.
     #[arg(long)]
     pub link_to_path_map_name: String,
+    /// parameter beta used in the simulation, i.e., reciprocal of the square of the vehicle size.
+    /// This is used to divide the summed departures count, to report values in PCU's/PCE's.
+    #[arg(long)]
+    pub beta: usize,
 }
 
 fn main() {
@@ -63,6 +67,7 @@ fn main() {
         link_to_path_map,
         tt_output_file_path,
         sd_output_file_path,
+        args.beta,
     );
 
     ttppsd_register_fn(&mut event_mgr);

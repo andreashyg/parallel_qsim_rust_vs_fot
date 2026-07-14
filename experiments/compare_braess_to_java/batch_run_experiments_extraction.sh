@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/batch_common.sh"
 
-# Extract travel times only, assuming the simulation outputs already exist.
+# Run the simulation and the extraction back-to-back for every case.
 parse_common_args "$@"
-for_each_experiment_case extract_travel_time_case per_seed
+for_each_experiment_case run_and_extract_case per_seed
 print_failure_summary

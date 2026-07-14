@@ -6,10 +6,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/batch_common.sh"
 
-# Run the simulation and the extraction and plotting per seed back-to-back for every case.
-# Then run plotting averages over all seeds for every case.
+# Run plotting per seed and averaged over all seeds back-to-back for every parameter combination.
 parse_common_args "$@"
-for_each_experiment_case run_and_extract_and_plot_per_seed_case per_seed
+for_each_experiment_case plot_per_seed_case per_seed
 for_each_experiment_case plot_avg_over_seeds_case all_seeds_avgd
 for_each_experiment_case plot_once_per_replanning_variant_case once_per_replanning_variant
 print_failure_summary

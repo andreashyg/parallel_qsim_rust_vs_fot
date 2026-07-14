@@ -1,0 +1,103 @@
+import os
+import sys
+from typing import List
+
+import pandas as pd
+import matplotlib.pyplot as plt
+
+from setup import FIG_SIZE, ROOT_DATA_PATH
+from utils import plot_nash_lines, plot_extracted_sd_over_time, plot_extracted_tt_over_time
+
+
+def get_avg_df(csv_path_template: str, use_random_seeds: List[int], mode: str) -> pd.DataFrame:
+    """
+    Read multiple summed_deps_per_time CSVs or travel_time_per_path whose paths are constructed by formatting
+    csv_path_template with seed (e.g. csv_path_template.format(seed=42)), and return
+    a DataFrame with the same structure where numeric columns are averaged across seeds.
+    """
+    if mode == "tt":
+        index_col = "departure_time"
+    elif mode == "sd":
+        index_col = "time"
+    else:
+        raise ValueError("Mode must be either 'tt' or 'sd'")
+
+    dfs: List[pd.DataFrame] = []
+    for seed in use_random_seeds:
+        path = csv_path_template.format(seed=seed)
+        try:
+            df = pd.read_csv(path)
+        except FileNotFoundError as e:
+            raise FileNotFoundError(f"Failed to read '{path}': {e}")
+        if index_col not in df.columns:
+            raise ValueError(f"'{index_col}' column not found in '{path}'")
+        df = df.set_index(index_col)
+        dfs.append(df)
+
+    if not dfs:
+        raise ValueError(
+            f"No summed_deps_per_time CSVs successfully opened from given csv filename template '{csv_path_template}'")
+    # concatenate along a new outer key (seed) so index becomes (seed, 'index_col')
+    concat: pd.DataFrame = pd.concat(dfs, keys=range(len(dfs)))
+    # group by time (level=1) and compute mean across seeds
+    mean_df = concat.groupby(level=1).mean()
+    mean_df = mean_df.reset_index().rename_axis(None, axis=1)
+    return mean_df
+
+
+if __name__ == '__main__':
+    # note: fixed_seed can be either a read_from_random seed or a use_random_seed, depending on seeds_to_avg_over:
+    #   - if seeds_to_avg_over == "java", we fix a rust seed, i.e., fixed_seed is a use_random_seed value (for example,
+    #       we take use_random_seed=1 and average over all valued of read_from_random (that is, 1..20)
+    #   - if seeds_to_avg_over == "rust", we fox a java seed, i.e., fixed_seed is a read_from_random value
+    _, beta, replanning_variant, seeds_to_avg_over, fixed_seed, output_dir = sys.argv
+
+    if seeds_to_avg_over == "java":
+        # fix a use_random_seed value, but make read_from_random a placeholder to be formatted
+
+        # common for both tt and sd .csv file
+        file_name_end = (f"_beta{beta}_"
+                         + "read_from_random_{seed}"  # deliberately not an f-string, used as placeholder later
+                         + f"_use_random_seed_{fixed_seed}.csv"
+                         )
+
+    elif seeds_to_avg_over == "rust":
+        # fix a read_from_random value, but make use_random_seed a placeholder to be formatted
+
+        # common for both tt and sd .csv file
+        file_name_end = (f"_beta{beta}_read_from_random_{fixed_seed}_use_random_seed_"
+                         + "{seed}.csv"  # deliberately not an f-string, used as placeholder later
+                         )
+    else:
+        raise ValueError("Seeds to average over must be either 'java' or 'rust'")
+
+    tt_path = ROOT_DATA_PATH + f"{replanning_variant}/analysis/average_route_tts_per_deptime" + file_name_end
+    sd_path = ROOT_DATA_PATH + f"{replanning_variant}/analysis/summed_deps_per_time" + file_name_end
+
+    ### TT
+    fig_tt, ax_tt = plt.subplots(figsize=FIG_SIZE)
+    plot_nash_lines(ax_tt, mode="tt")
+    tt_df = get_avg_df(tt_path, use_random_seeds=list(range(42, 62)), mode="tt")
+    plot_extracted_tt_over_time(ax_tt, tt_df, per_path=False)
+
+    try:
+        os.makedirs(output_dir + "/tt_per_path_over_deptime")
+    except FileExistsError:
+        pass
+
+    fig_tt.savefig(
+        output_dir + f"/tt_per_path_over_deptime/tt_per_path_over_deptime_beta{beta}_read_from_random_{fixed_seed}.png")
+
+    ### SD
+    fig_sd, ax_sd = plt.subplots(figsize=FIG_SIZE)
+    plot_nash_lines(ax_sd, mode="sd")
+    sd_df = get_avg_df(sd_path, use_random_seeds=list(range(42, 62)), mode="sd")
+    plot_extracted_sd_over_time(ax_sd, sd_df)
+
+    try:
+        os.makedirs(output_dir + "/sd_per_path_over_time")
+    except FileExistsError:
+        pass
+
+    fig_sd.savefig(
+        output_dir + f"/sd_per_path_over_time/sd_per_path_over_time_beta{beta}_read_from_random_{fixed_seed}.png")

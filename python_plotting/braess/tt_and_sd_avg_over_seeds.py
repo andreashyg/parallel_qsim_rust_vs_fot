@@ -1,49 +1,10 @@
 import os
 import sys
-from typing import List
 
-import pandas as pd
 import matplotlib.pyplot as plt
 
 from setup import FIG_SIZE, ROOT_DATA_PATH
-from utils import plot_nash_lines, plot_extracted_sd_over_time, plot_extracted_tt_over_time
-
-
-def get_avg_df(csv_path_template: str, use_random_seeds: List[int], mode: str) -> pd.DataFrame:
-    """
-    Read multiple summed_deps_per_time CSVs or travel_time_per_path whose paths are constructed by formatting
-    csv_path_template with seed (e.g. csv_path_template.format(seed=42)), and return
-    a DataFrame with the same structure where numeric columns are averaged across seeds.
-    """
-    if mode == "tt":
-        index_col = "departure_time"
-    elif mode == "sd":
-        index_col = "time"
-    else:
-        raise ValueError("Mode must be either 'tt' or 'sd'")
-
-    dfs: List[pd.DataFrame] = []
-    for seed in use_random_seeds:
-        path = csv_path_template.format(seed=seed)
-        try:
-            df = pd.read_csv(path)
-        except FileNotFoundError as e:
-            raise FileNotFoundError(f"Failed to read '{path}': {e}")
-        if index_col not in df.columns:
-            raise ValueError(f"'{index_col}' column not found in '{path}'")
-        df = df.set_index(index_col)
-        dfs.append(df)
-
-    if not dfs:
-        raise ValueError(
-            f"No summed_deps_per_time CSVs successfully opened from given csv filename template '{csv_path_template}'")
-    # concatenate along a new outer key (seed) so index becomes (seed, 'index_col')
-    concat: pd.DataFrame = pd.concat(dfs, keys=range(len(dfs)))
-    # group by time (level=1) and compute mean across seeds
-    mean_df = concat.groupby(level=1).mean()
-    mean_df = mean_df.reset_index().rename_axis(None, axis=1)
-    return mean_df
-
+from utils import plot_nash_lines, plot_extracted_sd_over_time, plot_extracted_tt_over_time, get_elementwise_avg_df
 
 if __name__ == '__main__':
     # note: fixed_seed can be either a read_from_random seed or a use_random_seed, depending on seeds_to_avg_over:
@@ -80,7 +41,7 @@ if __name__ == '__main__':
     ### TT
     fig_tt, ax_tt = plt.subplots(figsize=FIG_SIZE)
     plot_nash_lines(ax_tt, mode="tt")
-    tt_df = get_avg_df(tt_path, use_random_seeds=list(seeds), mode="tt")
+    tt_df = get_elementwise_avg_df(tt_path, use_random_seeds=list(seeds), mode="tt")
     plot_extracted_tt_over_time(ax_tt, tt_df, per_path=False)
 
     try:
@@ -94,7 +55,7 @@ if __name__ == '__main__':
     ### SD
     fig_sd, ax_sd = plt.subplots(figsize=FIG_SIZE)
     plot_nash_lines(ax_sd, mode="sd")
-    sd_df = get_avg_df(sd_path, use_random_seeds=seeds, mode="sd")
+    sd_df = get_elementwise_avg_df(sd_path, use_random_seeds=seeds, mode="sd")
     plot_extracted_sd_over_time(ax_sd, sd_df)
 
     try:

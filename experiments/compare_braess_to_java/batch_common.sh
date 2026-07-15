@@ -373,7 +373,7 @@ plot_once_per_replanning_variant_case() {
   local replanning_variant="$1"
   local seeds_to_avg_over="$2"  # either "java" or "rust"
 
-  local output_plots_dir="${SIM_OUTPUT_BASE_DIR}/${replanning_variant}/varying_${seeds_to_avg_over}_seeds/analysis/plots/deviations/avg_over_${seeds_to_avg_over}_seeds"
+  local output_plots_dir="${SIM_OUTPUT_BASE_DIR}/${replanning_variant}/varying_${seeds_to_avg_over}_seeds/analysis/plots/deviations/"
 
   if [ -d output_plots_dir ] && [ "${skip_existing_output_dir}" = "true" ]; then
     echo "Skipping plotting once per replanning variant because output plots directory already exists: $output_plots_dir"
@@ -387,9 +387,9 @@ plot_once_per_replanning_variant_case() {
   then
     echo "Plotting failed, continuing with next case." >&2
     if [ "$seeds_to_avg_over" = "java" ]; then
-      record_failure plotting "$replanning_variant" "all_betas" "avg_over_java_seeds" "$fixed_seed"
+      record_failure plotting "$replanning_variant" "all_betas" "avg_over_java_seeds" "default fixed seed 42"
     elif [ "$seeds_to_avg_over" = "rust" ]; then
-      record_failure plotting "$replanning_variant" "all_betas" "$fixed_seed" "avg_over_rust_seeds"
+      record_failure plotting "$replanning_variant" "all_betas" "default fixed seed 1" "avg_over_rust_seeds"
     else
       echo "Unknown seeds_to_avg_over value: $seeds_to_avg_over" >&2
       exit 1

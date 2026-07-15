@@ -61,6 +61,8 @@ if __name__ == '__main__':
                          + f"_use_random_seed_{fixed_seed}.csv"
                          )
 
+        seeds = list(range(1, 21))  # read_from_random seeds for java are 1..20
+
     elif seeds_to_avg_over == "rust":
         # fix a read_from_random value, but make use_random_seed a placeholder to be formatted
 
@@ -68,16 +70,17 @@ if __name__ == '__main__':
         file_name_end = (f"_beta{beta}_read_from_random_{fixed_seed}_use_random_seed_"
                          + "{seed}.csv"  # deliberately not an f-string, used as placeholder later
                          )
+
+        seeds = list(range(42, 62))  # use_random seeds for rust are 42..61
     else:
         raise ValueError("Seeds to average over must be either 'java' or 'rust'")
-
-    tt_path = ROOT_DATA_PATH + f"{replanning_variant}/analysis/average_route_tts_per_deptime" + file_name_end
-    sd_path = ROOT_DATA_PATH + f"{replanning_variant}/analysis/summed_deps_per_time" + file_name_end
+    tt_path = ROOT_DATA_PATH + f"{replanning_variant}/varying_{seeds_to_avg_over}_seeds/analysis/extracted_data/average_route_tts_per_deptime" + file_name_end
+    sd_path = ROOT_DATA_PATH + f"{replanning_variant}/varying_{seeds_to_avg_over}_seeds/analysis/extracted_data/summed_deps_per_time" + file_name_end
 
     ### TT
     fig_tt, ax_tt = plt.subplots(figsize=FIG_SIZE)
     plot_nash_lines(ax_tt, mode="tt")
-    tt_df = get_avg_df(tt_path, use_random_seeds=list(range(42, 62)), mode="tt")
+    tt_df = get_avg_df(tt_path, use_random_seeds=list(seeds), mode="tt")
     plot_extracted_tt_over_time(ax_tt, tt_df, per_path=False)
 
     try:
@@ -91,7 +94,7 @@ if __name__ == '__main__':
     ### SD
     fig_sd, ax_sd = plt.subplots(figsize=FIG_SIZE)
     plot_nash_lines(ax_sd, mode="sd")
-    sd_df = get_avg_df(sd_path, use_random_seeds=list(range(42, 62)), mode="sd")
+    sd_df = get_avg_df(sd_path, use_random_seeds=seeds, mode="sd")
     plot_extracted_sd_over_time(ax_sd, sd_df)
 
     try:

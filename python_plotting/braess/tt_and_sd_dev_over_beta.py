@@ -6,7 +6,7 @@ import pandas as pd
 import numpy as np
 from matplotlib import pyplot as plt
 
-from python_plotting.braess.utils import get_interpolated_nash_vals
+from utils import get_interpolated_nash_vals
 from setup import ROOT_DATA_PATH, FIG_SIZE, BETAS
 
 
@@ -93,20 +93,22 @@ if __name__ == '__main__':
         file_name_end = (
             # the plots will average over beta and read_from_random
                 "_beta{beta}_read_from_random_{seed}"  # deliberately not an f-string, used as placeholder later
-                + "_use_random_seed_{1}.csv"  # we only use one random seed in rust
+                + "_use_random_seed_42.csv"  # we only use one random seed in rust
         )
+        seeds = list(range(1, 21))  # read_from_random seeds are 1..20
     elif seeds_to_avg_over == "rust":
         # the plots will average over beta and use_random_seed
-        file_name_end = "_beta{beta}_read_from_random_{1}_use_random_seed_{seed}"
+        file_name_end = "_beta{beta}_read_from_random_1_use_random_seed_{seed}.csv"
+        seeds = list(range(42, 62))  # use_random_seeds are 42..61
     else:
         raise ValueError("Invalid value for 'which_seeds', must be 'java' or 'rust'")
 
-    tt_path = ROOT_DATA_PATH + f"{replanning_variant}/analysis/average_route_tts_per_deptime" + file_name_end
-    sd_path = ROOT_DATA_PATH + f"{replanning_variant}/analysis/summed_deps_per_time" + file_name_end
+    tt_path = ROOT_DATA_PATH + f"{replanning_variant}/varying_{seeds_to_avg_over}_seeds/analysis/extracted_data/average_route_tts_per_deptime" + file_name_end
+    sd_path = ROOT_DATA_PATH + f"{replanning_variant}/varying_{seeds_to_avg_over}_seeds/analysis/extracted_data/summed_deps_per_time" + file_name_end
 
     ### TT
     fig_tt, ax_tt = plt.subplots(figsize=FIG_SIZE)
-    tt_df = compute_nash_deviation_df(tt_path, betas=BETAS, seeds=list(range(42, 62)), mode="tt")
+    tt_df = compute_nash_deviation_df(tt_path, betas=BETAS, seeds=seeds, mode="tt")
 
     tt_df.plot(ax=ax_tt, kind="box")
     # plot_extracted_tt_over_time(ax_tt, tt_df, per_path=False)
@@ -121,7 +123,7 @@ if __name__ == '__main__':
 
     ### SD
     fig_sd, ax_sd = plt.subplots(figsize=FIG_SIZE)
-    sd_df = compute_nash_deviation_df(sd_path, betas=BETAS, seeds=list(range(42, 62)), mode="sd")
+    sd_df = compute_nash_deviation_df(sd_path, betas=BETAS, seeds=seeds, mode="sd")
     # plot_extracted_sd_over_time(ax_sd, sd_df)
     sd_df.plot(ax=ax_sd, kind="box")
 

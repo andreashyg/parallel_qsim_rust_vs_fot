@@ -322,8 +322,8 @@ fn handle_vehicle_leaves_traffic(attr: Vec<OwnedAttribute>) -> Box<dyn EventTrai
 
 fn handle_act_end(attr: Vec<OwnedAttribute>) -> Box<dyn EventTrait> {
     let time = SimTime::parse_decimal_seconds(value_from_name(&attr, "time").unwrap()).unwrap();
-    let x: f64 = value_from_name(&attr, "x").unwrap().parse().unwrap();
-    let y: f64 = value_from_name(&attr, "y").unwrap().parse().unwrap();
+    let x: Option<f64> = value_from_name(&attr, "x").map(|v| v.parse().unwrap());
+    let y: Option<f64> = value_from_name(&attr, "y").map(|v| v.parse().unwrap());
     let person: Id<InternalPerson> = Id::create(value_from_name(&attr, "person").unwrap());
     let link: Id<Link> = Id::create(value_from_name(&attr, "link").unwrap());
     let act_type: Id<String> = Id::create(value_from_name(&attr, "actType").unwrap());
@@ -333,7 +333,9 @@ fn handle_act_end(attr: Vec<OwnedAttribute>) -> Box<dyn EventTrait> {
             .person(person)
             .link(link)
             .act_type(act_type)
-            .coordinate(Some(Coordinate::new(x, y)))
+            .coordinate(
+                x.map(|x| Coordinate::new(x, y.expect("y must be present if x is present"))),
+            )
             .build()
             .unwrap(),
     )
@@ -341,8 +343,8 @@ fn handle_act_end(attr: Vec<OwnedAttribute>) -> Box<dyn EventTrait> {
 
 fn handle_act_start(attr: Vec<OwnedAttribute>) -> Box<dyn EventTrait> {
     let time = SimTime::parse_decimal_seconds(value_from_name(&attr, "time").unwrap()).unwrap();
-    let x: f64 = value_from_name(&attr, "x").unwrap().parse().unwrap();
-    let y: f64 = value_from_name(&attr, "y").unwrap().parse().unwrap();
+    let x: Option<f64> = value_from_name(&attr, "x").map(|v| v.parse().unwrap());
+    let y: Option<f64> = value_from_name(&attr, "y").map(|v| v.parse().unwrap());
     let person: Id<InternalPerson> = Id::create(value_from_name(&attr, "person").unwrap());
     let link: Id<Link> = Id::create(value_from_name(&attr, "link").unwrap());
     let act_type: Id<String> = Id::create(value_from_name(&attr, "actType").unwrap());
@@ -352,7 +354,9 @@ fn handle_act_start(attr: Vec<OwnedAttribute>) -> Box<dyn EventTrait> {
             .person(person)
             .link(link)
             .act_type(act_type)
-            .coordinate(Some(Coordinate::new(x, y)))
+            .coordinate(
+                x.map(|x| Coordinate::new(x, y.expect("y must be present if x is present"))),
+            )
             .build()
             .unwrap(),
     )

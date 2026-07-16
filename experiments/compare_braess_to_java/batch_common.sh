@@ -105,7 +105,7 @@ for_each_experiment_case() {
                 for read_from_random in "${read_from_random_values[@]}"; do
                   local output_dir="${SIM_OUTPUT_BASE_DIR}/${replanning_variant}/varying_${seeds_to_avg_over}_seeds/beta${beta}/read_from_random_${read_from_random}_use_random_seed_${use_random_seed}"
 
-                  "$callback" "$replanning_variant" "$beta" "$read_from_random" "$use_random_seed" "$seeds_to_avg_over" "$output_dir"
+                  "$callback" "$replanning_variant" "$beta" "$read_from_random" "$use_random_seed" "$seeds_to_avg_over" "false" "$output_dir"
                 done
               else
                 echo "Unknown for_which value: $for_which" >&2
@@ -130,10 +130,18 @@ for_each_experiment_case() {
 
               # for_which="per_seed" means that the callback is called once for each use_random_seed value
               elif [ "${for_which}" = "per_seed" ]; then
+                # run the callback once without a use_random_seed value and instead read_original_java=true, which means
+                # that the original data will be processed/plotted (depending on the callback) for comparison with the
+                # reruns with different random seeds in Rust.
+
+                local output_dir="${SIM_OUTPUT_BASE_DIR}/${replanning_variant}/varying_${seeds_to_avg_over}_seeds/beta${beta}/read_from_random_${read_from_random}_original_java_data"
+
+                "$callback" "$replanning_variant" "$beta" "$read_from_random" "None" "$seeds_to_avg_over" "true" "$output_dir"
+
                 for use_random_seed in "${use_random_seed_values[@]}"; do
                   local output_dir="${SIM_OUTPUT_BASE_DIR}/${replanning_variant}/varying_${seeds_to_avg_over}_seeds/beta${beta}/read_from_random_${read_from_random}_use_random_seed_${use_random_seed}"
 
-                  "$callback" "$replanning_variant" "$beta" "$read_from_random" "$use_random_seed" "$seeds_to_avg_over" "$output_dir"
+                  "$callback" "$replanning_variant" "$beta" "$read_from_random" "$use_random_seed" "$seeds_to_avg_over" "false" "$output_dir"
                 done
               else
                 echo "Unknown for_which value: $for_which" >&2
@@ -224,7 +232,12 @@ run_experiment_case() {
   local read_from_random="$3"
   local use_random_seed="$4"
   local seeds_to_avg_over="$5"
-  local output_dir="$6"
+  local read_original_java="$6"
+  local output_dir="$7"
+
+  if [ "${read_original_java}" = "true" ]; then
+    return 0  # skip running the experiment if we are just reading the original Java data
+  fi
 
   if [ -d "$output_dir" ] && [ "${skip_existing_output_dir}" = "true" ]; then
     echo "Skipping simulation due to existing output directory: $output_dir"
@@ -268,7 +281,8 @@ extract_travel_time_sum_dep_case() {
   local read_from_random="$3"
   local use_random_seed="$4"
   local seeds_to_avg_over="$5"
-  local output_dir="$6"
+  local read_original_java="$6"
+  local output_dir="$7"
 
   local extracted_data_dir="${SIM_OUTPUT_BASE_DIR}/${replanning_variant}/varying_${seeds_to_avg_over}_seeds/analysis/extracted_data"
 
@@ -278,32 +292,69 @@ extract_travel_time_sum_dep_case() {
     return 0
   fi
 
-  local tt_csv_path="${extracted_data_dir}/average_route_tts_per_deptime_beta${beta}_read_from_random_${read_from_random}_use_random_seed_${use_random_seed}.csv"
-  local sd_csv_path="${extracted_data_dir}/summed_deps_per_time_beta${beta}_read_from_random_${read_from_random}_use_random_seed_${use_random_seed}.csv"
+  if [ "${read_original_java}" = "true" ]; then
+    local tt_csv_path="${extracted_data_dir}/average_route_tts_per_deptime_beta${beta}_read_from_random_${read_from_random}_original_java_data.csv"
+    local sd_csv_path="${extracted_data_dir}/summed_deps_per_time_beta${beta}_read_from_random_${read_from_random}_original_java_data.csv"
+  else
+    local tt_csv_path="${extracted_data_dir}/average_route_tts_per_deptime_beta${beta}_read_from_random_${read_from_random}_use_random_seed_${use_random_seed}.csv"
+    local sd_csv_path="${extracted_data_dir}/summed_deps_per_time_beta${beta}_read_from_random_${read_from_random}_use_random_seed_${use_random_seed}.csv"
+  fi
 
 
-  echo "Extracting average travel times and summed departures for parameters: replanning_variant=$replanning_variant, beta=$beta, read_from_random=$read_from_random"
+  echo "Extracting average travel times and summed departures for parameters: replanning_variant=$replanning_variant, beta=$beta, read_from_random=$read_from_random, use_random_seed=$use_random_seed, seeds_to_avg_over=$seeds_to_avg_over, read_original_java=$read_original_java"
 
-  local input_file_stem="${output_dir}/events/events"
+  if [ "${read_original_java}" = "true" ]; then
+    if [ "${replanning_variant}" = "sel-exp1-switch-at50" ]; then
+      replanning_str="2026-05-8-12-16-8_500it_reRouteProba0.1until0.5it_selExpBeta1proba0.9_msaFrom0.5it"
+    elif [ "${replanning_variant}" = "sel-exp1-switch-at80" ]; then
+      replanning_str="2026-05-10-10-2-21_500it_reRouteProba0.1until0.8it_selExpBeta1proba0.9_msaFrom0.8it"
+      elif [ "${replanning_variant}" = "sel-exp10-switch-at80" ]; then
+      replanning_str="2026-05-12-8-42-24_500it_reRouteProba0.1until0.8it_selExpBeta10proba0.9_msaFrom0.8it"
+    else
+      echo "unknown replanning_variant value: $replanning_variant" >&2
+      return 1
+    fi
+
+    local input_file_stem="${SIM_OUTPUT_BASE_DIR}/../../../../braess/refinement/no_spillback_scenario/${replanning_str}/beta${beta}/random${read_from_random}/beta${beta}random${read_from_random}.output_events"
+  else
+    local input_file_stem="${output_dir}/events/events"
+  fi
+
 
   echo "writing into $tt_csv_path and $sd_csv_path"
 
-  # Extract travel times and summed departures from the events written by the simulation.
-  if ! cargo run --release --bin event_data_extractor -- \
-    --input-file-stem "$input_file_stem" \
-    --input-file-format "binpb" \
-    --tt-csv-path "$tt_csv_path" \
-    --sd-csv-path "$sd_csv_path" \
-    --num-parts 1 \
-    --link-to-path-map-name "braess" \
-    --id-store-path "${output_dir}/output_ids.binpb" \
-    --beta "$beta"
-  then
-    echo "Travel-time/summed departures extraction failed, continuing with next case." >&2
-    record_failure extraction "$replanning_variant" "$beta" "$read_from_random" "$use_random_seed"
-    return 1
+  if [ "${read_original_java}" = "true" ]; then
+    # Extract travel times and summed departures from the events from the original java runs
+    if ! cargo run --release --bin event_data_extractor -- \
+      --input-file-stem "$input_file_stem" \
+      --input-file-format "xml.gz" \
+      --tt-csv-path "$tt_csv_path" \
+      --sd-csv-path "$sd_csv_path" \
+      --num-parts 0 \
+      --link-to-path-map-name "braess" \
+      --beta "$beta"
+    then
+      echo "Travel-time/summed departures extraction failed, continuing with next case." >&2
+      record_failure extraction "$replanning_variant" "$beta" "$read_from_random" "reading_original_java"
+      return 1
+    fi
+  else
+    # Extract travel times and summed departures from the events written by the rust simulation.
+    if ! cargo run --release --bin event_data_extractor -- \
+      --input-file-stem "$input_file_stem" \
+      --input-file-format "binpb" \
+      --tt-csv-path "$tt_csv_path" \
+      --sd-csv-path "$sd_csv_path" \
+      --num-parts 1 \
+      --link-to-path-map-name "braess" \
+      --id-store-path "${output_dir}/output_ids.binpb" \
+      --beta "$beta"
+    then
+      echo "Travel-time/summed departures extraction failed, continuing with next case." >&2
+      record_failure extraction "$replanning_variant" "$beta" "$read_from_random" "$use_random_seed"
+      return 1
+    fi
   fi
-
   return 0
 }
 
@@ -313,7 +364,8 @@ plot_per_seed_case() {
   local read_from_random="$3"
   local use_random_seed="$4"
   local seeds_to_avg_over="$5"
-  local output_dir="$6"
+  local read_original_java="$6"
+  local output_dir="$7"
 
   local output_plots_dir="${SIM_OUTPUT_BASE_DIR}/${replanning_variant}/varying_${seeds_to_avg_over}_seeds/analysis/plots/per_seed"
 
@@ -322,14 +374,14 @@ plot_per_seed_case() {
     return 0
   fi
 
-  echo "Plotting average travel times and summed departures per seed for parameters: replanning_variant=${replanning_variant}, beta=$beta, read_from_random=$read_from_random, use_random_seed=$use_random_seed, seeds_to_avg_over=$seeds_to_avg_over"
+  echo "Plotting average travel times and summed departures per seed for parameters: replanning_variant=${replanning_variant}, beta=$beta, read_from_random=$read_from_random, use_random_seed=$use_random_seed, seeds_to_avg_over=$seeds_to_avg_over, read_original_java=$read_original_java"
 
 
   # Plot the average travel times and summed departures.
-  if ! python python_plotting/braess/tt_and_sd_single_seed.py "$beta" "${replanning_variant}" "$read_from_random" "$use_random_seed" "$seeds_to_avg_over" "$output_plots_dir"
+  if ! python python_plotting/braess/tt_and_sd_single_seed.py "$beta" "${replanning_variant}" "$read_from_random" "$use_random_seed" "$seeds_to_avg_over" "$read_original_java" "$output_plots_dir"
   then
     echo "Plotting failed, continuing with next case." >&2
-    record_failure plotting "$replanning_variant" "$beta" "$read_from_random" "$use_random_seed"
+    record_failure plotting "$replanning_variant" "$beta" "$read_from_random" "reading_original_java_data"
     return 1
   fi
 

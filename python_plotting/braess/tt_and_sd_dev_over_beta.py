@@ -149,7 +149,11 @@ def compute_nash_deviation_series_but_avg_first(csv_path_template: str, betas: L
             # Calculate absolute deviation of sd or tt w.r.t. the nash reference value
             # -> the result is a vector with the deviation per time step
             # (note: we are still in the case of per seed, per beta here)
-            
+
+            # uncomment this to first average over time (for fixed path), then take abs value, then avg over paths
+            # deviation_over_time_at_path_i_avgd = np.abs(np.nanmean(averaged_df[col_name].values - nash_values))
+            # deviations_over_time_per_path.append(deviation_over_time_at_path_i_avgd)
+
             deviation_over_time_at_path_i = np.abs(averaged_df[col_name].values - nash_values)
             deviations_over_time_per_path.append(deviation_over_time_at_path_i)
 

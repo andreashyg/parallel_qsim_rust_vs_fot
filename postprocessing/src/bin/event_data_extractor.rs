@@ -75,7 +75,7 @@ fn main() {
         0u32 => {
             read_events(
                 &mut event_mgr,
-                &input_path_stem.join(args.input_file_format),
+                &input_path_stem.with_added_extension(args.input_file_format),
             )
             .expect("Failed to read events from input file");
         }

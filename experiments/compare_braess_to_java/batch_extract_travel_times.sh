@@ -8,5 +8,5 @@ source "${SCRIPT_DIR}/batch_common.sh"
 
 # Extract travel times only, assuming the simulation outputs already exist.
 parse_common_args "$@"
-for_each_experiment_case extract_travel_time_case per_seed
+for_each_experiment_case extract_travel_time_sum_dep_case per_seed
 print_failure_summary

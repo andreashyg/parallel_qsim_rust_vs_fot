@@ -355,39 +355,29 @@ impl IndexableGraph for ForwardBackwardRoutingGraph {
         &self.node_index_by_id
     }
 
-    fn get_end_node_as_idx(&self, edge: LinkIndex) -> Result<NodeIndex, GraphError> {
-        self.forward_head()
-            .get(edge)
-            .ok_or_else(|| GraphError::LinkIndexNotFound(edge))
-            .copied()
+    fn get_node_idx_from_id(&self, node_id: Id<Node>) -> NodeIndex {
+        self.node_index_by_id[&node_id]
     }
 
-    fn get_start_node_as_idx(&self, edge: LinkIndex) -> Result<NodeIndex, GraphError> {
-        // find index of edge in the backward graph (in self.backward_head()
-        let backward_link_index = self.get_backward_link_index(edge)?;
-
-        // look up start node (= end node in the backward graph) in backward_head()
-        self.backward_head()
-            .get(backward_link_index)
-            .ok_or_else(|| GraphError::LinkIndexNotFound(backward_link_index))
-            .copied()
-    }
     fn get_link_idx_from_id(&self, link_id: Id<Link>) -> Result<LinkIndex, GraphError> {
         self.forward_link_id_pos()
             .get(&link_id)
             .ok_or_else(|| GraphError::LinkIdNotFound(link_id.clone()))
             .copied()
     }
-    fn get_node_idx_from_id(&self, node_id: Id<Node>) -> NodeIndex {
-        self.node_index_by_id[&node_id]
+    fn get_node_id_from_idx(&self, idx: NodeIndex) -> Result<Id<Node>, GraphError> {
+        self.get_node_id(idx)
     }
-    fn get_link_from_idx(&self, idx: LinkIndex) -> Result<&Link, GraphError> {
-        // uses method from Graph trait to map link id to link
-        self.edge(self.get_link_id_from_idx(idx)?)
+    fn get_link_id_from_idx(&self, idx: LinkIndex) -> Result<Id<Link>, GraphError> {
+        self.get_link_id(idx)
     }
     fn get_node_from_idx(&self, idx: NodeIndex) -> Result<&Node, GraphError> {
         // uses method from Graph trait to map node id to node
         self.node(self.get_node_id_from_idx(idx)?)
+    }
+    fn get_link_from_idx(&self, idx: LinkIndex) -> Result<&Link, GraphError> {
+        // uses method from Graph trait to map link id to link
+        self.edge(self.get_link_id_from_idx(idx)?)
     }
     fn outgoing_edges_as_idx(&self, node: NodeIndex) -> Vec<LinkIndex> {
         (self.forward_first_out()[node]..self.forward_first_out()[node + 1]).collect()
@@ -409,11 +399,21 @@ impl IndexableGraph for ForwardBackwardRoutingGraph {
             .collect()
     }
 
-    fn get_link_id_from_idx(&self, idx: LinkIndex) -> Result<Id<Link>, GraphError> {
-        self.get_link_id(idx)
+    fn get_end_node_as_idx(&self, edge: LinkIndex) -> Result<NodeIndex, GraphError> {
+        self.forward_head()
+            .get(edge)
+            .ok_or_else(|| GraphError::LinkIndexNotFound(edge))
+            .copied()
     }
-    fn get_node_id_from_idx(&self, idx: NodeIndex) -> Result<Id<Node>, GraphError> {
-        self.get_node_id(idx)
+    fn get_start_node_as_idx(&self, edge: LinkIndex) -> Result<NodeIndex, GraphError> {
+        // find index of edge in the backward graph (in self.backward_head()
+        let backward_link_index = self.get_backward_link_index(edge)?;
+
+        // look up start node (= end node in the backward graph) in backward_head()
+        self.backward_head()
+            .get(backward_link_index)
+            .ok_or_else(|| GraphError::LinkIndexNotFound(backward_link_index))
+            .copied()
     }
 }
 
@@ -425,7 +425,7 @@ pub(crate) mod tests {
     use crate::simulation::replanning::routing::graph::{Graph, GraphError, IndexableGraph};
     use crate::simulation::replanning::routing::network_converter;
     use crate::simulation::scenario::network::{Network, Node};
-    use macros::integration_test;
+    use macros::deterministic_id_test;
     use nohash_hasher::IntMap;
     use std::sync::Arc;
 
@@ -441,7 +441,7 @@ pub(crate) mod tests {
         network_converter::convert_network_for_mode(Arc::new(network.clone()), None)
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     #[should_panic]
     fn test_graph_not_valid() {
         ForwardBackwardRoutingGraph::new(
@@ -457,7 +457,7 @@ pub(crate) mod tests {
         );
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn test_graph_valid() {
         ForwardBackwardRoutingGraph::new(
             CsrGraph::new(vec![0, 1, 2], vec![0, 1, 2, 3, 4, 5]),
@@ -473,7 +473,7 @@ pub(crate) mod tests {
     }
 
     /// test outgoing_edges
-    #[integration_test]
+    #[deterministic_id_test]
     fn test_outgoing_edges() {
         let network = get_triangle_test_network();
         let graph = net_to_graph(&network);
@@ -485,7 +485,7 @@ pub(crate) mod tests {
     }
 
     /// test incoming_edges
-    #[integration_test]
+    #[deterministic_id_test]
     fn test_incoming_edges() {
         let network = get_triangle_test_network();
         let graph = net_to_graph(&network);
@@ -497,7 +497,7 @@ pub(crate) mod tests {
     }
 
     /// Test if outgoing_edges_as_idx yields results consistent with outgoing_edges
-    #[integration_test]
+    #[deterministic_id_test]
     fn test_outgoing_edges_as_idx() {
         let network = get_triangle_test_network();
         let graph = net_to_graph(&network);
@@ -522,7 +522,7 @@ pub(crate) mod tests {
     }
 
     /// Test if incoming_edges_as_idx gives results consistent with incoming_edges
-    #[integration_test]
+    #[deterministic_id_test]
     fn test_incoming_edges_as_idx() {
         let network = get_triangle_test_network();
         let graph = net_to_graph(&network);
@@ -547,7 +547,7 @@ pub(crate) mod tests {
     }
 
     /// Test get_end_node with valid link
-    #[integration_test]
+    #[deterministic_id_test]
     fn test_get_end_node_valid_link() {
         let network = get_triangle_test_network();
         let graph = net_to_graph(&network);
@@ -570,7 +570,7 @@ pub(crate) mod tests {
     }
 
     /// Test get_end_node with invalid link (GraphError)
-    #[integration_test]
+    #[deterministic_id_test]
     fn test_get_end_node_invalid_link_returns_error() {
         let network = get_triangle_test_network();
         let graph = net_to_graph(&network);
@@ -589,7 +589,7 @@ pub(crate) mod tests {
     }
 
     /// Test get_start_node with valid link
-    #[integration_test]
+    #[deterministic_id_test]
     fn test_get_start_node_valid_link() {
         let network = get_triangle_test_network();
         let graph = net_to_graph(&network);
@@ -609,7 +609,7 @@ pub(crate) mod tests {
     }
 
     /// Test get_start_node with invalid link
-    #[integration_test]
+    #[deterministic_id_test]
     fn test_get_start_node_invalid_link_returns_error() {
         let network = get_triangle_test_network();
         let graph = net_to_graph(&network);
@@ -624,7 +624,7 @@ pub(crate) mod tests {
     }
 
     /// Test roundtrip: Link ID -> Index -> Link ID should be equal
-    #[integration_test]
+    #[deterministic_id_test]
     fn test_link_id_to_idx_roundtrip() {
         let network = get_triangle_test_network();
         let graph = net_to_graph(&network);
@@ -644,7 +644,7 @@ pub(crate) mod tests {
     }
 
     /// Test roundtrip: Node ID -> Index -> Node ID should be equal
-    #[integration_test]
+    #[deterministic_id_test]
     fn test_node_id_to_idx_roundtrip() {
         let network = get_triangle_test_network();
         let graph = net_to_graph(&network);
@@ -662,7 +662,7 @@ pub(crate) mod tests {
         );
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn test_get_end_node_as_idx_valid_edges() {
         let network = get_triangle_test_network();
         let graph = net_to_graph(&network);
@@ -683,7 +683,7 @@ pub(crate) mod tests {
         }
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn test_get_end_node_as_idx_invalid_edge() {
         let network = get_triangle_test_network();
         let graph = net_to_graph(&network);
@@ -695,7 +695,7 @@ pub(crate) mod tests {
         );
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn test_get_start_node_as_idx_invalid_edge() {
         let network = get_triangle_test_network();
         let graph = net_to_graph(&network);
@@ -707,7 +707,7 @@ pub(crate) mod tests {
         );
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn test_get_start_node_as_idx() {
         let network = get_triangle_test_network();
         let graph = net_to_graph(&network);

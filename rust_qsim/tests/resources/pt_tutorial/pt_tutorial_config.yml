@@ -8,6 +8,9 @@ modules:
   vehicles:
     type: Vehicles
     path: ./assets/pt_tutorial/vehicles.xml
+  transit:
+    type: Transit
+    schedule_path: ./assets/pt_tutorial/transitschedule.xml
   partitioning:
     type: Partitioning
     num_parts: 1
@@ -22,3 +25,6 @@ modules:
   routing:
     type: Routing
     mode: UsePlans
+  simulation:
+    type: Simulation
+    last_iteration: 0

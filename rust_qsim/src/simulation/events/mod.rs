@@ -58,6 +58,7 @@ impl PartialEq for dyn EventTrait {
 
 type HandleEventFn = dyn Fn(&dyn EventTrait) + 'static;
 type ResetIterationFn = dyn Fn(u32) + 'static;
+type FinishFn = dyn Fn() + 'static;
 
 /// This is a meta function. It is used to register functions at the [EventsManager] that handle events. Also check the documentation there.
 /// This function gets a `&mut` to [EventsManager] and then registers the callbacks for the specific event types.
@@ -83,7 +84,7 @@ pub struct EventsManager {
     per_type: HashMap<TypeId, Vec<Rc<HandleEventFn>>>,
     catch_all: Vec<Box<HandleEventFn>>,
     reset_iteration: Vec<Box<ResetIterationFn>>,
-    finish: Vec<Box<dyn Fn() + 'static>>,
+    finish: Vec<Box<FinishFn>>,
 }
 
 impl Debug for EventsManager {
@@ -224,7 +225,7 @@ pub struct ActivityStartEvent {
     pub time: SimTime,
     pub person: Id<InternalPerson>,
     pub link: Id<Link>,
-    pub coordinate: Option<Coordinate>, // this is temporarily set to Option<Coordinate>. When issue #275 is implemented, they will be mandatory. June '26 Andreas + Paul
+    pub coordinate: Coordinate,
     pub act_type: Id<String>,
     #[builder(default)]
     pub attributes: InternalAttributes,
@@ -240,16 +241,11 @@ impl ActivityStartEvent {
             .person(Id::create(&event.attributes["person"].as_string()))
             .link(Id::create(&event.attributes["link"].as_string()))
             .act_type(Id::create(&event.attributes["act_type"].as_string()))
-            .coordinate(event.attributes.get("x").map(|x| {
-                Coordinate::new(
-                    x.as_double(),
-                    event
-                        .attributes
-                        .get("y")
-                        .expect("y coordinate should be given if x coordinate is given")
-                        .as_double(),
-                )
-            }))
+            .coordinate(Coordinate::new_3d(
+                event.attributes["x"].as_double(),
+                event.attributes["y"].as_double(),
+                event.attributes["z"].as_double_opt().unwrap_or_default(),
+            ))
             .attributes(attrs)
             .build()
             .unwrap()
@@ -261,7 +257,7 @@ pub struct ActivityEndEvent {
     pub time: SimTime,
     pub person: Id<InternalPerson>,
     pub link: Id<Link>,
-    pub coordinate: Option<Coordinate>, // this is temporarily set to Option<Coordinate>. When issue #275 is implemented, they will be mandatory. June '26 Andreas + Paul
+    pub coordinate: Coordinate,
     pub act_type: Id<String>,
     #[builder(default)]
     pub attributes: InternalAttributes,
@@ -277,16 +273,11 @@ impl ActivityEndEvent {
             .person(Id::create(&event.attributes["person"].as_string()))
             .link(Id::create(&event.attributes["link"].as_string()))
             .act_type(Id::create(&event.attributes["act_type"].as_string()))
-            .coordinate(event.attributes.get("x").map(|x| {
-                Coordinate::new(
-                    x.as_double(),
-                    event
-                        .attributes
-                        .get("y")
-                        .expect("y coordinate should be given if x coordinate is given")
-                        .as_double(),
-                )
-            }))
+            .coordinate(Coordinate::new_3d(
+                event.attributes["x"].as_double(),
+                event.attributes["y"].as_double(),
+                event.attributes["z"].as_double_opt().unwrap_or_default(),
+            ))
             .attributes(attrs)
             .build()
             .unwrap()
@@ -539,6 +530,9 @@ pub struct PtTeleportationArrivalEvent {
     pub mode: Id<String>,
     pub route: Id<String>,
     pub line: Id<String>,
+    pub boarding_time: SimTime,
+    pub access_facility: Id<String>,
+    pub egress_facility: Id<String>,
     #[builder(default)]
     pub attributes: InternalAttributes,
 }
@@ -555,6 +549,42 @@ impl PtTeleportationArrivalEvent {
             .mode(Id::create(&event.attributes["mode"].as_string()))
             .route(Id::create(&event.attributes["route"].as_string()))
             .line(Id::create(&event.attributes["line"].as_string()))
+            .boarding_time(SimTime::from_nanos(
+                event.attributes["boardingTimeNs"]
+                    .as_string()
+                    .parse()
+                    .unwrap(),
+            ))
+            .access_facility(Id::create(&event.attributes["accessFacility"].as_string()))
+            .egress_facility(Id::create(&event.attributes["egressFacility"].as_string()))
+            .attributes(attrs)
+            .build()
+            .unwrap()
+    }
+}
+
+#[event_struct]
+pub struct PersonStuckEvent {
+    pub time: SimTime,
+    pub person: Id<InternalPerson>,
+    pub link: Id<Link>,
+    pub leg_mode: Id<String>,
+    pub reason: String,
+    #[builder(default)]
+    pub attributes: InternalAttributes,
+}
+
+impl PersonStuckEvent {
+    pub const TYPE: &'static str = "stuckAndAbort";
+    pub fn from_proto_event(event: &crate::generated::events::GenericEvent, time: SimTime) -> Self {
+        let attrs = InternalAttributes::from(&event.attributes);
+        assert!(event.r#type.eq(Self::TYPE));
+        PersonStuckEventBuilder::default()
+            .time(time)
+            .person(Id::create(&event.attributes["person"].as_string()))
+            .leg_mode(Id::create(&event.attributes["mode"].as_string()))
+            .link(Id::create(&event.attributes["link"].as_string()))
+            .reason(event.attributes["reason"].as_string())
             .attributes(attrs)
             .build()
             .unwrap()
@@ -567,8 +597,8 @@ mod tests {
         EventTrait, EventsManager, Id, InternalAttributes, PersonArrivalEvent, PersonDepartureEvent,
     };
     use crate::simulation::time::SimTime;
+    use macros::deterministic_id_test;
     use macros::event_struct;
-    use macros::integration_test;
     use std::cell::RefCell;
     use std::rc::Rc;
 
@@ -584,7 +614,7 @@ mod tests {
         pub const TYPE: &'static str = "new simple event";
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn test_events_manager() {
         let mut events_manager = EventsManager::new();
 

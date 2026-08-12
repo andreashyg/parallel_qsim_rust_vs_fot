@@ -1,10 +1,14 @@
 use crate::simulation::InternalAttributes;
 use crate::simulation::config::PartitionMethod;
 use crate::simulation::id::Id;
-use crate::simulation::io::proto::proto_network::{load_from_proto, write_to_proto};
+use crate::simulation::io::proto::proto_network::{
+    load_from_proto, write_to_proto_with_link_attribute_overrides,
+};
 use crate::simulation::io::xml::attributes::IOAttributes;
 use crate::simulation::io::xml::network;
-use crate::simulation::io::xml::network::{IOLink, IONetwork, IONode, write_to_xml};
+use crate::simulation::io::xml::network::{
+    IOLink, IONetwork, IONode, write_to_xml_with_link_attribute_overrides,
+};
 use crate::simulation::network::metis_partitioning;
 use crate::simulation::scenario::Coordinate;
 use itertools::Itertools;
@@ -45,6 +49,8 @@ pub struct Link {
     pub attributes: InternalAttributes,
 }
 
+pub(crate) type LinkAttributeOverrides = IntMap<Id<Link>, InternalAttributes>;
+
 impl Default for Network {
     fn default() -> Self {
         Network::new()
@@ -84,6 +90,14 @@ impl Network {
 
     pub fn to_file(&self, file_path: &Path) {
         to_file(self, file_path);
+    }
+
+    pub(crate) fn to_file_with_link_attribute_overrides(
+        &self,
+        file_path: &Path,
+        overrides: &LinkAttributeOverrides,
+    ) {
+        to_file_with_link_attribute_overrides(self, file_path, overrides);
     }
 
     pub fn add_node(&mut self, node: Node) {
@@ -274,7 +288,7 @@ impl From<crate::generated::network::Network> for Network {
                 Id::get_from_ext(&wn.id),
                 wn.coordinate
                     .as_ref()
-                    .map(|coordinate| Coordinate::with_z(coordinate.x, coordinate.y, coordinate.z))
+                    .map(|coordinate| Coordinate::new_3d(coordinate.x, coordinate.y, coordinate.z))
                     .unwrap(),
                 wn.partition,
                 wn.cmp_weight,
@@ -285,7 +299,7 @@ impl From<crate::generated::network::Network> for Network {
             let modes: IntSet<Id<String>> =
                 wl.modes.iter().map(|id| Id::get_from_ext(id)).collect();
 
-            let link = Link::new(
+            let mut link = Link::new(
                 Id::get_from_ext(&wl.id),
                 Id::get_from_ext(&wl.from),
                 Id::get_from_ext(&wl.to),
@@ -296,6 +310,7 @@ impl From<crate::generated::network::Network> for Network {
                 modes,
                 wl.partition,
             );
+            link.attributes = InternalAttributes::from(&wl.attributes);
             result.add_link(link);
         }
         info!("Finished converting protobuf wire type into Network");
@@ -312,7 +327,7 @@ fn add_io_node(network: &mut Network, io_node: &IONode) {
 
     let mut node = Node::new(
         id,
-        Coordinate::new(io_node.x, io_node.y),
+        Coordinate::new_2d(io_node.x, io_node.y),
         partition,
         cmp_weight,
     );
@@ -328,12 +343,13 @@ fn add_io_link(network: &mut Network, io_link: &IOLink) {
         .modes
         .split(',')
         .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
         .map(Id::create)
         .collect();
     let from_id = Id::get_from_ext(&io_link.from);
     let to_id = Id::get_from_ext(&io_link.to);
 
-    let link = Link::new(
+    let mut link = Link::new(
         id,
         from_id,
         to_id,
@@ -344,6 +360,17 @@ fn add_io_link(network: &mut Network, io_link: &IOLink) {
         modes,
         partition,
     );
+    link.attributes = io_link
+        .attributes
+        .clone()
+        .map(|mut attributes| {
+            // partition is stored in a field, thus can be omitted when reading the attributes.
+            attributes
+                .attributes
+                .retain(|attribute| attribute.name != "partition");
+            InternalAttributes::from(attributes)
+        })
+        .unwrap_or_default();
     network.add_link(link);
 }
 
@@ -409,31 +436,79 @@ impl Link {
     }
 
     pub fn contains_mode(&self, mode: &Id<String>) -> bool {
-        self.modes.iter().contains(mode)
+        self.modes.is_empty() || self.modes.iter().contains(mode)
     }
 }
 
 pub fn from_file(path: &Path) -> Network {
     if path.extension().unwrap().eq("binpb") {
         load_from_proto(path)
-    } else if path.extension().unwrap().eq("xml") || path.extension().unwrap().eq("gz") {
+    } else if path.extension().unwrap().eq("xml")
+        || path.extension().unwrap().eq("gz")
+        || path.extension().unwrap().eq("zst")
+    {
         network::load_from_xml(path)
     } else {
         panic!(
-            "Tried to load {path:?}. File format not supported. Either use `.xml`, `.xml.gz`, or `.binpb` as extension"
+            "Tried to load {path:?}. File format not supported. Either use `.xml`, `.xml.gz`, `.xml.zst`, or `.binpb` as extension"
         );
     }
 }
 
 pub fn to_file(network: &Network, path: &Path) {
+    to_file_with_link_attribute_overrides(network, path, &LinkAttributeOverrides::default());
+}
+
+pub(crate) fn to_file_with_link_attribute_overrides(
+    network: &Network,
+    path: &Path,
+    overrides: &LinkAttributeOverrides,
+) {
     if path.extension().unwrap().eq("binpb") {
-        write_to_proto(network, path);
-    } else if path.extension().unwrap().eq("xml") || path.extension().unwrap().eq("gz") {
-        write_to_xml(network, path);
+        write_to_proto_with_link_attribute_overrides(network, path, overrides);
+    } else if path.extension().unwrap().eq("xml")
+        || path.extension().unwrap().eq("gz")
+        || path.extension().unwrap().eq("zst")
+    {
+        write_to_xml_with_link_attribute_overrides(network, path, overrides);
     } else {
         panic!(
-            "Tried to write {path:?} . File format not supported. Either use `.xml`, `.xml.gz`, or `.binpb` as extension"
+            "Tried to write {path:?} . File format not supported. Either use `.xml`, `.xml.gz`, `.xml.zst`, or `.binpb` as extension"
         );
+    }
+}
+
+pub(crate) fn merged_link_attributes(
+    link: &Link,
+    overrides: &LinkAttributeOverrides,
+) -> InternalAttributes {
+    let mut attributes = link.attributes.clone();
+    if let Some(link_overrides) = overrides.get(&link.id) {
+        for (key, value) in link_overrides.iter() {
+            attributes.insert(key.clone(), value);
+        }
+    }
+    attributes
+}
+
+pub mod utils {
+    use crate::simulation::id::Id;
+    use crate::simulation::scenario::Coordinate;
+    use crate::simulation::scenario::network::{Link, Network};
+
+    pub fn find_nearest_point_on_link(
+        coordinate: &Coordinate,
+        link: &Id<Link>,
+        network: &Network,
+    ) -> Coordinate {
+        let from = &network.get_link(link).from;
+        let to = &network.get_link(link).to;
+
+        Coordinate::orthogonal_projection(
+            coordinate,
+            &network.get_node(from).coord,
+            &network.get_node(to).coord,
+        )
     }
 }
 
@@ -444,13 +519,13 @@ mod tests {
     use crate::simulation::io::xml::network::{IOLink, IONode};
     use crate::simulation::scenario::Coordinate;
     use crate::simulation::scenario::network::{Link, Network, Node, add_io_link, add_io_node};
-    use macros::integration_test;
+    use macros::deterministic_id_test;
 
     fn coord(x: f64, y: f64) -> Coordinate {
-        Coordinate::new(x, y)
+        Coordinate::new_2d(x, y)
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn add_node() {
         let mut network = Network::new();
         let id = Id::create("node-id");
@@ -462,7 +537,7 @@ mod tests {
         assert_eq!(id, network.get_node(&id).id);
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     #[should_panic]
     fn add_node_reject_duplicate() {
         let mut network = Network::new();
@@ -475,7 +550,7 @@ mod tests {
         network.add_node(duplicate); // expecting panic here.
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn add_link() {
         let mut network = Network::new();
         let from = Node::new(Id::create("from"), coord(0., 0.), 0, 1);
@@ -504,7 +579,7 @@ mod tests {
         assert_eq!(&id, to.in_links.first().unwrap());
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     #[should_panic]
     fn add_link_reject_duplicate() {
         let mut network = Network::new();
@@ -520,7 +595,7 @@ mod tests {
         network.add_link(duplicate); // expecting panic here
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn remove_link() {
         let mut network = Network::new();
         let from_id = Id::create("from");
@@ -541,14 +616,14 @@ mod tests {
         assert!(network.get_node(&to_id).in_links.is_empty());
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     #[should_panic]
     fn remove_link_reject_missing() {
         let mut network = Network::new();
         network.remove_link(Id::create("does-not-exist"));
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn remove_node() {
         let mut network = Network::new();
         let a_id = Id::create("a");
@@ -580,14 +655,14 @@ mod tests {
         assert!(network.get_node(&c_id).in_links.is_empty());
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     #[should_panic]
     fn remove_node_reject_missing() {
         let mut network = Network::new();
         network.remove_node(Id::create("does-not-exist"));
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     #[ignore] // ingore this test, because it keeps not working, due to non determined ordering of metis
     fn from_file() {
         let network = Network::from_file(
@@ -630,7 +705,7 @@ mod tests {
         assert_eq!(7.5, network.effective_cell_size);
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn link_new_with_default() {
         let from = Node::new(Id::create("from"), coord(0., 0.), 0, 1);
         let to = Node::new(Id::create("to"), coord(3., 4.), 0, 1);
@@ -643,10 +718,10 @@ mod tests {
         assert_eq!(to.id, link.to);
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn test_metis_with_large_graph() {}
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn test_add_io_node() {
         let external_id = String::from("some-id");
         let x = 1.;
@@ -671,7 +746,7 @@ mod tests {
         assert_eq!(id, node.id);
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn test_add_io_link() {
         let ext_from_id = String::from("from");
         let ext_to_id = String::from("to");

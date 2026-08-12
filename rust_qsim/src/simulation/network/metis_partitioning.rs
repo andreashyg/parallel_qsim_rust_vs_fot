@@ -129,16 +129,16 @@ mod tests {
     use crate::simulation::network::metis_partitioning::partition;
     use crate::simulation::scenario::Coordinate;
     use crate::simulation::scenario::network::{Link, Network, Node};
-    use macros::integration_test;
+    use macros::deterministic_id_test;
     use std::collections::BTreeMap;
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn simple_graph() {
         let mut net = Network::new();
         let from_id = Id::create("from");
         let to_id = Id::create("to");
-        net.add_node(Node::new(from_id.clone(), Coordinate::new(0., 0.), 0, 1));
-        net.add_node(Node::new(to_id.clone(), Coordinate::new(100., 0.), 0, 1));
+        net.add_node(Node::new(from_id.clone(), Coordinate::new_2d(0., 0.), 0, 1));
+        net.add_node(Node::new(to_id.clone(), Coordinate::new_2d(100., 0.), 0, 1));
         let link_id = Id::create("link");
         net.add_link(Link::new_with_default(
             link_id,
@@ -151,7 +151,7 @@ mod tests {
         }
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn test_andorra_with_default() {
         let network = Network::from_file(
             "./assets/andorra-network.xml.gz",
@@ -163,7 +163,7 @@ mod tests {
         let _edge_count = edge_count(network);
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn test_andorra_with_capacity() {
         let network = Network::from_file(
             "./assets/andorra-network.xml.gz",
@@ -180,7 +180,7 @@ mod tests {
         let _edge_count = edge_count(network);
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn test_andorra_with_inlinkcount() {
         let network = Network::from_file(
             "./assets/andorra-network.xml.gz",
@@ -197,7 +197,7 @@ mod tests {
         let _edge_count = edge_count(network);
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn test_andorra_with_inlinkcount_and_capacity() {
         let network = Network::from_file(
             "./assets/andorra-network.xml.gz",
@@ -215,7 +215,7 @@ mod tests {
         let _edge_count = edge_count(network);
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn test_andorra_with_vertex_constant() {
         let network = Network::from_file(
             "./assets/andorra-network.xml.gz",
@@ -232,7 +232,7 @@ mod tests {
         let _edge_count = edge_count(network);
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn test_andorra_with_vertex_constant_and_inlinkcount() {
         let network = Network::from_file(
             "./assets/andorra-network.xml.gz",

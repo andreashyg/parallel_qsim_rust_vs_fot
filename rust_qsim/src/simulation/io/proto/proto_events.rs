@@ -3,8 +3,9 @@ use crate::generated::general::AttributeValue;
 use crate::simulation::events::{
     ActivityEndEvent, ActivityStartEvent, EventHandlerRegisterFn, EventTrait, EventsManager,
     LinkEnterEvent, LinkLeaveEvent, PersonArrivalEvent, PersonDepartureEvent,
-    PersonEntersVehicleEvent, PersonLeavesVehicleEvent, PtTeleportationArrivalEvent,
-    TeleportationArrivalEvent, VehicleEntersTrafficEvent, VehicleLeavesTrafficEvent,
+    PersonEntersVehicleEvent, PersonLeavesVehicleEvent, PersonStuckEvent,
+    PtTeleportationArrivalEvent, TeleportationArrivalEvent, VehicleEntersTrafficEvent,
+    VehicleLeavesTrafficEvent,
 };
 use crate::simulation::time::SimTime;
 use prost::Message;
@@ -30,10 +31,9 @@ impl From<&ActivityEndEvent> for GenericEvent {
             String::from("act_type"),
             AttributeValue::from(value.act_type.external()),
         );
-        if let Some(c) = value.coordinate.as_ref() {
-            attributes.insert(String::from("x"), AttributeValue::from(c.x));
-            attributes.insert(String::from("y"), AttributeValue::from(c.y));
-        }
+        attributes.insert(String::from("x"), AttributeValue::from(value.coordinate.x));
+        attributes.insert(String::from("y"), AttributeValue::from(value.coordinate.y));
+        attributes.insert(String::from("z"), AttributeValue::from(value.coordinate.z));
 
         GenericEvent {
             r#type: value.type_().to_string(),
@@ -57,10 +57,9 @@ impl From<&ActivityStartEvent> for GenericEvent {
             "act_type".to_string(),
             AttributeValue::from(value.act_type.external()),
         );
-        if let Some(c) = value.coordinate.as_ref() {
-            attributes.insert(String::from("x"), AttributeValue::from(c.x));
-            attributes.insert(String::from("y"), AttributeValue::from(c.y));
-        }
+        attributes.insert(String::from("x"), AttributeValue::from(value.coordinate.x));
+        attributes.insert(String::from("y"), AttributeValue::from(value.coordinate.y));
+        attributes.insert(String::from("z"), AttributeValue::from(value.coordinate.z));
 
         GenericEvent {
             r#type: value.type_().to_string(),
@@ -234,6 +233,18 @@ impl From<&PtTeleportationArrivalEvent> for GenericEvent {
             "line".to_string(),
             AttributeValue::from(value.line.external()),
         );
+        attributes.insert(
+            "boardingTimeNs".to_string(),
+            AttributeValue::from(value.boarding_time.as_nanos().to_string()),
+        );
+        attributes.insert(
+            "accessFacility".to_string(),
+            AttributeValue::from(value.access_facility.external()),
+        );
+        attributes.insert(
+            "egressFacility".to_string(),
+            AttributeValue::from(value.egress_facility.external()),
+        );
         GenericEvent {
             r#type: value.type_().to_string(),
             attributes,
@@ -301,6 +312,32 @@ impl From<&VehicleLeavesTrafficEvent> for GenericEvent {
     }
 }
 
+impl From<&PersonStuckEvent> for GenericEvent {
+    fn from(value: &PersonStuckEvent) -> Self {
+        let mut attributes = HashMap::new();
+        attributes.insert(
+            "person".to_string(),
+            AttributeValue::from(value.person.external()),
+        );
+        attributes.insert(
+            "link".to_string(),
+            AttributeValue::from(value.link.external()),
+        );
+        attributes.insert(
+            "leg_mode".to_string(),
+            AttributeValue::from(value.leg_mode.external()),
+        );
+        attributes.insert(
+            "reason".to_string(),
+            AttributeValue::from(value.reason.to_string()),
+        );
+        GenericEvent {
+            r#type: value.type_().to_string(),
+            attributes,
+        }
+    }
+}
+
 impl From<&crate::simulation::events::GenericEvent> for GenericEvent {
     fn from(value: &crate::simulation::events::GenericEvent) -> Self {
         let mut attributes = HashMap::new();
@@ -356,52 +393,16 @@ impl ProtoEventsWriter {
             .expect("Failed to write all bytes");
     }
 
-    fn convert_to_proto(&mut self, event: &dyn EventTrait) -> GenericEvent {
-        if let Some(event) = event
-            .as_any()
-            .downcast_ref::<crate::simulation::events::GenericEvent>()
-        {
-            GenericEvent::from(event)
-        } else if let Some(event) = event.as_any().downcast_ref::<ActivityStartEvent>() {
-            GenericEvent::from(event)
-        } else if let Some(event) = event.as_any().downcast_ref::<ActivityEndEvent>() {
-            GenericEvent::from(event)
-        } else if let Some(event) = event.as_any().downcast_ref::<LinkEnterEvent>() {
-            GenericEvent::from(event)
-        } else if let Some(event) = event.as_any().downcast_ref::<LinkLeaveEvent>() {
-            GenericEvent::from(event)
-        } else if let Some(event) = event.as_any().downcast_ref::<PersonEntersVehicleEvent>() {
-            GenericEvent::from(event)
-        } else if let Some(event) = event.as_any().downcast_ref::<PersonLeavesVehicleEvent>() {
-            GenericEvent::from(event)
-        } else if let Some(event) = event.as_any().downcast_ref::<PersonDepartureEvent>() {
-            GenericEvent::from(event)
-        } else if let Some(event) = event.as_any().downcast_ref::<PersonArrivalEvent>() {
-            GenericEvent::from(event)
-        } else if let Some(event) = event.as_any().downcast_ref::<TeleportationArrivalEvent>() {
-            GenericEvent::from(event)
-        } else if let Some(event) = event.as_any().downcast_ref::<PtTeleportationArrivalEvent>() {
-            GenericEvent::from(event)
-        } else if let Some(event) = event.as_any().downcast_ref::<VehicleEntersTrafficEvent>() {
-            GenericEvent::from(event)
-        } else if let Some(event) = event.as_any().downcast_ref::<VehicleLeavesTrafficEvent>() {
-            GenericEvent::from(event)
-        } else {
-            // TODO use general event here and log warning
-            panic!("Unknown event type: {:?}", event);
-        }
-    }
-
-    fn on_any(&mut self, event: &dyn EventTrait) {
+    pub(crate) fn on_any(&mut self, event: &dyn EventTrait) {
         self.update_time_step(event.time());
-        let event = self.convert_to_proto(event);
+        let event = event_to_proto(event);
 
         event
             .encode_length_delimited(&mut self.encoded_events)
             .expect("Error encoding event.");
     }
 
-    fn finish(&mut self) {
+    pub(crate) fn finish(&mut self) {
         self.write_time_step();
         self.writer
             .flush()
@@ -425,6 +426,44 @@ impl ProtoEventsWriter {
                 proto2.borrow_mut().finish();
             });
         })
+    }
+}
+
+pub(crate) fn event_to_proto(event: &dyn EventTrait) -> GenericEvent {
+    if let Some(event) = event
+        .as_any()
+        .downcast_ref::<crate::simulation::events::GenericEvent>()
+    {
+        GenericEvent::from(event)
+    } else if let Some(event) = event.as_any().downcast_ref::<ActivityStartEvent>() {
+        GenericEvent::from(event)
+    } else if let Some(event) = event.as_any().downcast_ref::<ActivityEndEvent>() {
+        GenericEvent::from(event)
+    } else if let Some(event) = event.as_any().downcast_ref::<LinkEnterEvent>() {
+        GenericEvent::from(event)
+    } else if let Some(event) = event.as_any().downcast_ref::<LinkLeaveEvent>() {
+        GenericEvent::from(event)
+    } else if let Some(event) = event.as_any().downcast_ref::<PersonEntersVehicleEvent>() {
+        GenericEvent::from(event)
+    } else if let Some(event) = event.as_any().downcast_ref::<PersonLeavesVehicleEvent>() {
+        GenericEvent::from(event)
+    } else if let Some(event) = event.as_any().downcast_ref::<PersonDepartureEvent>() {
+        GenericEvent::from(event)
+    } else if let Some(event) = event.as_any().downcast_ref::<PersonArrivalEvent>() {
+        GenericEvent::from(event)
+    } else if let Some(event) = event.as_any().downcast_ref::<TeleportationArrivalEvent>() {
+        GenericEvent::from(event)
+    } else if let Some(event) = event.as_any().downcast_ref::<PtTeleportationArrivalEvent>() {
+        GenericEvent::from(event)
+    } else if let Some(event) = event.as_any().downcast_ref::<VehicleEntersTrafficEvent>() {
+        GenericEvent::from(event)
+    } else if let Some(event) = event.as_any().downcast_ref::<VehicleLeavesTrafficEvent>() {
+        GenericEvent::from(event)
+    } else if let Some(event) = event.as_any().downcast_ref::<PersonStuckEvent>() {
+        GenericEvent::from(event)
+    } else {
+        // TODO use general event here and log warning
+        panic!("Unknown event type: {:?}", event);
     }
 }
 
@@ -516,27 +555,32 @@ impl ProtoEventsReader<File> {
     }
 }
 
-#[rustfmt::skip]
 pub fn process_events(time: SimTime, events: &Vec<GenericEvent>, manager: &mut EventsManager) {
     for proto_event in events {
-        let type_ = proto_event.r#type.as_str();
-        let internal_event: Box<dyn EventTrait> = match type_ {
-            crate::simulation::events::GenericEvent::TYPE => Box::new(crate::simulation::events::GenericEvent::from_proto_event(proto_event, time)),
-            ActivityStartEvent::TYPE => Box::new(ActivityStartEvent::from_proto_event(proto_event, time)),
-            ActivityEndEvent::TYPE => Box::new(ActivityEndEvent::from_proto_event(proto_event, time)),
-            LinkEnterEvent::TYPE => Box::new(LinkEnterEvent::from_proto_event(proto_event, time)),
-            LinkLeaveEvent::TYPE => Box::new(LinkLeaveEvent::from_proto_event(proto_event, time)),
-            PersonEntersVehicleEvent::TYPE => Box::new(PersonEntersVehicleEvent::from_proto_event(proto_event, time)),
-            PersonLeavesVehicleEvent::TYPE => Box::new(PersonLeavesVehicleEvent::from_proto_event(proto_event, time)),
-            PersonDepartureEvent::TYPE => Box::new(PersonDepartureEvent::from_proto_event(proto_event, time)),
-            PersonArrivalEvent::TYPE => Box::new(PersonArrivalEvent::from_proto_event(proto_event, time)),
-            TeleportationArrivalEvent::TYPE => Box::new(TeleportationArrivalEvent::from_proto_event(proto_event, time)),
-            PtTeleportationArrivalEvent::TYPE => Box::new(PtTeleportationArrivalEvent::from_proto_event(proto_event, time)),
-            VehicleEntersTrafficEvent::TYPE => Box::new(VehicleEntersTrafficEvent::from_proto_event(proto_event, time)),
-            VehicleLeavesTrafficEvent::TYPE => Box::new(VehicleLeavesTrafficEvent::from_proto_event(proto_event, time)),
-            _ => panic!("Unknown event type: {:?}", type_),
-        };
+        let internal_event = event_from_proto(time, proto_event);
         manager.process_event(internal_event.as_ref());
+    }
+}
+
+#[rustfmt::skip]
+pub(crate) fn event_from_proto(time: SimTime, proto_event: &GenericEvent) -> Box<dyn EventTrait> {
+    let type_ = proto_event.r#type.as_str();
+    match type_ {
+        crate::simulation::events::GenericEvent::TYPE => Box::new(crate::simulation::events::GenericEvent::from_proto_event(proto_event, time)),
+        ActivityStartEvent::TYPE => Box::new(ActivityStartEvent::from_proto_event(proto_event, time)),
+        ActivityEndEvent::TYPE => Box::new(ActivityEndEvent::from_proto_event(proto_event, time)),
+        LinkEnterEvent::TYPE => Box::new(LinkEnterEvent::from_proto_event(proto_event, time)),
+        LinkLeaveEvent::TYPE => Box::new(LinkLeaveEvent::from_proto_event(proto_event, time)),
+        PersonEntersVehicleEvent::TYPE => Box::new(PersonEntersVehicleEvent::from_proto_event(proto_event, time)),
+        PersonLeavesVehicleEvent::TYPE => Box::new(PersonLeavesVehicleEvent::from_proto_event(proto_event, time)),
+        PersonDepartureEvent::TYPE => Box::new(PersonDepartureEvent::from_proto_event(proto_event, time)),
+        PersonArrivalEvent::TYPE => Box::new(PersonArrivalEvent::from_proto_event(proto_event, time)),
+        TeleportationArrivalEvent::TYPE => Box::new(TeleportationArrivalEvent::from_proto_event(proto_event, time)),
+        PtTeleportationArrivalEvent::TYPE => Box::new(PtTeleportationArrivalEvent::from_proto_event(proto_event, time)),
+        VehicleEntersTrafficEvent::TYPE => Box::new(VehicleEntersTrafficEvent::from_proto_event(proto_event, time)),
+        VehicleLeavesTrafficEvent::TYPE => Box::new(VehicleLeavesTrafficEvent::from_proto_event(proto_event, time)),
+        PersonStuckEvent::TYPE => Box::new(PersonStuckEvent::from_proto_event(proto_event, time)),
+        _ => panic!("Unknown event type: {:?}", type_),
     }
 }
 
@@ -552,12 +596,12 @@ mod tests {
     use crate::simulation::io::proto::proto_events::{ProtoEventsReader, ProtoEventsWriter};
     use crate::simulation::scenario::Coordinate;
     use crate::simulation::time::SimTime;
-    use macros::integration_test;
+    use macros::deterministic_id_test;
     use std::collections::HashMap;
     use std::fs;
     use std::path::PathBuf;
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn write_read_single() {
         let path =
             create_path_with_prefix("./test_output/io/proto_events/write_read_single/events.pbf");
@@ -583,7 +627,7 @@ mod tests {
         match_events(&event, events.first().unwrap());
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn write_read_multiple() {
         let path =
             create_path_with_prefix("./test_output/io/proto_events/write_read_multiple/events.pbf");
@@ -605,7 +649,7 @@ mod tests {
                     .person(Id::create("1"))
                     .link(Id::create("1"))
                     .act_type(Id::create("1"))
-                    .coordinate(Some(Coordinate::default()))
+                    .coordinate(Coordinate::default())
                     .build()
                     .unwrap(),
             ),
@@ -614,7 +658,7 @@ mod tests {
                     .time(SimTime::from_secs(103))
                     .person(Id::create("1"))
                     .link(Id::create("1"))
-                    .coordinate(Some(Coordinate::default()))
+                    .coordinate(Coordinate::default())
                     .act_type(Id::create("1"))
                     .build()
                     .unwrap(),
@@ -637,7 +681,7 @@ mod tests {
         }
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn write_read_multiple_time_steps() {
         let path = create_path_with_prefix(
             "./test_output/io/proto_events/write_read_multiple_time_steps/events.pbf",
@@ -665,7 +709,7 @@ mod tests {
                         .person(Id::create("1"))
                         .link(Id::create("1"))
                         .act_type(Id::create("1"))
-                        .coordinate(Some(Coordinate::default()))
+                        .coordinate(Coordinate::default())
                         .build()
                         .unwrap(),
                 ),
@@ -675,7 +719,7 @@ mod tests {
                         .person(Id::create("1"))
                         .link(Id::create("1"))
                         .act_type(Id::create("1"))
-                        .coordinate(Some(Coordinate::default()))
+                        .coordinate(Coordinate::default())
                         .build()
                         .unwrap(),
                 ),

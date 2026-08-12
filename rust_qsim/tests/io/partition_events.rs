@@ -1,4 +1,4 @@
-use macros::integration_test;
+use macros::deterministic_id_test;
 use rust_qsim::simulation::config::{CommandLineArgs, Config, PartitionMethod};
 use rust_qsim::simulation::controller::controller::ControllerBuilder;
 use rust_qsim::simulation::framework_events::{
@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::mpsc::{Sender, channel};
 
-#[integration_test(rust_qsim)]
+#[deterministic_id_test(rust_qsim)]
 fn network_route_emits_partition_events() {
     let events = collect_partition_events("./tests/resources/3-links/3-links-config-2.yml");
     assert_eq!(4, events.len(), "unexpected partition events: {:?}", events);
@@ -55,36 +55,18 @@ fn network_route_emits_partition_events() {
     );
 }
 
-#[integration_test(rust_qsim)]
+#[deterministic_id_test(rust_qsim)]
 fn teleported_route_emits_partition_events() {
     let events =
         collect_partition_events("./tests/resources/3-links/3-links-config-2-teleport.yml");
-    assert_eq!(4, events.len(), "unexpected partition events: {:?}", events);
+    assert_eq!(2, events.len(), "unexpected partition events: {:?}", events);
 
-    assert_has_partition_handoff(
-        &events,
-        0,
-        PartitionEvent::VehicleLeavesPartition(VehicleLeavesPartitionEvent {
-            vehicle_id: rust_qsim::simulation::id::Id::get_from_ext("100_walk"),
-            to: 1,
-            time: SimTime::default(),
-        }),
-    );
     assert_has_partition_handoff(
         &events,
         0,
         PartitionEvent::AgentLeavesPartition(AgentLeavesPartitionEvent {
             agent_id: rust_qsim::simulation::id::Id::get_from_ext("100"),
             to: 1,
-            time: SimTime::default(),
-        }),
-    );
-    assert_has_partition_handoff(
-        &events,
-        1,
-        PartitionEvent::VehicleEntersPartition(VehicleEntersPartitionEvent {
-            vehicle_id: rust_qsim::simulation::id::Id::get_from_ext("100_walk"),
-            from: 0,
             time: SimTime::default(),
         }),
     );

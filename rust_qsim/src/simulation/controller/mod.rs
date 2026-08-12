@@ -3,8 +3,8 @@ pub mod controller;
 
 use crate::external_services::{ExternalServiceType, RequestToAdapter};
 use crate::simulation::agents::agent::SimulationAgent;
-use crate::simulation::config::{Config, WriteEvents};
-use crate::simulation::events::{EventHandlerRegisterFn, EventsManager};
+use crate::simulation::config::{CompressionType, Config, WriteEvents};
+use crate::simulation::events::{EventHandlerRegisterFn, EventTrait, EventsManager};
 use crate::simulation::framework_events::{
     MobsimEventsManager, MobsimListenerRegisterFn, PartitionEventsManager,
     PartitionListenerRegisterFn,
@@ -14,6 +14,7 @@ use crate::simulation::io::xml::events::XmlEventsWriter;
 use crate::simulation::messaging::sim_communication::local_communicator::ChannelSimCommunicator;
 use crate::simulation::messaging::sim_communication::message_broker::NetMessageBroker;
 use crate::simulation::population::agent_source::DynAgentSource;
+use crate::simulation::replanning::{StrategyManager, replan_population};
 use crate::simulation::scenario::population::Population;
 use crate::simulation::scenario::{MobsimInput, ScenarioCore};
 use crate::simulation::simulation::{Simulation, SimulationBuilder};
@@ -21,10 +22,10 @@ use crate::simulation::{io, logging};
 use derive_builder::Builder;
 use derive_more::Debug;
 use nohash_hasher::IntMap;
-use rayon::prelude::*;
 use std::any::Any;
 use std::cell::{RefCell, RefMut};
 use std::collections::HashMap;
+use std::fs;
 use std::mem;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -512,6 +513,10 @@ impl MobsimWorker {
 
 pub(crate) struct ReplanningPool {
     pool: Option<rayon::ThreadPool>,
+    strategy_manager: StrategyManager,
+    first_iteration: u32,
+    last_iteration: u32,
+    innovation_disable_fraction: f64,
 }
 
 impl ReplanningPool {
@@ -528,27 +533,53 @@ impl ReplanningPool {
                     .expect("Failed to build replanning thread pool."),
             )
         };
-        Self { pool }
-    }
-
-    pub(crate) fn replan(&self, population: Population) -> Population {
-        match &self.pool {
-            Some(pool) => pool.install(|| parallel_noop_replan(population)),
-            None => parallel_noop_replan(population),
+        Self {
+            pool,
+            strategy_manager: StrategyManager::from_replanning_config(config.replanning()),
+            first_iteration: config.controller().first_iteration,
+            last_iteration: config.controller().last_iteration,
+            innovation_disable_fraction: config
+                .replanning()
+                .fraction_of_iterations_to_disable_innovation,
         }
     }
-}
 
-fn parallel_noop_replan(population: Population) -> Population {
-    let persons = population
-        .persons
-        .into_iter()
-        .collect::<Vec<_>>()
-        .into_par_iter()
-        .collect::<Vec<_>>()
-        .into_iter()
-        .collect();
-    Population { persons }
+    pub(crate) fn replan(
+        &self,
+        population: Population,
+        iteration: u32,
+        base_seed: u64,
+    ) -> Population {
+        let innovation_disabled = self.innovation_disabled(iteration);
+        match &self.pool {
+            Some(pool) => pool.install(|| {
+                replan_population(
+                    population,
+                    iteration,
+                    base_seed,
+                    &self.strategy_manager,
+                    innovation_disabled,
+                )
+            }),
+            None => replan_population(
+                population,
+                iteration,
+                base_seed,
+                &self.strategy_manager,
+                innovation_disabled,
+            ),
+        }
+    }
+
+    fn innovation_disabled(&self, iteration: u32) -> bool {
+        let total_iterations = self.last_iteration.saturating_sub(self.first_iteration);
+        let progress = if total_iterations == 0 {
+            1.0
+        } else {
+            iteration.saturating_sub(self.first_iteration) as f64 / total_iterations as f64
+        };
+        progress >= self.innovation_disable_fraction
+    }
 }
 
 fn create_events(
@@ -560,20 +591,19 @@ fn create_events(
 
     let mut events = EventsManager::new();
 
-    match config.output().write_events {
-        WriteEvents::None => {}
-        WriteEvents::Proto => {
-            let events_file = format!("events/events.{rank}.binpb");
-            let events_path = output_path.join(events_file);
-            info!("adding events writer with path: {events_path:?}");
-            ProtoEventsWriter::register_fn(events_path)(&mut events)
-        }
-        WriteEvents::XmlGz => {
-            let events_file = format!("events/events.{rank}.xml.gz");
-            let events_path = output_path.join(events_file);
-            info!("adding events writer with path: {events_path:?}");
-            XmlEventsWriter::register_fn(events_path)(&mut events)
-        }
+    if config.output().write_events != WriteEvents::None {
+        assert!(
+            config.controller().write_events_interval > 0,
+            "Invalid controller config: write_events_interval must be greater than 0 when event writing is enabled."
+        );
+        IterationEventsWriter::register(
+            output_path,
+            rank,
+            config.output().write_events.clone(),
+            config.controller().compression_type,
+            config.controller().write_events_interval,
+            config.controller().last_iteration,
+        )(&mut events);
     }
 
     for subscriber in additional_subscribers {
@@ -581,6 +611,129 @@ fn create_events(
     }
 
     Rc::new(RefCell::new(events))
+}
+
+enum ActiveIterationEventsWriter {
+    Proto(ProtoEventsWriter),
+    Xml(XmlEventsWriter),
+}
+
+impl ActiveIterationEventsWriter {
+    fn on_any(&mut self, event: &dyn EventTrait) {
+        match self {
+            Self::Proto(writer) => writer.on_any(event),
+            Self::Xml(writer) => writer.on_any(event),
+        }
+    }
+
+    fn finish(&mut self) {
+        match self {
+            Self::Proto(writer) => writer.finish(),
+            Self::Xml(writer) => writer.finish(),
+        }
+    }
+}
+
+struct IterationEventsWriter {
+    output_path: PathBuf,
+    rank: u32,
+    write_events: WriteEvents,
+    compression_type: CompressionType,
+    write_events_interval: u32,
+    last_iteration: u32,
+    active_writer: RefCell<Option<ActiveIterationEventsWriter>>,
+}
+
+impl IterationEventsWriter {
+    fn register(
+        output_path: PathBuf,
+        rank: u32,
+        write_events: WriteEvents,
+        compression_type: CompressionType,
+        write_events_interval: u32,
+        last_iteration: u32,
+    ) -> Box<EventHandlerRegisterFn> {
+        Box::new(move |events: &mut EventsManager| {
+            let writer = Rc::new(Self {
+                output_path,
+                rank,
+                write_events,
+                compression_type,
+                write_events_interval,
+                last_iteration,
+                active_writer: RefCell::new(None),
+            });
+
+            let reset_writer = writer.clone();
+            events.on_reset_iteration(move |iteration| {
+                reset_writer.reset_iteration(iteration);
+            });
+
+            let event_writer = writer.clone();
+            events.on_any(move |event| {
+                event_writer.on_any(event);
+            });
+
+            events.on_finish(move || {
+                writer.finish();
+            });
+        })
+    }
+
+    fn reset_iteration(&self, iteration: u32) {
+        self.finish();
+
+        if !self.should_write(iteration) {
+            return;
+        }
+
+        let events_dir = self
+            .output_path
+            .join("ITERS")
+            .join(format!("it.{iteration}"))
+            .join("events");
+        fs::create_dir_all(&events_dir).expect("Failed to create iteration events output path");
+
+        let writer = match &self.write_events {
+            WriteEvents::None => return,
+            WriteEvents::File => {
+                let events_path = events_dir.join(format!(
+                    "events.{}.{}",
+                    self.rank,
+                    self.compression_type.extension()
+                ));
+                info!("adding events writer with path: {events_path:?}");
+                match self.compression_type {
+                    CompressionType::Proto => {
+                        ActiveIterationEventsWriter::Proto(ProtoEventsWriter::new(events_path))
+                    }
+                    CompressionType::None | CompressionType::Gz | CompressionType::Zst => {
+                        ActiveIterationEventsWriter::Xml(XmlEventsWriter::new(events_path))
+                    }
+                }
+            }
+        };
+
+        *self.active_writer.borrow_mut() = Some(writer);
+    }
+
+    fn should_write(&self, iteration: u32) -> bool {
+        iteration == self.last_iteration
+            || (iteration != 0 && iteration % self.write_events_interval == 0)
+    }
+
+    fn on_any(&self, event: &dyn EventTrait) {
+        if let Some(writer) = self.active_writer.borrow_mut().as_mut() {
+            writer.on_any(event);
+        }
+    }
+
+    /// Takes the active writer and calls finish on it, if it exists. This is called when the iteration is reset or when the simulation is finished.
+    fn finish(&self) {
+        if let Some(mut writer) = self.active_writer.borrow_mut().take() {
+            writer.finish();
+        }
+    }
 }
 
 pub fn get_numbered_output_filename(
@@ -603,7 +756,9 @@ pub fn create_output_filename(
 pub(crate) fn insert_number_in_proto_filename(path: impl AsRef<Path>, part: u32) -> PathBuf {
     let filename = path.as_ref().file_name().unwrap().to_str().unwrap();
 
-    let (stripped, ext) = if filename.ends_with(".xml.gz") {
+    let (stripped, ext) = if filename.ends_with(".xml.zst") {
+        (filename.strip_suffix(".xml.zst").unwrap(), "xml.zst")
+    } else if filename.ends_with(".xml.gz") {
         (filename.strip_suffix(".xml.gz").unwrap(), "xml.gz")
     } else if filename.ends_with(".xml") {
         (filename.strip_suffix(".xml").unwrap(), "xml")
@@ -632,19 +787,23 @@ mod tests {
     use crate::simulation::scenario::population::{InternalPerson, InternalPlan, Population};
     use crate::simulation::scenario::vehicles::Garage;
     use crate::simulation::scenario::{
-        MobsimInput, MobsimPartition, PopulationShard, ScenarioCore,
+        MobsimInput, MobsimScenarioPartition, PopulationShard, ScenarioCore,
     };
+    use macros::deterministic_id_test;
     use nohash_hasher::IntSet;
     use std::sync::{Arc, Barrier};
 
-    #[test]
+    #[deterministic_id_test]
     fn mobsim_worker_pool_runs_empty_population_and_shuts_down() {
         let mut config = Config::default();
-        config.simulation_mut().end_time = 0;
+        config.qsim_mut().end_time = 0;
         let config = Arc::new(config);
         let scenario_core = ScenarioCore {
             network: Arc::new(Network::new()),
             garage: Arc::new(Garage::default()),
+            transit_schedule: Arc::new(
+                crate::simulation::scenario::transit::TransitSchedule::default(),
+            ),
             config: config.clone(),
         };
 
@@ -665,7 +824,7 @@ mod tests {
         pool.shutdown();
     }
 
-    #[test]
+    #[deterministic_id_test]
     fn replanning_pool_noop_preserves_person_ids() {
         let mut config = Config::default();
         config.computational_setup_mut().replanning_threads = 2;
@@ -677,7 +836,7 @@ mod tests {
         ]);
         let expected_ids: IntSet<_> = population.persons.keys().cloned().collect();
 
-        let replanned = pool.replan(population);
+        let replanned = pool.replan(population, 0, config.computational_setup().random_seed);
         let actual_ids: IntSet<_> = replanned.persons.keys().cloned().collect();
 
         assert_eq!(expected_ids, actual_ids);
@@ -688,15 +847,11 @@ mod tests {
     }
 
     fn empty_mobsim_input(scenario: &ScenarioCore) -> MobsimInput {
-        let network_partition = SimNetworkPartition::from_network(
-            &scenario.network,
-            0,
-            scenario.config.simulation(),
-            scenario.config.computational_setup().random_seed,
-        );
+        let network_partition =
+            SimNetworkPartition::from_network_for_test(&scenario.network, 0, &scenario.config);
 
         MobsimInput {
-            partition: MobsimPartition {
+            partition: MobsimScenarioPartition {
                 rank: 0,
                 scenario: scenario.clone(),
                 network_partition,

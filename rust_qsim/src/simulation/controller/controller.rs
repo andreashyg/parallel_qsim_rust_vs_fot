@@ -1,5 +1,5 @@
 use crate::external_services::AdapterHandle;
-use crate::simulation::config::{Config, Logging, OverwriteFiles, write_config};
+use crate::simulation::config::{Config, Logging, OverwriteFiles, WriteEvents, write_config};
 use crate::simulation::controller::{
     ExternalServices, MobsimWorkerPool, MobsimWorkerPoolArgumentsBuilder, ReplanningPool,
     create_output_filename,
@@ -9,14 +9,23 @@ use crate::simulation::framework_events::{
     ControllerEvent, ControllerEventsManager, ControllerListenerRegisterFn,
     MobsimListenerRegisterFn, PartitionListenerRegisterFn,
 };
+use crate::simulation::id::Id;
+use crate::simulation::network::LinkStorageCapacities;
 use crate::simulation::population::agent_source::{
     DynAgentSource, IntoDynAgentSource, PopulationAgentSource,
 };
+use crate::simulation::replanning::routing::a_star::{AStar, AltHeuristic};
+use crate::simulation::replanning::routing::least_cost_path_calculator::FreeSpeedTravelTimeAndDisutility;
+use crate::simulation::replanning::routing::network_routing::NetworkRoutingModule;
+use crate::simulation::replanning::routing::teleportation::TeleportationRoutingModule;
+use crate::simulation::replanning::routing::{RoutingModule, TripRouter};
 use crate::simulation::scenario::population::Population;
 use crate::simulation::scenario::prepare_for_sim::prepare_for_sim;
 use crate::simulation::scenario::{ControllerScenario, Scenario};
 use crate::simulation::{id, io};
 use derive_more::Debug;
+use fs_extra::dir::CopyOptions;
+use nohash_hasher::IntMap;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Barrier};
@@ -26,6 +35,7 @@ use tracing::info;
 #[derive(Debug)]
 pub struct Controller {
     scenario: ControllerScenario,
+    link_storage_capacities: LinkStorageCapacities,
     config: Arc<Config>,
     #[debug(skip)]
     agent_source: DynAgentSource,
@@ -39,6 +49,7 @@ pub struct Controller {
     external_services: ExternalServices,
     global_barrier: Arc<Barrier>,
     adapter_handles: Vec<AdapterHandle>,
+    trip_router: TripRouter,
 }
 
 pub struct ControllerBuilder {
@@ -82,11 +93,18 @@ impl ControllerBuilder {
             register_fn(&mut controller_event_manager);
         }
 
+        let link_storage_capacities = LinkStorageCapacities::from_network(
+            &self.scenario.network,
+            self.scenario.config.qsim(),
+        );
         let scenario: ControllerScenario = self.scenario.into();
         let config = scenario.core.config.clone();
 
+        let router = Self::create_trip_router(config.as_ref(), &scenario)?;
+
         Ok(Controller {
             scenario,
+            link_storage_capacities,
             config,
             agent_source: self.agent_source,
             controller_events_manager: controller_event_manager,
@@ -96,6 +114,7 @@ impl ControllerBuilder {
             external_services: self.external_services,
             global_barrier: barrier,
             adapter_handles: self.adapter_handles,
+            trip_router: router,
         })
     }
 
@@ -150,39 +169,120 @@ impl ControllerBuilder {
         self.adapter_handles = v;
         self
     }
+
+    fn create_trip_router(
+        config: &Config,
+        controller_scenario: &ControllerScenario,
+    ) -> Result<TripRouter, String> {
+        let mut routers: IntMap<Id<String>, Arc<dyn RoutingModule>> = IntMap::default();
+
+        // for every teleported mode, create the corresponding router.
+        for t in &config.routing().teleported_mode_params {
+            let id = Id::create(&t.mode);
+
+            let module = Arc::new(TeleportationRoutingModule::new(
+                id.clone(),
+                t.beeline_distance_factor,
+                t.teleported_mode_speed,
+            ));
+
+            routers.insert(id, module);
+        }
+
+        let access_egress_mode = Id::create(&config.routing().access_egress_mode);
+
+        // for every main mode, create the corresponding router.
+        for mode in &config.qsim().main_modes {
+            let id = Id::create(mode);
+            let Some(access_egress) = routers.get(&access_egress_mode).cloned() else {
+                return Err(format!(
+                    "No {} access/egress router found for mode {}. Please ensure that the teleported mode params include the configured access/egress mode.",
+                    access_egress_mode.external(),
+                    id.external(),
+                ));
+            };
+            let time_utility = Arc::new(FreeSpeedTravelTimeAndDisutility);
+            let astar = AStar::<AltHeuristic>::new(
+                controller_scenario.core.network.clone(),
+                Some(id.clone()),
+                time_utility.clone(),
+                time_utility,
+            )
+            .map_err(|error| {
+                format!(
+                    "Failed to create network router for mode {}: {error}",
+                    id.external()
+                )
+            })?;
+
+            let module: Arc<dyn RoutingModule> = Arc::new(NetworkRoutingModule::new(
+                id.clone(),
+                access_egress,
+                Box::new(astar),
+                controller_scenario.core.clone(),
+            ));
+
+            routers.insert(id, module);
+        }
+
+        Ok(TripRouter::new(routers))
+    }
 }
 
 impl Controller {
     /// Runs the simulation and joins all threads before returning.
     pub fn run(mut self) {
+        let first_iteration = self.config.controller().first_iteration;
+        let last_iteration = self.config.controller().last_iteration;
+        assert!(
+            first_iteration <= last_iteration,
+            "Invalid simulation iteration range: first_iteration ({first_iteration}) must be less than or equal to last_iteration ({last_iteration})."
+        );
+        assert!(
+            self.config.output().write_events == WriteEvents::None
+                || self.config.controller().write_events_interval > 0,
+            "Invalid controller config: write_events_interval must be greater than 0 when event writing is enabled."
+        );
+        assert!(
+            self.config.controller().write_plans_interval > 0,
+            "Invalid controller config: write_plans_interval must be greater than 0."
+        );
+
         self.controller_events_manager
-            .process_event(ControllerEvent::startup(true));
+            .reset_iteration(first_iteration);
+        self.controller_events_manager
+            .process_event(ControllerEvent::startup(first_iteration == last_iteration));
 
         let output_path = io::resolve_path(self.config.context(), &self.config.output().output_dir);
-        let events_path = output_path.join("events");
+        let iters_path = output_path.join("ITERS");
 
         prepare_output_directory(&output_path, self.config.output().overwrite_files)
             .unwrap_or_else(|err| panic!("{err}"));
-        fs::create_dir_all(&events_path).expect("Failed to create events output path");
+        fs::create_dir_all(&iters_path).expect("Failed to create iters output path");
 
         if Logging::Info == self.config.output().logging {
             let log_path = output_path.join("logs");
             fs::create_dir_all(&log_path).expect("Failed to create logs output path");
         }
 
-        let end_iter = 0u32;
         let mut mobsim_workers = self.start_mobsim_workers();
         let replanning_pool = ReplanningPool::new(&self.config);
 
-        for iteration in 0..=end_iter {
-            self.run_iteration(iteration, end_iter, &mut mobsim_workers, &replanning_pool);
+        for iteration in first_iteration..=last_iteration {
+            self.run_iteration(
+                iteration,
+                last_iteration,
+                &mut mobsim_workers,
+                &replanning_pool,
+                &iters_path,
+            );
         }
 
         mobsim_workers.shutdown();
         self.shutdown_adapters();
 
         info!("Writing output files:");
-        if self.config.output().write_events == crate::simulation::config::WriteEvents::Proto {
+        if self.config.controller().compression_type.is_protobuf() {
             info!("    ... ID store ...");
             Self::write_output_id_store(&output_path);
         }
@@ -192,6 +292,11 @@ impl Controller {
         self.write_output_network(output_path.clone());
         info!("    ... Population ...");
         self.write_output_population(output_path.clone());
+
+        if self.config.output().write_events == WriteEvents::File {
+            info!("Copying events to main output directory");
+            self.copy_events_file(output_path.clone(), last_iteration);
+        }
 
         self.controller_events_manager
             .process_event(ControllerEvent::shutdown(true));
@@ -203,6 +308,7 @@ impl Controller {
         end_iter: u32,
         mobsim_workers: &mut MobsimWorkerPool,
         replanning_pool: &ReplanningPool,
+        iters_path: impl AsRef<Path>,
     ) {
         let is_last_iteration = iteration == end_iter;
         info!("=========== Start Iteration {} ===========", iteration);
@@ -212,6 +318,11 @@ impl Controller {
 
         let population = self.run_mobsim_phase(iteration, is_last_iteration, mobsim_workers);
         let population = self.run_scoring_phase(iteration, is_last_iteration, population);
+
+        if self.should_write_iteration_plans(iteration, is_last_iteration) {
+            self.write_iteration_files(iteration, iters_path, &population);
+        }
+
         let population = if is_last_iteration {
             population
         } else {
@@ -237,8 +348,11 @@ impl Controller {
         self.controller_events_manager
             .process_event(ControllerEvent::before_mobsim(is_last_iteration));
 
-        prepare_for_sim(&mut self.scenario).unwrap_or_else(|err| panic!("{err}"));
-        let inputs = self.scenario.split_for_mobsim();
+        prepare_for_sim(&mut self.scenario, &self.trip_router)
+            .unwrap_or_else(|err| panic!("{err}: {:?}", err.issues()));
+        let inputs = self
+            .scenario
+            .split_for_mobsim(&self.link_storage_capacities);
         let agents = mobsim_workers.run_mobsim(iteration, is_last_iteration, inputs);
 
         self.controller_events_manager
@@ -272,7 +386,11 @@ impl Controller {
         self.controller_events_manager
             .process_event(ControllerEvent::replanning(false));
 
-        replanning_pool.replan(population)
+        replanning_pool.replan(
+            population,
+            iteration,
+            self.config.computational_setup().random_seed,
+        )
     }
 
     fn start_mobsim_workers(&mut self) -> MobsimWorkerPool {
@@ -315,21 +433,80 @@ impl Controller {
     }
 
     fn write_output_network(&mut self, output_path: PathBuf) {
-        let net_out_path =
-            create_output_filename(&output_path, &PathBuf::from("output_network.xml.gz"));
+        let net_out_path = create_output_filename(
+            &output_path,
+            &PathBuf::from(
+                self.config
+                    .controller()
+                    .compression_type
+                    .with_extension("output_network"),
+            ),
+        );
 
-        self.scenario.core.network.to_file(&net_out_path);
+        let attribute_overrides = self.link_storage_capacities.attribute_overrides();
+        self.scenario
+            .core
+            .network
+            .to_file_with_link_attribute_overrides(&net_out_path, &attribute_overrides);
     }
 
     fn write_output_population(&mut self, output_path: impl AsRef<Path>) {
-        let pop_out_path =
-            create_output_filename(&output_path, &PathBuf::from("output_population.xml.gz"));
+        let pop_out_path = create_output_filename(
+            &output_path,
+            &PathBuf::from(
+                self.config
+                    .controller()
+                    .compression_type
+                    .with_extension("output_plans"),
+            ),
+        );
 
         self.scenario.population.to_file(&pop_out_path);
     }
 
+    fn copy_events_file(&mut self, output_path: impl AsRef<Path>, last_iteration: u32) {
+        let events_folder = output_path
+            .as_ref()
+            .join("ITERS")
+            .join(format!("it.{}", last_iteration))
+            .join("events");
+
+        let options = CopyOptions::new().overwrite(true);
+        fs_extra::dir::copy(&events_folder, output_path.as_ref(), &options).unwrap_or_else(
+            |error| {
+                panic!(
+                    "Failed to copy events folder from {} to {}: {error}",
+                    events_folder.display(),
+                    output_path.as_ref().display()
+                )
+            },
+        );
+    }
+
     fn write_output_id_store(output_path: impl AsRef<Path>) {
         id::store_to_file(&output_path.as_ref().join("output_ids.binpb"));
+    }
+
+    fn write_iteration_files(
+        &self,
+        iteration: u32,
+        iters_path: impl AsRef<Path>,
+        population: &Population,
+    ) {
+        let iter_path = iters_path.as_ref().join(format!("it.{}", iteration));
+        population.to_file(
+            &iter_path.join(
+                self.config
+                    .controller()
+                    .compression_type
+                    .with_extension("output_plans"),
+            ),
+        );
+    }
+
+    fn should_write_iteration_plans(&self, iteration: u32, is_last_iteration: bool) -> bool {
+        is_last_iteration
+            || (iteration != 0 && iteration % self.config.controller().write_plans_interval == 0)
     }
 }
 

@@ -15,11 +15,14 @@ use tracing::info;
 pub fn from_file(path: &Path) -> Garage {
     if path.extension().unwrap().eq("binpb") {
         load_from_proto(path)
-    } else if path.extension().unwrap().eq("xml") || path.extension().unwrap().eq("gz") {
+    } else if path.extension().unwrap().eq("xml")
+        || path.extension().unwrap().eq("gz")
+        || path.extension().unwrap().eq("zst")
+    {
         load_from_xml(path)
     } else {
         panic!(
-            "Tried to load {path:?}. File format not supported. Either use `.xml`, `.xml.gz`, or `.binpb` as extension"
+            "Tried to load {path:?}. File format not supported. Either use `.xml`, `.xml.gz`, `.xml.zst`, or `.binpb` as extension"
         );
     }
 }
@@ -27,10 +30,15 @@ pub fn from_file(path: &Path) -> Garage {
 pub fn to_file(garage: &Garage, path: &Path) {
     if path.extension().unwrap().eq("binpb") {
         write_to_proto(garage, path);
-    } else if path.extension().unwrap().eq("xml") || path.extension().unwrap().eq("gz") {
+    } else if path.extension().unwrap().eq("xml")
+        || path.extension().unwrap().eq("gz")
+        || path.extension().unwrap().eq("zst")
+    {
         write_to_xml(garage, path);
     } else {
-        panic!("file format not supported. Either use `.xml`, `.xml.gz`, or `.binpb` as extension");
+        panic!(
+            "file format not supported. Either use `.xml`, `.xml.gz`, `.xml.zst`, or `.binpb` as extension"
+        );
     }
 }
 
@@ -316,9 +324,9 @@ mod tests {
     use crate::simulation::scenario::vehicles::{
         Garage, InternalVehicle, InternalVehicleType, add_io_veh_type,
     };
-    use macros::integration_test;
+    use macros::deterministic_id_test;
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn add_veh_type() {
         let mut garage = Garage::new();
         let type_id = Id::create("some-type");
@@ -330,7 +338,7 @@ mod tests {
         assert_eq!(1, garage.vehicle_types.len());
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     #[should_panic]
     fn add_veh_type_reject_duplicate() {
         let mut garage = Garage::new();
@@ -343,7 +351,7 @@ mod tests {
         garage.add_veh_type(veh_type2);
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn add_vehicle_without_type() {
         let mut garage = Garage::new();
         garage.add_veh(InternalVehicle {
@@ -355,7 +363,7 @@ mod tests {
         });
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn add_vehicle() {
         // prepare garage with type
         let mut garage = Garage::new();
@@ -377,7 +385,7 @@ mod tests {
         assert_eq!(1, garage.vehicles.len());
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn unpark_from_shared_garage_does_not_mutate_catalog() {
         let mut garage = Garage::new();
         let type_id = Id::create("car");
@@ -394,14 +402,14 @@ mod tests {
         assert_eq!(1, garage.vehicles.len());
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn from_file() {
         let garage = Garage::from_file(&PathBuf::from("./assets/3-links/vehicles.xml"));
         assert_eq!(3, garage.vehicle_types.len());
         assert_eq!(0, garage.vehicles.len());
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn add_empty_io_veh_type() {
         let io_veh_type = IOVehicleType {
             id: "some-id".to_string(),
@@ -444,7 +452,7 @@ mod tests {
         InternalPerson::new(Id::create(id), plan)
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn test_add_io_veh_type() {
         let io_veh_type = IOVehicleType {
             id: "some-id".to_string(),

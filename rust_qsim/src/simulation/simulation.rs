@@ -7,9 +7,8 @@ use crate::simulation::framework_events::MobsimEvent;
 use crate::simulation::messaging::sim_communication::SimCommunicator;
 use crate::simulation::messaging::sim_communication::message_broker::NetMessageBroker;
 use crate::simulation::population::agent_source::DynAgentSource;
-use crate::simulation::scenario::{MobsimInput, MobsimPartition};
+use crate::simulation::scenario::{MobsimInput, MobsimScenarioPartition};
 use crate::simulation::time::{SimClock, Tick};
-use crate::simulation::vehicles::SimulationVehicle;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use tracing::info;
@@ -88,10 +87,10 @@ where
     }
 
     pub(crate) fn is_local_route(
-        veh: &SimulationVehicle,
+        agent: &SimulationAgent,
         message_broker: &NetMessageBroker<C>,
     ) -> bool {
-        let leg = veh.driver().curr_leg();
+        let leg = agent.curr_leg();
         let route = leg.route.as_ref().unwrap();
         let to = message_broker.rank_for_link(route.end_link());
         message_broker.rank() == to
@@ -131,20 +130,13 @@ impl<C: SimCommunicator> SimulationBuilder<C> {
     }
 
     pub fn build(self) -> Simulation<C> {
-        let clock = SimClock::new(
-            self.input
-                .partition
-                .scenario
-                .config
-                .simulation()
-                .ticks_per_second,
-        );
+        let clock = SimClock::new(self.input.partition.scenario.config.qsim().ticks_per_second);
 
         let agents = self
             .agent_source
             .create_agents(self.input.population, &self.input.partition);
 
-        let MobsimPartition {
+        let MobsimScenarioPartition {
             scenario,
             network_partition,
             ..
@@ -161,7 +153,7 @@ impl<C: SimCommunicator> SimulationBuilder<C> {
             network_partition,
             scenario.garage.clone(),
             self.net_message_broker,
-            scenario.config.simulation(),
+            scenario.config.qsim(),
             self.comp_env.clone(),
         );
 
@@ -169,8 +161,8 @@ impl<C: SimCommunicator> SimulationBuilder<C> {
             activity_engine,
             leg_engine,
             comp_env: self.comp_env,
-            start_tick: clock.secs_to_tick(scenario.config.simulation().start_time as u64),
-            end_tick: clock.secs_to_tick(scenario.config.simulation().end_time as u64),
+            start_tick: clock.secs_to_tick(scenario.config.qsim().start_time as u64),
+            end_tick: clock.secs_to_tick(scenario.config.qsim().end_time as u64),
             clock,
         }
     }

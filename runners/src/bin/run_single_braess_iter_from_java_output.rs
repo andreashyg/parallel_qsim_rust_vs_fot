@@ -93,15 +93,16 @@ fn main() {
     });
 
     config.computational_setup_mut().random_seed = seed_rust;
-    config.simulation_mut().main_modes = vec!["car".to_string()];
-    config.simulation_mut().ticks_per_second = beta as u32;
-    config.simulation_mut().stuck_threshold = config.simulation().end_time;
+    config.qsim_mut().main_modes = vec!["car".to_string()];
+    config.qsim_mut().ticks_per_second = beta as u32;
+    config.qsim_mut().stuck_threshold = config.qsim().end_time;
     config.output_mut().output_dir = output_dir;
     config.output_mut().logging = Logging::Info;
-    config.output_mut().write_events = WriteEvents::Proto;
+    config.output_mut().write_events = WriteEvents::File;
     if args.delete_output_dir_if_existing {
         config.output_mut().overwrite_files = OverwriteFiles::DeleteDirectoryIfExists;
     }
+    config.controller_mut().last_iteration = 0;
 
     config.apply_overrides(&args.overrides);
 

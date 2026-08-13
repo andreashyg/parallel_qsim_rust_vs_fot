@@ -255,7 +255,7 @@ run_experiment_case() {
   fi
 
   # Run the Rust simulation; failures are reported but do not stop the batch.
-  if ! cargo run --release --bin run_braess_from_java -- \
+  if ! cargo run --release --bin run_single_braess_iter_from_java_output -- \
     --beta "$beta" \
     --read-from-random "$read_from_random" \
     --use-random-seed "$use_random_seed" \

@@ -2729,6 +2729,7 @@ name = "postprocessing"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "flate2",
  "nohash-hasher",
  "polars",
  "polars-lazy",

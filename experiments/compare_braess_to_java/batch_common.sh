@@ -2,36 +2,54 @@
 
 set -uo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+read_config_file_entry() {
+  local -n var_to_change="$1"
+  local key="$2"
+  mapfile -t var_to_change < <(yq -r ".${key} | if type == \"array\" then .[] else . end" "$SCRIPT_DIR/../config.yaml")
+}
+
 # Variants for the replanning strategy to use in the experiments. These simply correspond to variants that were used
 # in the Java implementation of the Braess experiment, and whose output plans are read by the Rust implementation to
 # simulate the same scenario.
-REPLANNING_VARIANTS=(
-  sel-exp1-switch-at50
-  sel-exp1-switch-at80
-  sel-exp10-switch-at80
-)
+read_config_file_entry REPLANNING_VARIANTS replanning_variants
+
+echo "${REPLANNING_VARIANTS[@]}"
 
 # Parameter for time steps and vehicle size.
 # One time step has length 1/beta seconds (i.e., we have beta ticks per second).
 # Vehicles have pce 1/(beta^2) and length 7.5/(beta^2)
-BETAS=(1 2 4 8 16)
+read_config_file_entry BETAS betas
 
-WHICH_SEEDS_TO_AVG_OVER=("java" "rust")  # either "java" or "rust", to select over which random seeds to iterate or average over.
+# either "java" or "rust", to select over which random seeds to iterate or average over.
+WHICH_SEEDS_TO_AVG_OVER=(
+  "java"
+  "rust"
+  )
 
-# these are the counters for the reruns with different random seeds that were performed in Java. Meaning that these
-# values are used to read the corresponding output plans from the Java implementation of the Braess experiment.
-#READ_FROM_RANDOM_VALUES=({1..1})  # only use the first random seed used in Java, because the differences there are not
-# what we are interested in here, instead it's more relevant to compare different random seeds in Rust.
+# when fixing a rust seed and varying java (e.g.: plot results based on java runs using different seeds there, but
+# all just run with a single rust seed), use this seed
+read_config_file_entry RUST_SEED_WHEN_FIXED rust_seed_when_fixed
 
-# random seeds used in the rust simulations
-#USE_RANDOM_SEED_VALUES=({42..61})  # arbitrary range of 20 random seeds to use in the Rust simulations
+# when fixing a java seed (while varying rust seeds), use this index (the actual seed differs)
+read_config_file_entry JAVA_SEED_INDEX_WHEN_FIXED java_seed_index_when_fixed
 
-SIM_OUTPUT_BASE_DIR="./../runs-svn/Abschlussarbeiten/2026/andreas-hygrell-rust-vs-fot/compare_braess_to_java"
+# when varying rust seeds, use these
+read_config_file_entry RUST_SEEDS_TO_ITERATE_OVER rust_seeds_to_iterate_over
+
+# when varying java seeds, use these indices (the actual seeds differ)
+read_config_file_entry JAVA_SEED_INDICES_TO_ITERATE_OVER java_seed_indices_to_iterate_over
+
+# Base directory where the simulation output directories will be created.
+read_config_file_entry SIM_OUTPUT_BASE_DIR sim_output_base_dir
 
 # Collect failures so the scripts can finish all experiments/extractions and only report problems at the end.
 EXPERIMENT_FAILURES=()
 EXTRACTION_FAILURES=()
 PLOTTING_FAILURES=()
+DUMMY_COORDINATE_ADDING_FAILURES=()
+REFORMATTING_FAILURES=()
 
 # if this command line argument is given, the rust config will use config.overwrite_files = DeleteDirectoryIfExists
 delete_output_dir_if_existing=false
@@ -59,105 +77,126 @@ parse_common_args() {
   done
 }
 
-# function called to call another function (e.g. the actual run of an experiment) repeatedly for every combination of
-# parameters (replanning_variant, averaging over java seeds or rust seeds, beta, read_from_random, use_random_seed).
-# The function to call is passed as the first argument.
-# the second parameter selects between calling the callback once for each random seed (for_which="per_seed") or
-# once for all seeds but separately for different betas, (for_which="all_seeds_avgd") or once for each replanning
-# variant (for_which="once_per_replanning_variant").
-# The callback will be called with the parameters:
-#   replanning_variant, beta, read_from_random, use_random_seed, seeds_to_avg_over, output_dir
-# or
-#   replanning_variant, beta, use_random_seed, seeds_to_avg_over
-# or
-#   replanning_variant, seeds_to_avg_over
-# for for_which="per_seed", for_which="all_seeds_avgd" and for_which="once_per_replanning_variant", respectively.
-for_each_experiment_case() {
-  local callback="$1"
-  local for_which="$2"
+get_simulation_output_directory() {
+  local replanning_variant=$1
+  local seeds_to_avg_over=$2
+  local beta=$3
+  local read_from_random=$4
+  local use_random_seed=$5
+
+  echo "${SIM_OUTPUT_BASE_DIR}${replanning_variant}/varying_${seeds_to_avg_over}_seeds/beta${beta}/read_from_random_${read_from_random}_use_random_seed_${use_random_seed}"
+}
+
+get_java_seed_from_index() {
+  local seeds_to_avg_over="$1"
+  local seed_index="$2"
+
+  if [ "$seeds_to_avg_over" = "java" ]; then
+    echo "${JAVA_SEED_INDICES_TO_ITERATE_OVER[$seed_index]}"
+  elif [ "$seeds_to_avg_over" = "rust" ]; then
+    echo "$JAVA_SEED_INDEX_WHEN_FIXED"
+  else
+    echo "Unknown seeds_to_avg_over value: $seeds_to_avg_over" >&2
+    exit 1
+  fi
+}
+
+get_rust_seed_from_index() {
+  local seeds_to_avg_over="$1"
+  local seed_index="$2"
+
+  if [ "$seeds_to_avg_over" = "rust" ]; then
+    echo "${RUST_SEEDS_TO_ITERATE_OVER[$seed_index]}"
+  elif [ "$seeds_to_avg_over" = "java" ]; then
+    echo "$RUST_SEED_WHEN_FIXED"
+  else
+    echo "Unknown seeds_to_avg_over value: $seeds_to_avg_over" >&2
+    exit 1
+  fi
+}
+
+get_original_java_replanning_folder_string() {
+  local replanning_variant="$1"
+
+  if [ "${replanning_variant}" = "sel-exp1-switch-at50" ]; then
+    echo "2026-05-8-12-16-8_500it_reRouteProba0.1until0.5it_selExpBeta1proba0.9_msaFrom0.5it"
+  elif [ "${replanning_variant}" = "sel-exp1-switch-at80" ]; then
+    echo "2026-05-10-10-2-21_500it_reRouteProba0.1until0.8it_selExpBeta1proba0.9_msaFrom0.8it"
+  elif [ "${replanning_variant}" = "sel-exp10-switch-at80" ]; then
+    echo "2026-05-12-8-42-24_500it_reRouteProba0.1until0.8it_selExpBeta10proba0.9_msaFrom0.8it"
+  else
+    echo "unknown replanning_variant value: $replanning_variant" >&2
+    return 1
+  fi
+}
+# function that iterates through every combination
+# of replanning variant and "seed to vary", and calls the callback
+# for those two parameters, plus any additional parameters passed to this function.
+run_for_each_replvar_variedseed_combo() {
+  local callback=$1
+  shift  # consumes the first argument
+  # this means that "$@" is now all arguments after callback
 
   # Iterate over every parameter combination and delegate the work to the given callback.
   for replanning_variant in "${REPLANNING_VARIANTS[@]}"; do
     for seeds_to_avg_over in "${WHICH_SEEDS_TO_AVG_OVER[@]}"; do
-      # if for_which="once_per_replanning_variant", then the callback is called once for each replanning variant, and the
-      # callback is expected to handle averaging over beta and read_from_random or use_random_seed itself.
-      if [ "${for_which}" = "once_per_replanning_variant" ]; then
-        "$callback" "$replanning_variant" "$seeds_to_avg_over"
-      # else, continue with the nested loops over beta, read_from_random or use_random_seed.
-      else
-        if [ "$seeds_to_avg_over" = "java" ]; then
-          read_from_random_values=({1..20})  # iterate or average over all random seeds used in java
-          use_random_seed_values=({42..42})  # only consider one random seed for the simulations in Rust
-          for beta in "${BETAS[@]}"; do
-            # Note: this is actually just one value. It will be used as a fixed seed for the rust simulations,
-            # but the callback will be called separately for each read_from_random value (=java seed), or alternatively
-            # (if for_which="all_seeds_avgd") the callback will be called just once, but will internally consider all
-            # read_from_random values (=java seeds) and average over them
-            for use_random_seed in "${use_random_seed_values[@]}"; do
-              # for_which="all_seeds_avgd" means that the callback is called once for all seeds (in this case: once for
-              # all read_from_random values that we want to consider, instead of an extra for loop)
-              # and the callback is expected to handle the averaging over read_from_random values itself.
-              if [ "${for_which}" = "all_seeds_avgd" ]; then
-                "$callback" "$replanning_variant" "$beta" "$use_random_seed" "$seeds_to_avg_over"
-
-              # for_which="per_seed" means that the callback is called once for each read_from_random value
-              elif [ "${for_which}" = "per_seed" ]; then
-                for read_from_random in "${read_from_random_values[@]}"; do
-                  local output_dir="${SIM_OUTPUT_BASE_DIR}/${replanning_variant}/varying_${seeds_to_avg_over}_seeds/beta${beta}/read_from_random_${read_from_random}_use_random_seed_${use_random_seed}"
-
-                  "$callback" "$replanning_variant" "$beta" "$read_from_random" "$use_random_seed" "$seeds_to_avg_over" "false" "$output_dir"
-                done
-              else
-                echo "Unknown for_which value: $for_which" >&2
-                exit 1
-              fi
-            done
-          done
-        elif [ "$seeds_to_avg_over" = "rust" ]; then
-          read_from_random_values=({1..1})  # only use the first random seed used in Java
-          use_random_seed_values=({42..61})  # arbitrary range of 20 random seeds to use in the Rust simulations
-          for beta in "${BETAS[@]}"; do
-            # Note: this is actually just one value. It will be used as a fixed seed to read from the Java output plans,
-            # but the callback will be called separately for each use_random_seed value (=rust seed), or alternatively
-            # (if for_which="all_seeds_avgd") the callback will be called just once, but will internally consider all
-            # use_random_seed values (=rust seeds) and average over them
-            for read_from_random in "${read_from_random_values[@]}"; do
-              # for_which="all_seeds_avgd" means that the callback is called once per seed (in this case: per
-              # use_random_seed value that we want to consider, instead of an extra for loop)
-              # and the callback is expected to handle the averaging over use_random_seed values (rust seeds) itself.
-              if [ "${for_which}" = "all_seeds_avgd" ]; then
-                "$callback" "$replanning_variant" "$beta" "$read_from_random" "$seeds_to_avg_over"
-
-              # for_which="per_seed" means that the callback is called once for each use_random_seed value
-              elif [ "${for_which}" = "per_seed" ]; then
-                # run the callback once without a use_random_seed value and instead read_original_java=true, which means
-                # that the original data will be processed/plotted (depending on the callback) for comparison with the
-                # reruns with different random seeds in Rust.
-
-                local output_dir="${SIM_OUTPUT_BASE_DIR}/${replanning_variant}/varying_${seeds_to_avg_over}_seeds/beta${beta}/read_from_random_${read_from_random}_original_java_data"
-
-                "$callback" "$replanning_variant" "$beta" "$read_from_random" "None" "$seeds_to_avg_over" "true" "$output_dir"
-
-                for use_random_seed in "${use_random_seed_values[@]}"; do
-                  local output_dir="${SIM_OUTPUT_BASE_DIR}/${replanning_variant}/varying_${seeds_to_avg_over}_seeds/beta${beta}/read_from_random_${read_from_random}_use_random_seed_${use_random_seed}"
-
-                  "$callback" "$replanning_variant" "$beta" "$read_from_random" "$use_random_seed" "$seeds_to_avg_over" "false" "$output_dir"
-                done
-              else
-                echo "Unknown for_which value: $for_which" >&2
-                exit 1
-              fi
-            done
-          done
-        else
-          echo "Unknown seed type: $seeds_to_avg_over" >&2
-          exit 1
-        fi
-
-      fi
+      "$callback" "$replanning_variant" "$seeds_to_avg_over" "$@"
     done
   done
 }
+
+run_all_betas_for_replvar_variedseed_combo() {
+  local replanning_variant="$1"
+  local seeds_to_avg_over="$2"
+  local actual_callback="$3"
+
+  shift 3
+
+  for beta in "${BETAS[@]}"; do
+    "$actual_callback" "$replanning_variant" "$seeds_to_avg_over" "$beta" "$@"
+  done
+}
+
+run_for_each_replvar_variedseed_beta_combo() {
+  local actual_callback=$1
+  shift
+
+  # This will:
+  # - iterate over every replanning_variant and seeds_to_avg_over combination
+  # - for each combination, iterate over every beta and call actual_callback with replanning_variant, seeds_to_avg_over,
+  #   beta, and any additional parameters passed to this function.
+  run_for_each_replvar_variedseed_combo run_all_betas_for_replvar_variedseed_combo "$actual_callback" "$@"
+
+
+#  for beta in "${BETAS[@]}"; do
+#    run_for_each_replvar_variedseed_combo "$actual_callback" "$beta" "$@"
+#  done
+}
+
+run_all_seeds_for_replvar_variedseed_beta_combo() {
+  local replanning_variant="$1"
+  local seeds_to_avg_over="$2"
+  local beta="$3"
+  local actual_callback="$4"
+
+  shift 4
+
+  for seed_index in {0..19}; do
+    "$actual_callback" "$replanning_variant" "$seeds_to_avg_over" "$beta" "$seed_index" "$@"
+  done
+}
+
+run_for_each_replvar_variedseed_beta_seed_combo() {
+  local actual_callback=$1
+  shift
+
+  # This will:
+  # - iterate over every replanning_variant, seeds_to_avg_over and beta combination
+  # - for each combination, iterate over every seed_index and call actual_callback with replanning_variant,
+  # seeds_to_avg_over, beta, seed_index and any other parameters
+  run_for_each_replvar_variedseed_beta_combo run_all_seeds_for_replvar_variedseed_beta_combo "$actual_callback" "$@"
+}
+
 
 # function to called to record a failure in either the experiment run or the extraction or plotting run.
 # Called with the arguments:
@@ -182,6 +221,12 @@ record_failure() {
       ;;
     plotting)
       PLOTTING_FAILURES+=("${replanning_variant} beta=${beta} read_from_random=${read_from_random} use_random_seed=${use_random_seed}")
+      ;;
+    dummy_coordinate_adding)
+      DUMMY_COORDINATE_ADDING_FAILURES+=("${replanning_variant} beta=${beta} read_from_random=${read_from_random} use_random_seed=${use_random_seed}")
+      ;;
+    reformatting)
+      REFORMATTING_FAILURES+=("${replanning_variant} beta=${beta} read_from_random=${read_from_random} use_random_seed=${use_random_seed}")
       ;;
     *)
       echo "Unknown failure kind: $kind" >&2
@@ -220,257 +265,23 @@ print_failure_summary() {
       echo "    - $failure"
     done
   fi
+
+  if [ "${#DUMMY_COORDINATE_ADDING_FAILURES[@]}" -gt 0 ]; then
+    echo "  Dummy coordinate adding failures (${#DUMMY_COORDINATE_ADDING_FAILURES[@]}):"
+    for failure in "${DUMMY_COORDINATE_ADDING_FAILURES[@]}"; do
+      echo "    - $failure"
+    done
+  fi
+
+  if [ "${#REFORMATTING_FAILURES[@]}" -gt 0 ]; then
+    echo "  Reformatting failures (${#REFORMATTING_FAILURES[@]}):"
+    for failure in "${REFORMATTING_FAILURES[@]}"; do
+      echo "    - $failure"
+    done
+  fi
 }
 
-# function to run a single experiment case. Called with the arguments:
-#   replanning_variant, beta, read_from_random, use_random_seed, seeds_to_avg_over, output_dir
-# Will run the Rust simulation with the given parameters and write the output to the given output directory.
-# If the simulation fails, it will record the failure and continue with the next case
-run_experiment_case() {
-  local replanning_variant="$1"
-  local beta="$2"
-  local read_from_random="$3"
-  local use_random_seed="$4"
-  local seeds_to_avg_over="$5"
-  local read_original_java="$6"
-  local output_dir="$7"
-
-  if [ "${read_original_java}" = "true" ]; then
-    return 0  # skip running the experiment if we are just reading the original Java data
-  fi
-
-  if [ -d "$output_dir" ] && [ "${skip_existing_output_dir}" = "true" ]; then
-    echo "Skipping simulation due to existing output directory: $output_dir"
-    return 0
-  fi
-
-
-  echo "Running rust simulation with parameters: replanning_variant=${replanning_variant}, beta=$beta, read_from_random=$read_from_random, use_random_seed=$use_random_seed"
-
-  echo "Output directory: $output_dir"
-
-  local delete_output_dir_arg=()
-  if [ "$delete_output_dir_if_existing" = true ]; then
-    delete_output_dir_arg=(--delete-output-dir-if-existing)
-  fi
-
-  # Run the Rust simulation; failures are reported but do not stop the batch.
-  if ! cargo run --release --bin run_single_braess_iter_from_java_output -- \
-    --beta "$beta" \
-    --read-from-random "$read_from_random" \
-    --use-random-seed "$use_random_seed" \
-    --replanning-variant "$replanning_variant" \
-    --output-dir "$output_dir" \
-    "${delete_output_dir_arg[@]}"
-  then
-    echo "Experiment failed, continuing with next case." >&2
-    record_failure experiment "$replanning_variant" "$beta" "$read_from_random" "$use_random_seed"
-    return 1
-  fi
-
-  return 0
-}
-
-# function to run the travel time & summed departures extraction for a single experiment case. Called with the arguments:
-#   replanning_variant, beta, read_from_random, use_random_seed, seeds_to_avg_over, output_dir
-# Will read the events written by the simulation in the given output directory and write the average travel times per
-# route to a CSV file in the analysis subdirectory of the output root directory.
-extract_travel_time_sum_dep_case() {
-  local replanning_variant="$1"
-  local beta="$2"
-  local read_from_random="$3"
-  local use_random_seed="$4"
-  local seeds_to_avg_over="$5"
-  local read_original_java="$6"
-  local output_dir="$7"
-
-  local extracted_data_dir="${SIM_OUTPUT_BASE_DIR}/${replanning_variant}/varying_${seeds_to_avg_over}_seeds/analysis/extracted_data"
-
-
-  if [ -d extracted_data_dir ] && [ "${skip_existing_output_dir}" = "true" ]; then
-    echo "Skipping travel time/summed departures extraction because the output directory already exists: $extracted_data_dir"
-    return 0
-  fi
-
-  if [ "${read_original_java}" = "true" ]; then
-    local tt_csv_path="${extracted_data_dir}/average_route_tts_per_deptime_beta${beta}_read_from_random_${read_from_random}_original_java_data.csv"
-    local sd_csv_path="${extracted_data_dir}/summed_deps_per_time_beta${beta}_read_from_random_${read_from_random}_original_java_data.csv"
-  else
-    local tt_csv_path="${extracted_data_dir}/average_route_tts_per_deptime_beta${beta}_read_from_random_${read_from_random}_use_random_seed_${use_random_seed}.csv"
-    local sd_csv_path="${extracted_data_dir}/summed_deps_per_time_beta${beta}_read_from_random_${read_from_random}_use_random_seed_${use_random_seed}.csv"
-  fi
-
-
-  echo "Extracting average travel times and summed departures for parameters: replanning_variant=$replanning_variant, beta=$beta, read_from_random=$read_from_random, use_random_seed=$use_random_seed, seeds_to_avg_over=$seeds_to_avg_over, read_original_java=$read_original_java"
-
-  if [ "${read_original_java}" = "true" ]; then
-    if [ "${replanning_variant}" = "sel-exp1-switch-at50" ]; then
-      replanning_str="2026-05-8-12-16-8_500it_reRouteProba0.1until0.5it_selExpBeta1proba0.9_msaFrom0.5it"
-    elif [ "${replanning_variant}" = "sel-exp1-switch-at80" ]; then
-      replanning_str="2026-05-10-10-2-21_500it_reRouteProba0.1until0.8it_selExpBeta1proba0.9_msaFrom0.8it"
-      elif [ "${replanning_variant}" = "sel-exp10-switch-at80" ]; then
-      replanning_str="2026-05-12-8-42-24_500it_reRouteProba0.1until0.8it_selExpBeta10proba0.9_msaFrom0.8it"
-    else
-      echo "unknown replanning_variant value: $replanning_variant" >&2
-      return 1
-    fi
-
-    local input_file_stem="${SIM_OUTPUT_BASE_DIR}/../../../../braess/refinement/no_spillback_scenario/${replanning_str}/beta${beta}/random${read_from_random}/beta${beta}random${read_from_random}.output_events"
-  else
-    local input_file_stem="${output_dir}/events/events"
-  fi
-
-
-  echo "writing into $tt_csv_path and $sd_csv_path"
-
-  if [ "${read_original_java}" = "true" ]; then
-    # Extract travel times and summed departures from the events from the original java runs
-    if ! cargo run --release --bin event_data_extractor -- \
-      --input-file-stem "$input_file_stem" \
-      --input-file-format "xml.gz" \
-      --tt-csv-path "$tt_csv_path" \
-      --sd-csv-path "$sd_csv_path" \
-      --num-parts 0 \
-      --link-to-path-map-name "braess" \
-      --beta "$beta"
-    then
-      echo "Travel-time/summed departures extraction failed, continuing with next case." >&2
-      record_failure extraction "$replanning_variant" "$beta" "$read_from_random" "reading_original_java"
-      return 1
-    fi
-  else
-    # Extract travel times and summed departures from the events written by the rust simulation.
-    if ! cargo run --release --bin event_data_extractor -- \
-      --input-file-stem "$input_file_stem" \
-      --input-file-format "binpb" \
-      --tt-csv-path "$tt_csv_path" \
-      --sd-csv-path "$sd_csv_path" \
-      --num-parts 1 \
-      --link-to-path-map-name "braess" \
-      --id-store-path "${output_dir}/output_ids.binpb" \
-      --beta "$beta"
-    then
-      echo "Travel-time/summed departures extraction failed, continuing with next case." >&2
-      record_failure extraction "$replanning_variant" "$beta" "$read_from_random" "$use_random_seed"
-      return 1
-    fi
-  fi
-  return 0
-}
-
-plot_per_seed_case() {
-  local replanning_variant="$1"
-  local beta="$2"
-  local read_from_random="$3"
-  local use_random_seed="$4"
-  local seeds_to_avg_over="$5"
-  local read_original_java="$6"
-  local output_dir="$7"
-
-  local output_plots_dir="${SIM_OUTPUT_BASE_DIR}/${replanning_variant}/varying_${seeds_to_avg_over}_seeds/analysis/plots/per_seed"
-
-  if [ -d output_plots_dir ] && [ "${skip_existing_output_dir}" = "true" ]; then
-    echo "Skipping plotting per seed because output plots directory already exists: $output_plots_dir"
-    return 0
-  fi
-
-  echo "Plotting average travel times and summed departures per seed for parameters: replanning_variant=${replanning_variant}, beta=$beta, read_from_random=$read_from_random, use_random_seed=$use_random_seed, seeds_to_avg_over=$seeds_to_avg_over, read_original_java=$read_original_java"
-
-
-  # Plot the average travel times and summed departures.
-  if ! python python_plotting/braess/tt_and_sd_single_seed.py "$beta" "${replanning_variant}" "$read_from_random" "$use_random_seed" "$seeds_to_avg_over" "$read_original_java" "$output_plots_dir"
-  then
-    echo "Plotting failed, continuing with next case." >&2
-    record_failure plotting "$replanning_variant" "$beta" "$read_from_random" "reading_original_java_data"
-    return 1
-  fi
-
-  return 0
-}
-
-plot_avg_over_seeds_case() {
-  local replanning_variant="$1"
-  local beta="$2"
-  local fixed_seed="$3" # this can be either a use_random_seed value (if seeds_to_avg_over=java) or a read_from_random value (if seeds_to_avg_over=rust)
-  local seeds_to_avg_over="$4"
-
-  local output_plots_dir="${SIM_OUTPUT_BASE_DIR}/${replanning_variant}/varying_${seeds_to_avg_over}_seeds/analysis/plots/avg_over_${seeds_to_avg_over}_seeds"
-
-  if [ -d output_plots_dir ] && [ "${skip_existing_output_dir}" = "true" ]; then
-    echo "Skipping plotting avg over ${seeds_to_avg_over} seeds because output plots directory already exists: $output_plots_dir"
-    return 0
-  fi
-
-  echo "Plotting average travel times and summed departures averaged over ${seeds_to_avg_over} seeds for parameters: replanning_variant=${replanning_variant}, beta=$beta, fixed_seed=$fixed_seed, seeds_to_avg_over=$seeds_to_avg_over"
-
-  # Plot the average travel times and summed departures averaged over seeds.
-  if ! python python_plotting/braess/tt_and_sd_avg_over_seeds.py "$beta" "${replanning_variant}" "$seeds_to_avg_over" "$fixed_seed" "$output_plots_dir"
-  then
-    echo "Plotting failed, continuing with next case." >&2
-    if [ "$seeds_to_avg_over" = "java" ]; then
-      record_failure plotting "$replanning_variant" "$beta" "avg_over_java_seeds" "$fixed_seed"
-    elif [ "$seeds_to_avg_over" = "rust" ]; then
-      record_failure plotting "$replanning_variant" "$beta" "$fixed_seed" "avg_over_rust_seeds"
-    else
-      echo "Unknown seeds_to_avg_over value: $seeds_to_avg_over" >&2
-      exit 1
-    fi
-    return 1
-  fi
-
-  return 0
-}
-
-plot_once_per_replanning_variant_case() {
-  local replanning_variant="$1"
-  local seeds_to_avg_over="$2"  # either "java" or "rust"
-
-  local output_plots_dir="${SIM_OUTPUT_BASE_DIR}/${replanning_variant}/varying_${seeds_to_avg_over}_seeds/analysis/plots/deviations/"
-
-  if [ -d output_plots_dir ] && [ "${skip_existing_output_dir}" = "true" ]; then
-    echo "Skipping plotting once per replanning variant because output plots directory already exists: $output_plots_dir"
-    return 0
-  fi
-
-  echo "Plotting average travel times and summed departures once per replanning variant for parameters: replanning_variant=${replanning_variant}, seeds_to_avg_over=${seeds_to_avg_over}"
-
-  # Plot the average travel times and summed departures once per replanning variant.
-  if ! python python_plotting/braess/tt_and_sd_dev_over_beta.py "${replanning_variant}" "$seeds_to_avg_over" "$output_plots_dir"
-  then
-    echo "Plotting failed, continuing with next case." >&2
-    if [ "$seeds_to_avg_over" = "java" ]; then
-      record_failure plotting "$replanning_variant" "all_betas" "avg_over_java_seeds" "default fixed seed 42"
-    elif [ "$seeds_to_avg_over" = "rust" ]; then
-      record_failure plotting "$replanning_variant" "all_betas" "default fixed seed 1" "avg_over_rust_seeds"
-    else
-      echo "Unknown seeds_to_avg_over value: $seeds_to_avg_over" >&2
-      exit 1
-    fi
-    return 1
-  fi
-
-  return 0
-  }
-
-# function to run a single experiment case and then extract the travel times from the events written by the simulation.
-run_and_extract_case() {
-  # Only extract travel times if the simulation run finished successfully.
-  if run_experiment_case "$@"; then
-    extract_travel_time_sum_dep_case "$@"
-  else
-    echo "Skipping travel time/summed departures extraction because the experiment failed." >&2
-  fi
-
-  return 0
-}
-
-run_and_extract_and_plot_per_seed_case() {
-  # Only extract travel times if the simulation run finished successfully.
-  if run_and_extract_case "$@"; then
-    plot_per_seed_case "$@"
-  else
-    echo "Skipping plotting because the experiment or travel time/summed departures extraction failed." >&2
-  fi
-
-  return 0
-}
+__BATCH_COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${__BATCH_COMMON_DIR}/run_cases.sh"
+source "${__BATCH_COMMON_DIR}/extraction_cases.sh"
+source "${__BATCH_COMMON_DIR}/plotting_cases.sh"

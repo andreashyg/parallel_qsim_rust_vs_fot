@@ -16,13 +16,15 @@ if __name__ == '__main__':
         read_original_java = False
 
     if read_original_java:
-        file_name_end = f"_beta{beta}_read_from_random_{read_random}_original_java_data.csv"
+        file_name_end = f"_beta{beta}_read_from_random_{read_random}_reformatted_original_java_data.csv"
+        tt_path = ROOT_DATA_PATH + f"{replanning_variant}/recreating_java_results/analysis/extracted_data/average_route_tts_per_deptime" + file_name_end
+        sd_path = ROOT_DATA_PATH + f"{replanning_variant}/recreating_java_results/analysis/extracted_data/summed_deps_per_time" + file_name_end
+
     else:
         # common for both tt and sd .csv file
         file_name_end = f"_beta{beta}_read_from_random_{read_random}_use_random_seed_{use_random}.csv"
-
-    tt_path = ROOT_DATA_PATH + f"{replanning_variant}/varying_{seeds_to_avg_over}_seeds/analysis/extracted_data/average_route_tts_per_deptime" + file_name_end
-    sd_path = ROOT_DATA_PATH + f"{replanning_variant}/varying_{seeds_to_avg_over}_seeds/analysis/extracted_data/summed_deps_per_time" + file_name_end
+        tt_path = ROOT_DATA_PATH + f"{replanning_variant}/varying_{seeds_to_avg_over}_seeds/analysis/extracted_data/average_route_tts_per_deptime" + file_name_end
+        sd_path = ROOT_DATA_PATH + f"{replanning_variant}/varying_{seeds_to_avg_over}_seeds/analysis/extracted_data/summed_deps_per_time" + file_name_end
 
     ### TT
     fig_tt, ax_tt = plt.subplots(figsize=FIG_SIZE)

@@ -15,8 +15,6 @@ read_config_file_entry() {
 # simulate the same scenario.
 read_config_file_entry REPLANNING_VARIANTS replanning_variants
 
-echo "${REPLANNING_VARIANTS[@]}"
-
 # Parameter for time steps and vehicle size.
 # One time step has length 1/beta seconds (i.e., we have beta ticks per second).
 # Vehicles have pce 1/(beta^2) and length 7.5/(beta^2)

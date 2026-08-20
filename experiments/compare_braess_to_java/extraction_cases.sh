@@ -95,6 +95,7 @@ try_extracting_measurements_from_java_case() {
 
   # events file from the original java run
   local original_input_file="${SIM_OUTPUT_BASE_DIR}/../../../../braess/refinement/no_spillback_scenario/${replanning_str}/beta${beta}/random${read_from_random}/beta${beta}random${read_from_random}.output_events.xml.gz"
+
   # output file stem for the events file with added dummy coordinates, which will be created by the
   # simple_dummy_coordinate_adder binary in the next step
   # This is needed because the original java events file does not contain coordinates, which are needed for the

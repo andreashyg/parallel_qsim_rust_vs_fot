@@ -10,7 +10,7 @@ source "${SCRIPT_DIR}/batch_common.sh"
 parse_common_args "$@"
 
 # run every experiment in rust, extract measurements and plot per seed
-run_for_each_replvar_variedseed_beta_seed_combo run_and_extract_case
+run_for_each_replvar_variedseed_beta_seed_combo_parallel run_and_extract_case
 
 # print all failures that occurred during the batch run, if any.
 print_failure_summary

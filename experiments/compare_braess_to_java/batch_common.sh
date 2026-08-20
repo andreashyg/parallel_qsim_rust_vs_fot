@@ -50,10 +50,10 @@ DUMMY_COORDINATE_ADDING_FAILURES=()
 REFORMATTING_FAILURES=()
 
 # if this command line argument is given, the rust config will use config.overwrite_files = DeleteDirectoryIfExists
-delete_output_dir_if_existing=false
+: "${delete_output_dir_if_existing:=false}"
 # if this command line argument is given, the bash script will skip the experiment case if the output directory already
 # exists.
-skip_existing_output_dir=false
+: "${skip_existing_output_dir:=false}"
 # other command line arguments are not supported, but could be added here in the future.
 
 # this is a function called to read command line arguments
@@ -73,6 +73,10 @@ parse_common_args() {
         ;;
     esac
   done
+
+  # Needed for GNU parallel worker shells.
+  export delete_output_dir_if_existing
+  export skip_existing_output_dir
 }
 
 get_simulation_output_directory() {
@@ -82,7 +86,7 @@ get_simulation_output_directory() {
   local read_from_random=$4
   local use_random_seed=$5
 
-  echo "${SIM_OUTPUT_BASE_DIR}${replanning_variant}/varying_${seeds_to_avg_over}_seeds/beta${beta}/read_from_random_${read_from_random}_use_random_seed_${use_random_seed}"
+  echo "${SIM_OUTPUT_BASE_DIR}/${replanning_variant}/varying_${seeds_to_avg_over}_seeds/beta${beta}/read_from_random_${read_from_random}_use_random_seed_${use_random_seed}"
 }
 
 get_java_seed_from_index() {
@@ -155,6 +159,37 @@ run_all_betas_for_replvar_variedseed_combo() {
   done
 }
 
+run_all_betas_for_replvar_variedseed_combo_parallel() {
+  local replanning_variant="$1"
+  local seeds_to_avg_over="$2"
+  local actual_callback="$3"
+  local batch_common_file="${BASH_SOURCE[0]}"
+  shift 3
+
+  local callback_q replanning_q seeds_q common_q arg extra_args=""
+  local failure_log
+  failure_log="$(mktemp)"
+  printf -v callback_q '%q' "$actual_callback"
+  printf -v replanning_q '%q' "$replanning_variant"
+  printf -v seeds_q '%q' "$seeds_to_avg_over"
+  printf -v common_q '%q' "$batch_common_file"
+  for arg in "$@"; do
+    extra_args+=" $(printf '%q' "$arg")"
+  done
+
+  export FAILURE_LOG_FILE="$failure_log"
+  export delete_output_dir_if_existing
+  export skip_existing_output_dir
+
+  parallel --will-cite -j "${MAX_PARALLEL_JOBS:-8}" \
+    "bash -lc 'source ${common_q}; ${callback_q} ${replanning_q} ${seeds_q} {}${extra_args}'" \
+    ::: "${BETAS[@]}"
+
+  import_failure_log "$failure_log"
+  rm -f "$failure_log"
+  unset FAILURE_LOG_FILE
+}
+
 run_for_each_replvar_variedseed_beta_combo() {
   local actual_callback=$1
   shift
@@ -184,6 +219,40 @@ run_all_seeds_for_replvar_variedseed_beta_combo() {
   done
 }
 
+run_all_seeds_for_replvar_variedseed_beta_combo_parallel() {
+  local replanning_variant="$1"
+  local seeds_to_avg_over="$2"
+  local beta="$3"
+  local actual_callback="$4"
+  local batch_common_file="${BASH_SOURCE[0]}"
+
+  shift 4
+
+  local callback_q replanning_q seeds_q beta_q common_q arg extra_args=""
+  local failure_log
+  failure_log="$(mktemp)"
+  printf -v callback_q '%q' "$actual_callback"
+  printf -v replanning_q '%q' "$replanning_variant"
+  printf -v seeds_q '%q' "$seeds_to_avg_over"
+  printf -v beta_q '%q' "$beta"
+  printf -v common_q '%q' "$batch_common_file"
+  for arg in "$@"; do
+    extra_args+=" $(printf '%q' "$arg")"
+  done
+
+  export FAILURE_LOG_FILE="$failure_log"
+  export delete_output_dir_if_existing
+  export skip_existing_output_dir
+
+  parallel --will-cite -j "${MAX_PARALLEL_JOBS:-8}" \
+    "bash -lc 'source ${common_q}; ${callback_q} ${replanning_q} ${seeds_q} ${beta_q} {}${extra_args}'" \
+    ::: {0..19}
+
+  import_failure_log "$failure_log"
+  rm -f "$failure_log"
+  unset FAILURE_LOG_FILE
+}
+
 run_for_each_replvar_variedseed_beta_seed_combo() {
   local actual_callback=$1
   shift
@@ -193,6 +262,17 @@ run_for_each_replvar_variedseed_beta_seed_combo() {
   # - for each combination, iterate over every seed_index and call actual_callback with replanning_variant,
   # seeds_to_avg_over, beta, seed_index and any other parameters
   run_for_each_replvar_variedseed_beta_combo run_all_seeds_for_replvar_variedseed_beta_combo "$actual_callback" "$@"
+}
+
+run_for_each_replvar_variedseed_beta_seed_combo_parallel() {
+  local actual_callback=$1
+  shift
+
+  # This will:
+  # - iterate over every replanning_variant, seeds_to_avg_over and beta combination
+  # - for each combination, iterate over every seed_index and call actual_callback with replanning_variant,
+  # seeds_to_avg_over, beta, seed_index and any other parameters
+  run_for_each_replvar_variedseed_beta_combo run_all_seeds_for_replvar_variedseed_beta_combo_parallel "$actual_callback" "$@"
 }
 
 
@@ -231,12 +311,47 @@ record_failure() {
       exit 1
       ;;
   esac
+
+  if [ -n "${FAILURE_LOG_FILE:-}" ]; then
+    printf '%s\t%s\t%s\t%s\t%s\n' \
+      "$kind" "$replanning_variant" "$beta" "$read_from_random" "$use_random_seed" >> "$FAILURE_LOG_FILE"
+  fi
+}
+
+import_failure_log() {
+  local failure_log_file="$1"
+  local kind replanning_variant beta read_from_random use_random_seed
+
+  [ -s "$failure_log_file" ] || return 0
+
+  while IFS=$'\t' read -r kind replanning_variant beta read_from_random use_random_seed; do
+    case "$kind" in
+      experiment)
+        EXPERIMENT_FAILURES+=("${replanning_variant} beta=${beta} read_from_random=${read_from_random} use_random_seed=${use_random_seed}")
+        ;;
+      extraction)
+        EXTRACTION_FAILURES+=("${replanning_variant} beta=${beta} read_from_random=${read_from_random} use_random_seed=${use_random_seed}")
+        ;;
+      plotting)
+        PLOTTING_FAILURES+=("${replanning_variant} beta=${beta} read_from_random=${read_from_random} use_random_seed=${use_random_seed}")
+        ;;
+      dummy_coordinate_adding)
+        DUMMY_COORDINATE_ADDING_FAILURES+=("${replanning_variant} beta=${beta} read_from_random=${read_from_random} use_random_seed=${use_random_seed}")
+        ;;
+      reformatting)
+        REFORMATTING_FAILURES+=("${replanning_variant} beta=${beta} read_from_random=${read_from_random} use_random_seed=${use_random_seed}")
+        ;;
+      *)
+        echo "Unknown failure kind in failure log: $kind" >&2
+        ;;
+    esac
+  done < "$failure_log_file"
 }
 
 # function to print a summary of all failures recorded during the batch run. Will print the number of failures and the
 # details of each failure.
 print_failure_summary() {
-  if [ "${#EXPERIMENT_FAILURES[@]}" -eq 0 ] && [ "${#EXTRACTION_FAILURES[@]}" -eq 0 ] && [ "${#PLOTTING_FAILURES[@]}" -eq 0 ]; then
+  if [ "${#EXPERIMENT_FAILURES[@]}" -eq 0 ] && [ "${#EXTRACTION_FAILURES[@]}" -eq 0 ] && [ "${#PLOTTING_FAILURES[@]}" -eq 0 ] && [ "${#DUMMY_COORDINATE_ADDING_FAILURES[@]}" -eq 0 ] && [ "${#REFORMATTING_FAILURES[@]}" -eq 0 ]; then
     echo "No failures recorded."
     return 0
   fi
@@ -283,3 +398,17 @@ __BATCH_COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${__BATCH_COMMON_DIR}/run_cases.sh"
 source "${__BATCH_COMMON_DIR}/extraction_cases.sh"
 source "${__BATCH_COMMON_DIR}/plotting_cases.sh"
+
+export -f run_and_extract_and_plot_per_seed_case
+export -f run_and_extract_case
+export -f try_extracting_measurements_from_java_case
+export -f reformat_original_java_extracted_measurements_case
+export -f plot_original_java_data_per_seed_case
+export -f plot_per_seed_case
+export -f plot_avg_over_seeds_case
+export -f record_failure
+
+export -f get_java_seed_from_index
+export -f get_rust_seed_from_index
+export -f get_simulation_output_directory
+export -f get_original_java_replanning_folder_string

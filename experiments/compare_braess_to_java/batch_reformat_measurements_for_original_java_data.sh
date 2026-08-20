@@ -10,7 +10,7 @@ source "${SCRIPT_DIR}/batch_common.sh"
 # extracted measurements from the Rust experiments.
 parse_common_args "$@"
 
-run_for_each_replvar_variedseed_beta_seed_combo reformat_original_java_extracted_measurements_case
+run_for_each_replvar_variedseed_beta_seed_combo_parallel reformat_original_java_extracted_measurements_case
 
 # print all failures that occurred during the batch run, if any.
 print_failure_summary

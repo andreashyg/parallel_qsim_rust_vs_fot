@@ -10,9 +10,9 @@ source "${SCRIPT_DIR}/batch_common.sh"
 parse_common_args "$@"
 
 # plot per seed
-run_for_each_replvar_variedseed_beta_seed_combo plot_per_seed_case
+run_for_each_replvar_variedseed_beta_seed_combo_parallel plot_per_seed_case
 # plot the original java data per seed
-run_for_each_replvar_variedseed_beta_seed_combo plot_original_java_data_per_seed_case
+run_for_each_replvar_variedseed_beta_seed_combo_parallel plot_original_java_data_per_seed_case
 # plot averages over all seeds (for each beta)
 run_for_each_replvar_variedseed_beta_combo plot_avg_over_seeds_case
 # plot averages over all seeds (for each beta) for the original java data

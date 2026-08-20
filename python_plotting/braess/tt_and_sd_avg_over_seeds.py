@@ -27,8 +27,8 @@ if __name__ == '__main__':
                              + f"_reformatted_original_java_data.csv"
                              )
 
-            tt_path = ROOT_DATA_PATH + f"{replanning_variant}/recreating_java_results/analysis/extracted_data/average_route_tts_per_deptime" + file_name_end
-            sd_path = ROOT_DATA_PATH + f"{replanning_variant}/recreating_java_results/analysis/extracted_data/summed_deps_per_time" + file_name_end
+            tt_path = ROOT_DATA_PATH + f"/{replanning_variant}/recreating_java_results/analysis/extracted_data/average_route_tts_per_deptime" + file_name_end
+            sd_path = ROOT_DATA_PATH + f"/{replanning_variant}/recreating_java_results/analysis/extracted_data/summed_deps_per_time" + file_name_end
 
         else:
             # common for both tt and sd .csv file
@@ -36,8 +36,8 @@ if __name__ == '__main__':
                              + "read_from_random_{seed}"  # deliberately not an f-string, used as placeholder later
                              + f"_use_random_seed_{fixed_seed}.csv"
                              )
-            tt_path = ROOT_DATA_PATH + f"{replanning_variant}/varying_{seeds_to_avg_over}_seeds/analysis/extracted_data/average_route_tts_per_deptime" + file_name_end
-            sd_path = ROOT_DATA_PATH + f"{replanning_variant}/varying_{seeds_to_avg_over}_seeds/analysis/extracted_data/summed_deps_per_time" + file_name_end
+            tt_path = ROOT_DATA_PATH + f"/{replanning_variant}/varying_{seeds_to_avg_over}_seeds/analysis/extracted_data/average_route_tts_per_deptime" + file_name_end
+            sd_path = ROOT_DATA_PATH + f"/{replanning_variant}/varying_{seeds_to_avg_over}_seeds/analysis/extracted_data/summed_deps_per_time" + file_name_end
 
         seeds = JAVA_SEED_INDICES_TO_ITERATE_OVER  # read_from_random seeds for java are 1..20
         fixed_seed_string_for_filename = "use_random_seed"
@@ -53,8 +53,8 @@ if __name__ == '__main__':
                          + "{seed}.csv"  # deliberately not an f-string, used as placeholder later
                          )
 
-        tt_path = ROOT_DATA_PATH + f"{replanning_variant}/varying_{seeds_to_avg_over}_seeds/analysis/extracted_data/average_route_tts_per_deptime" + file_name_end
-        sd_path = ROOT_DATA_PATH + f"{replanning_variant}/varying_{seeds_to_avg_over}_seeds/analysis/extracted_data/summed_deps_per_time" + file_name_end
+        tt_path = ROOT_DATA_PATH + f"/{replanning_variant}/varying_{seeds_to_avg_over}_seeds/analysis/extracted_data/average_route_tts_per_deptime" + file_name_end
+        sd_path = ROOT_DATA_PATH + f"/{replanning_variant}/varying_{seeds_to_avg_over}_seeds/analysis/extracted_data/summed_deps_per_time" + file_name_end
 
         seeds = RUST_SEEDS_TO_ITERATE_OVER  # use_random seeds for rust are 42..61
         fixed_seed_string_for_filename = "read_from_random"

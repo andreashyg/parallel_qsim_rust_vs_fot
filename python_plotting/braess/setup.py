@@ -10,8 +10,9 @@ def get_config_file_data() -> dict:
     return config
 
 
-FIG_SIZE = (12, 8)
-FONT_SIZE = 28
+FIG_SIZE = (12, 10)
+BOXPLOT_FIG_SIZE = (12, 12)
+FONT_SIZE = 45
 LEGEND_FONT_SIZE = 20
 TOP_COLOUR = "blue"
 MID_COLOUR = "orange"

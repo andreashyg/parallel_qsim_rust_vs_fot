@@ -231,7 +231,7 @@ if __name__ == '__main__':
         pass
 
     fig_tt.savefig(
-        output_dir + f"/tt_avg_deviation_boxplots/tt_avg_deviation_boxplot.png")
+        output_dir + f"/tt_avg_deviation_boxplots/tt_avg_deviation_boxplot.pdf")
 
     try:
         os.makedirs(output_dir + "/tt_avg_first_deviation_scatterplots")
@@ -239,7 +239,7 @@ if __name__ == '__main__':
         pass
 
     fig_tt_avg.savefig(
-        output_dir + f"/tt_avg_first_deviation_scatterplots/tt_avg_first_deviation_scatterplot.png"
+        output_dir + f"/tt_avg_first_deviation_scatterplots/tt_avg_first_deviation_scatterplot.pdf"
     )
 
     ### SD
@@ -259,7 +259,7 @@ if __name__ == '__main__':
         pass
 
     fig_sd.savefig(
-        output_dir + f"/sd_avg_deviation_boxplots/sd_avg_deviation_boxplot.png")
+        output_dir + f"/sd_avg_deviation_boxplots/sd_avg_deviation_boxplot.pdf")
 
     try:
         os.makedirs(output_dir + "/sd_avg_first_deviation_scatterplots")
@@ -267,5 +267,5 @@ if __name__ == '__main__':
         pass
 
     fig_sd_avg.savefig(
-        output_dir + f"/sd_avg_first_deviation_scatterplots/sd_avg_first_deviation_scatterplot.png"
+        output_dir + f"/sd_avg_first_deviation_scatterplots/sd_avg_first_deviation_scatterplot.pdf"
     )

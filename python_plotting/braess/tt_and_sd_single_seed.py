@@ -40,10 +40,10 @@ if __name__ == '__main__':
 
     if read_original_java:
         fig_tt.savefig(
-            output_dir + f"/tt_per_path_over_deptime/tt_per_path_over_deptime_beta{beta}_read_from_random_{read_random}_original_java_data.png")
+            output_dir + f"/tt_per_path_over_deptime/tt_per_path_over_deptime_beta{beta}_read_from_random_{read_random}_original_java_data.pdf")
     else:
         fig_tt.savefig(
-            output_dir + f"/tt_per_path_over_deptime/tt_per_path_over_deptime_beta{beta}_read_from_random_{read_random}_use_random_seed{use_random}.png")
+            output_dir + f"/tt_per_path_over_deptime/tt_per_path_over_deptime_beta{beta}_read_from_random_{read_random}_use_random_seed{use_random}.pdf")
 
     ### SD
     fig_sd, ax_sd = plt.subplots(figsize=FIG_SIZE)
@@ -60,7 +60,7 @@ if __name__ == '__main__':
 
     if read_original_java:
         fig_sd.savefig(
-            output_dir + f"/sd_per_path_over_time/sd_per_path_over_time_beta{beta}_read_from_random_{read_random}_original_java_data.png")
+            output_dir + f"/sd_per_path_over_time/sd_per_path_over_time_beta{beta}_read_from_random_{read_random}_original_java_data.pdf")
     else:
         fig_sd.savefig(
-            output_dir + f"/sd_per_path_over_time/sd_per_path_over_time_beta{beta}_read_from_random_{read_random}_use_random_seed{use_random}.png")
+            output_dir + f"/sd_per_path_over_time/sd_per_path_over_time_beta{beta}_read_from_random_{read_random}_use_random_seed{use_random}.pdf")

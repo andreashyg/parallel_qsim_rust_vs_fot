@@ -95,6 +95,7 @@ impl Person {
             id: value.id().external().to_string(),
             plan: value.plans().iter().map(Plan::from).collect(),
             attributes: Default::default(),
+            subpopulation: Some(value.subpopulation().external().to_string()),
         }
     }
 }
@@ -105,6 +106,7 @@ impl Plan {
             selected: value.selected,
             legs: value.legs().iter().map(|p| Leg::from(p)).collect(),
             acts: value.acts().iter().map(|l| Activity::from(l)).collect(),
+            score: value.score,
         }
     }
 }
@@ -191,7 +193,7 @@ impl PtRouteDescription {
     fn from(value: &InternalPtRouteDescription) -> Self {
         Self {
             transit_route_id: value.transit_route_id.clone(),
-            boarding_time_ns: value.boarding_time.map(duration_to_u64_nanos),
+            boarding_time_ns: value.boarding_time.map(SimTime::as_nanos),
             transit_line_id: value.transit_line_id.clone(),
             access_facility_id: value.access_facility_id.clone(),
             egress_facility_id: value.egress_facility_id.clone(),
@@ -202,24 +204,25 @@ impl PtRouteDescription {
 #[cfg(test)]
 mod tests {
     use crate::generated::population::Activity;
-    use crate::generated::population::{Leg, PtRouteDescription};
+    use crate::generated::population::{Leg, Person, Plan, PtRouteDescription};
     use crate::simulation::id::Id;
     use crate::simulation::scenario::Coordinate;
     use crate::simulation::scenario::network::Network;
     use crate::simulation::scenario::population::{
-        InternalActivity, InternalGenericRoute, InternalLeg, InternalPerson,
+        InternalActivity, InternalGenericRoute, InternalLeg, InternalPerson, InternalPlan,
         InternalPtRouteDescription, InternalRoute, Population,
     };
     use crate::simulation::scenario::vehicles::Garage;
     use crate::simulation::time::SimTime;
-    use macros::integration_test;
+    use macros::deterministic_id_test;
     use std::path::PathBuf;
     use std::time::Duration;
 
-    #[test]
+    #[deterministic_id_test]
     fn activity_coordinate_round_trip_preserves_none_z() {
+        Id::<String>::create("home");
         let activity = InternalActivity::new(
-            Some(Coordinate::new(10.0, 20.0)),
+            Some(Coordinate::new_2d(10.0, 20.0)),
             "home",
             Id::create("1"),
             Some(SimTime::from_nanos(1_500_000)),
@@ -232,14 +235,15 @@ mod tests {
 
         assert_eq!(10.0, round_trip.coord.as_ref().unwrap().x);
         assert_eq!(20.0, round_trip.coord.as_ref().unwrap().y);
-        assert_eq!(None, round_trip.coord.as_ref().unwrap().z);
+        assert_eq!(0., round_trip.coord.as_ref().unwrap().z);
         assert_eq!(Some(SimTime::from_nanos(1_500_000)), round_trip.start_time);
         assert_eq!(Some(SimTime::from_nanos(2_250_000)), round_trip.end_time);
         assert_eq!(Some(Duration::from_nanos(3_500_000)), round_trip.max_dur);
     }
 
-    #[test]
+    #[deterministic_id_test]
     fn leg_round_trip_preserves_sub_millisecond_times() {
+        Id::<String>::create("walk");
         let route = InternalRoute::Generic(InternalGenericRoute::new(
             Id::create("start"),
             Id::create("end"),
@@ -269,7 +273,7 @@ mod tests {
     fn pt_route_description_round_trip_preserves_sub_millisecond_boarding_time() {
         let description = InternalPtRouteDescription {
             transit_route_id: "route-1".to_string(),
-            boarding_time: Some(Duration::from_nanos(750_000)),
+            boarding_time: Some(SimTime::from_nanos(750_000)),
             transit_line_id: "line-1".to_string(),
             access_facility_id: "access-1".to_string(),
             egress_facility_id: "egress-1".to_string(),
@@ -278,13 +282,59 @@ mod tests {
         let wire = PtRouteDescription::from(&description);
         let round_trip = InternalPtRouteDescription::from(wire);
 
-        assert_eq!(
-            Some(Duration::from_nanos(750_000)),
-            round_trip.boarding_time
-        );
+        assert_eq!(Some(SimTime::from_nanos(750_000)), round_trip.boarding_time);
     }
 
-    #[integration_test]
+    #[test]
+    fn plan_round_trip_preserves_score() {
+        let plan = InternalPlan {
+            score: Some(42.5),
+            selected: true,
+            elements: Vec::new(),
+        };
+
+        let wire = Plan::from(&plan);
+        let round_trip = InternalPlan::from(wire);
+
+        assert_eq!(Some(42.5), round_trip.score);
+    }
+
+    #[deterministic_id_test]
+    fn person_to_proto_always_writes_subpopulation() {
+        let person = InternalPerson::new(Id::create("1"), InternalPlan::default());
+
+        let wire = Person::from(&person);
+
+        assert_eq!(Some("person".to_string()), wire.subpopulation);
+    }
+
+    #[deterministic_id_test]
+    fn person_from_proto_preserves_subpopulation() {
+        Id::<InternalPerson>::create("proto-subpopulation-freight");
+        let person = InternalPerson::from(Person {
+            id: "proto-subpopulation-freight".to_string(),
+            plan: Vec::new(),
+            attributes: Default::default(),
+            subpopulation: Some("freight".to_string()),
+        });
+
+        assert_eq!("freight", person.subpopulation().external());
+    }
+
+    #[deterministic_id_test]
+    fn person_from_proto_defaults_missing_subpopulation_to_person() {
+        Id::<InternalPerson>::create("proto-subpopulation-default");
+        let person = InternalPerson::from(Person {
+            id: "proto-subpopulation-default".to_string(),
+            plan: Vec::new(),
+            attributes: Default::default(),
+            subpopulation: None,
+        });
+
+        assert_eq!("person", person.subpopulation().external());
+    }
+
+    #[deterministic_id_test]
     fn test_proto() {
         let _net = Network::from_file_as_is(&PathBuf::from("./assets/equil/equil-network.xml"));
         let mut garage = Garage::from_file(&PathBuf::from("./assets/equil/equil-vehicles.xml"));
@@ -306,7 +356,7 @@ mod tests {
         }
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn test_filtered_proto() {
         let _net = Network::from_file_as_is(&PathBuf::from("./assets/equil/equil-network.xml"));
         let mut garage = Garage::from_file(&PathBuf::from("./assets/equil/equil-vehicles.xml"));

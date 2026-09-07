@@ -1,11 +1,12 @@
 use crate::simulation::config::VertexWeight::InLinkCapacity;
 use crate::simulation::io::is_url;
+use crate::simulation::replanning::{KEEP_LAST_SELECTED_STRATEGY_NAME, WORST_SCORE_STRATEGY_NAME};
 use ahash::HashMap;
 use clap::{Parser, ValueEnum};
 use dyn_clone::DynClone;
 #[cfg(feature = "http")]
 use reqwest::Url;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::any::Any;
 use std::fmt::Debug;
 use std::fs::File;
@@ -61,11 +62,33 @@ pub fn parse_key_val(s: &str) -> Result<(String, String), String> {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Debug)]
 pub struct Config {
     modules: HashMap<String, Box<dyn ConfigModule>>,
     #[serde(skip)]
     context: Option<PathBuf>,
+}
+
+/// We need this custom deserialization implementation in order to ensure that defaults are applied after deserialization. This is
+/// especially needed for moving deprecated modules.
+impl<'de> Deserialize<'de> for Config {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct ConfigSerde {
+            modules: HashMap<String, Box<dyn ConfigModule>>,
+        }
+
+        let config = ConfigSerde::deserialize(deserializer)?;
+        let mut config = Config {
+            modules: config.modules,
+            context: None,
+        };
+        config.ensure_defaults();
+        Ok(config)
+    }
 }
 
 impl Default for Config {
@@ -124,14 +147,18 @@ impl Config {
     /// Called after deserialization to guarantee that read accessors won't panic
     /// for modules that have sensible defaults.
     pub fn ensure_defaults(&mut self) {
+        self.migrate_deprecated_simulation_module();
         self.partitioning_mut();
         self.output_mut();
-        self.simulation_mut();
+        self.qsim_mut();
+        self.controller_mut();
         self.routing_mut();
+        self.replanning_mut();
         self.computational_setup_mut();
         self.network_mut();
         self.population_mut();
         self.vehicles_mut();
+        self.transit_mut();
         self.ids_mut();
     }
 
@@ -208,6 +235,24 @@ impl Config {
             .insert("vehicles".to_string(), Box::new(vehicles));
     }
 
+    pub fn transit(&self) -> &Transit {
+        self.module::<Transit>("transit")
+            .expect("Transit was not set.")
+    }
+
+    pub fn transit_mut(&mut self) -> &mut Transit {
+        if !self.modules.contains_key("transit") {
+            self.modules
+                .insert("transit".to_string(), Box::new(Transit::default()));
+        }
+        self.module_mut::<Transit>("transit").unwrap()
+    }
+
+    pub fn set_transit(&mut self, transit: Transit) {
+        self.modules
+            .insert("transit".to_string(), Box::new(transit));
+    }
+
     pub fn ids(&self) -> &Ids {
         self.module::<Ids>("ids").expect("Ids was not set.")
     }
@@ -263,9 +308,13 @@ impl Config {
             .insert("computational_setup".to_string(), Box::new(setup));
     }
 
-    pub fn set_simulation(&mut self, simulation: Simulation) {
+    pub fn set_qsim(&mut self, qsim: QSim) {
+        self.modules.insert("qsim".to_string(), Box::new(qsim));
+    }
+
+    pub fn set_controller(&mut self, controller: Controller) {
         self.modules
-            .insert("simulation".to_string(), Box::new(simulation));
+            .insert("controller".to_string(), Box::new(controller));
     }
 
     pub fn output(&self) -> &Output {
@@ -298,30 +347,52 @@ impl Config {
             .insert("routing".to_string(), Box::new(routing));
     }
 
-    pub fn simulation(&self) -> &Simulation {
-        self.module::<Simulation>("simulation")
-            .expect("Simulation was not set.")
+    pub fn replanning(&self) -> &Replanning {
+        self.module::<Replanning>("replanning")
+            .expect("Replanning was not set.")
     }
 
-    pub fn simulation_mut(&mut self) -> &mut Simulation {
-        if !self.modules.contains_key("simulation") {
+    pub fn replanning_mut(&mut self) -> &mut Replanning {
+        if !self.modules.contains_key("replanning") {
             self.modules
-                .insert("simulation".to_string(), Box::new(Simulation::default()));
+                .insert("replanning".to_string(), Box::new(Replanning::default()));
         }
-        self.module_mut::<Simulation>("simulation").unwrap()
+        self.module_mut::<Replanning>("replanning").unwrap()
+    }
+
+    pub fn set_replanning(&mut self, replanning: Replanning) {
+        self.modules
+            .insert("replanning".to_string(), Box::new(replanning));
+    }
+
+    pub fn qsim(&self) -> &QSim {
+        self.module::<QSim>("qsim").expect("QSim was not set.")
+    }
+
+    pub fn qsim_mut(&mut self) -> &mut QSim {
+        if !self.modules.contains_key("qsim") {
+            self.modules
+                .insert("qsim".to_string(), Box::new(QSim::default()));
+        }
+        self.module_mut::<QSim>("qsim").unwrap()
+    }
+
+    pub fn controller(&self) -> &Controller {
+        self.module::<Controller>("controller")
+            .expect("ControllerConfig was not set.")
+    }
+
+    pub fn controller_mut(&mut self) -> &mut Controller {
+        if !self.modules.contains_key("controller") {
+            self.modules
+                .insert("controller".to_string(), Box::new(Controller::default()));
+        }
+        self.module_mut::<Controller>("controller").unwrap()
     }
 
     pub fn routing(&self) -> &Routing {
         self.module::<Routing>("routing")
             .expect("Routing was not set.")
-    }
-
-    pub fn drt(&self) -> Option<&Drt> {
-        self.module::<Drt>("drt")
-    }
-
-    pub fn drt_mut(&mut self) -> Option<&mut Drt> {
-        self.module_mut::<Drt>("drt")
     }
 
     pub fn computational_setup(&self) -> &ComputationalSetup {
@@ -343,6 +414,29 @@ impl Config {
 
     pub fn context(&self) -> &Option<PathBuf> {
         &self.context
+    }
+
+    fn migrate_deprecated_simulation_module(&mut self) {
+        let simulation = self
+            .modules
+            .get("simulation")
+            .and_then(|module| module.as_ref().as_any().downcast_ref::<Simulation>())
+            .cloned();
+
+        if let Some(simulation) = simulation {
+            warn!(
+                "The config module `simulation` is deprecated. Use `qsim` and `controller` instead."
+            );
+
+            if !self.modules.contains_key("qsim") {
+                self.set_qsim(QSim::from(&simulation));
+            }
+            if !self.modules.contains_key("controller") {
+                self.set_controller(Controller::from(&simulation));
+            }
+
+            self.modules.remove("simulation");
+        }
     }
 
     fn local_file_reader(config_path: impl AsRef<Path>) -> Box<dyn BufRead> {
@@ -391,6 +485,11 @@ pub struct Vehicles {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct Transit {
+    pub schedule_path: Option<PathBuf>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Ids {
     pub path: Option<PathBuf>,
 }
@@ -405,6 +504,10 @@ register_override!("population.path", |config, value| {
 
 register_override!("vehicles.path", |config, value| {
     config.vehicles_mut().path = Some(PathBuf::from(value));
+});
+
+register_override!("transit.schedule_path", |config, value| {
+    config.transit_mut().schedule_path = Some(PathBuf::from(value));
 });
 
 register_override!("ids.path", |config, value| {
@@ -464,6 +567,62 @@ register_override!("output.overwrite_files", |config, value| {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Routing {
     pub mode: RoutingMode,
+    #[serde(default)]
+    pub network_modes: Vec<String>,
+    #[serde(default = "default_access_egress_mode")]
+    pub access_egress_mode: String,
+    #[serde(
+        default = "default_teleported_mode_params",
+        deserialize_with = "deserialize_teleported_mode_params"
+    )]
+    pub teleported_mode_params: Vec<TeleportedParams>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct TeleportedParams {
+    pub mode: String,
+    pub beeline_distance_factor: f64,
+    pub teleported_mode_speed: f64,
+}
+
+fn default_access_egress_mode() -> String {
+    "walk".to_string()
+}
+
+fn default_walk_teleported_params() -> TeleportedParams {
+    TeleportedParams {
+        mode: "walk".to_string(),
+        beeline_distance_factor: 1.3,
+        teleported_mode_speed: 3.0 / 3.6,
+    }
+}
+
+fn default_teleported_mode_params() -> Vec<TeleportedParams> {
+    vec![default_walk_teleported_params()]
+}
+
+fn deserialize_teleported_mode_params<'de, D>(
+    deserializer: D,
+) -> Result<Vec<TeleportedParams>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let mut params = Vec::<TeleportedParams>::deserialize(deserializer)?;
+    let last_walk_index = params.iter().rposition(|param| param.mode == "walk");
+
+    if let Some(last_walk_index) = last_walk_index {
+        params = params
+            .into_iter()
+            .enumerate()
+            .filter_map(|(index, param)| {
+                (param.mode != "walk" || index == last_walk_index).then_some(param)
+            })
+            .collect();
+    } else {
+        params.push(default_walk_teleported_params());
+    }
+
+    Ok(params)
 }
 
 register_override!("routing.mode", |config, value| {
@@ -478,40 +637,64 @@ impl Default for Routing {
     fn default() -> Self {
         Routing {
             mode: RoutingMode::UsePlans,
+            network_modes: Vec::new(),
+            access_egress_mode: default_access_egress_mode(),
+            teleported_mode_params: default_teleported_mode_params(),
         }
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct Drt {
-    #[serde(default)]
-    pub process_type: DrtProcessType,
-    pub services: Vec<DrtService>,
-}
-
-#[derive(PartialEq, Debug, ValueEnum, Clone, Copy, Serialize, Deserialize, Default)]
-pub enum DrtProcessType {
-    #[default]
-    OneProcess,
-    OneProcessPerService,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct DrtService {
-    pub mode: String,
-    #[serde(default)]
-    pub stop_duration: u32,
-    #[serde(default)]
-    pub max_wait_time: u32,
-    #[serde(default)]
-    pub max_travel_time_alpha: f32,
-    #[serde(default)]
-    pub max_travel_time_beta: f32,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
-pub struct Simulation {
+pub struct Replanning {
+    pub fraction_of_iterations_to_disable_innovation: f64,
+    pub max_agent_plan_memory: u32,
+    pub plan_selector_for_removal: String,
+    pub strategy_settings: Vec<StrategySetting>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct StrategySetting {
+    pub name: String,
+    pub weight: f64,
+    pub subpopulation: String,
+}
+
+register_override!(
+    "replanning.fraction_of_iterations_to_disable_innovation",
+    |config, value| {
+        config
+            .replanning_mut()
+            .fraction_of_iterations_to_disable_innovation = value.parse().unwrap();
+    }
+);
+
+register_override!("replanning.max_agent_plan_memory", |config, value| {
+    config.replanning_mut().max_agent_plan_memory = value.parse().unwrap();
+});
+
+register_override!("replanning.plan_selector_for_removal", |config, value| {
+    config.replanning_mut().plan_selector_for_removal = value.to_string();
+});
+
+impl Default for Replanning {
+    fn default() -> Self {
+        Self {
+            fraction_of_iterations_to_disable_innovation: 1.0,
+            max_agent_plan_memory: 5,
+            plan_selector_for_removal: WORST_SCORE_STRATEGY_NAME.to_string(),
+            strategy_settings: vec![StrategySetting {
+                name: KEEP_LAST_SELECTED_STRATEGY_NAME.to_string(),
+                weight: 1.0,
+                subpopulation: "person".to_string(),
+            }],
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct QSim {
     pub start_time: u32,
     pub end_time: u32,
     pub ticks_per_second: u32,
@@ -519,6 +702,106 @@ pub struct Simulation {
     pub stuck_threshold: u32,
     pub main_modes: Vec<String>,
 }
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct Controller {
+    pub first_iteration: u32,
+    pub last_iteration: u32,
+    pub write_events_interval: u32,
+    pub write_plans_interval: u32,
+    pub compression_type: CompressionType,
+}
+
+#[deprecated(note = "Use `QSim` and `Controller` instead. This will be removed in the future.")]
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(default)]
+pub struct Simulation {
+    pub first_iteration: u32,
+    pub last_iteration: u32,
+    pub write_events_interval: u32,
+    pub write_plans_interval: u32,
+    pub start_time: u32,
+    pub end_time: u32,
+    pub ticks_per_second: u32,
+    pub sample_size: f64,
+    pub stuck_threshold: u32,
+    pub main_modes: Vec<String>,
+}
+
+impl From<&Simulation> for QSim {
+    fn from(value: &Simulation) -> Self {
+        Self {
+            start_time: value.start_time,
+            end_time: value.end_time,
+            ticks_per_second: value.ticks_per_second,
+            sample_size: value.sample_size,
+            stuck_threshold: value.stuck_threshold,
+            main_modes: value.main_modes.clone(),
+        }
+    }
+}
+
+impl From<&Simulation> for Controller {
+    fn from(value: &Simulation) -> Self {
+        Self {
+            first_iteration: value.first_iteration,
+            last_iteration: value.last_iteration,
+            write_events_interval: value.write_events_interval,
+            write_plans_interval: value.write_plans_interval,
+            compression_type: CompressionType::Proto,
+        }
+    }
+}
+
+register_override!("qsim.start_time", |config, value| {
+    config.qsim_mut().start_time = value.parse().unwrap();
+});
+
+register_override!("qsim.end_time", |config, value| {
+    config.qsim_mut().end_time = value.parse().unwrap();
+});
+
+register_override!("qsim.ticks_per_second", |config, value| {
+    config.qsim_mut().ticks_per_second = value.parse().unwrap();
+});
+
+register_override!("qsim.sample_size", |config, value| {
+    config.qsim_mut().sample_size = value.parse().unwrap();
+});
+
+register_override!("qsim.stuck_threshold", |config, value| {
+    config.qsim_mut().stuck_threshold = value.parse().unwrap();
+});
+
+register_override!("qsim.main_modes", |config, value| {
+    config.qsim_mut().main_modes = value
+        .split(',')
+        .map(str::trim)
+        .filter(|mode| !mode.is_empty())
+        .map(ToString::to_string)
+        .collect();
+});
+
+register_override!("controller.first_iteration", |config, value| {
+    config.controller_mut().first_iteration = value.parse().unwrap();
+});
+
+register_override!("controller.last_iteration", |config, value| {
+    config.controller_mut().last_iteration = value.parse().unwrap();
+});
+
+register_override!("controller.write_events_interval", |config, value| {
+    config.controller_mut().write_events_interval = value.parse().unwrap();
+});
+
+register_override!("controller.write_plans_interval", |config, value| {
+    config.controller_mut().write_plans_interval = value.parse().unwrap();
+});
+
+register_override!("controller.compression_type", |config, value| {
+    config.controller_mut().compression_type = parse_compression_type(value);
+});
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 #[serde(default)]
@@ -600,6 +883,16 @@ impl ConfigModule for Vehicles {
 }
 
 #[typetag::serde]
+impl ConfigModule for Transit {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+}
+
+#[typetag::serde]
 impl ConfigModule for Ids {
     fn as_any(&self) -> &dyn Any {
         self
@@ -640,6 +933,36 @@ impl ConfigModule for Routing {
 }
 
 #[typetag::serde]
+impl ConfigModule for Replanning {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+}
+
+#[typetag::serde]
+impl ConfigModule for QSim {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+}
+
+#[typetag::serde]
+impl ConfigModule for Controller {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+}
+
+#[typetag::serde]
 impl ConfigModule for Simulation {
     fn as_any(&self) -> &dyn Any {
         self
@@ -659,20 +982,10 @@ impl ConfigModule for ComputationalSetup {
     }
 }
 
-#[typetag::serde]
-impl ConfigModule for Drt {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-}
-
 // This is needed to allow cloning of the trait object and thus cloning of the Config.
 dyn_clone::clone_trait_object!(ConfigModule);
 
-impl Default for Simulation {
+impl Default for QSim {
     fn default() -> Self {
         Self {
             start_time: 0,
@@ -681,6 +994,37 @@ impl Default for Simulation {
             sample_size: 1.0,
             stuck_threshold: 10,
             main_modes: vec![],
+        }
+    }
+}
+
+impl Default for Controller {
+    fn default() -> Self {
+        Self {
+            first_iteration: 0,
+            last_iteration: 1000,
+            write_events_interval: 50,
+            write_plans_interval: 50,
+            compression_type: CompressionType::Proto,
+        }
+    }
+}
+
+impl Default for Simulation {
+    fn default() -> Self {
+        let qsim = QSim::default();
+        let controller = Controller::default();
+        Self {
+            first_iteration: controller.first_iteration,
+            last_iteration: controller.last_iteration,
+            write_events_interval: controller.write_events_interval,
+            write_plans_interval: controller.write_plans_interval,
+            start_time: qsim.start_time,
+            end_time: qsim.end_time,
+            ticks_per_second: qsim.ticks_per_second,
+            sample_size: qsim.sample_size,
+            stuck_threshold: qsim.stuck_threshold,
+            main_modes: qsim.main_modes,
         }
     }
 }
@@ -733,10 +1077,49 @@ pub enum Logging {
 
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize, Default)]
 pub enum WriteEvents {
+    #[default]
     None,
+    // for backward compatability, we still allow "Proto" and "XmlGz"
+    #[serde(alias = "Proto", alias = "XmlGz")]
+    File,
+}
+
+#[derive(PartialEq, Debug, ValueEnum, Clone, Copy, Serialize, Deserialize, Default)]
+pub enum CompressionType {
+    None,
+    Gz,
     #[default]
     Proto,
-    XmlGz,
+    Zst,
+}
+
+impl CompressionType {
+    pub fn extension(self) -> &'static str {
+        match self {
+            Self::None => "xml",
+            Self::Gz => "xml.gz",
+            Self::Proto => "binpb",
+            Self::Zst => "xml.zst",
+        }
+    }
+
+    pub fn with_extension(self, stem: &str) -> String {
+        format!("{stem}.{}", self.extension())
+    }
+
+    pub fn is_protobuf(self) -> bool {
+        self == Self::Proto
+    }
+}
+
+fn parse_compression_type(value: &str) -> CompressionType {
+    match value.to_lowercase().replace(['-', '_'], "").as_str() {
+        "none" | "xml" => CompressionType::None,
+        "gz" | "gzip" | "xmlgz" => CompressionType::Gz,
+        "protobuf" | "proto" | "binpb" => CompressionType::Proto,
+        "zst" | "zstd" | "xmlzst" => CompressionType::Zst,
+        _ => panic!("Invalid compression_type: {}", value),
+    }
 }
 
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize, Default)]
@@ -885,11 +1268,15 @@ mod tests {
     use crate::simulation::config::Profiling;
     use crate::simulation::config::WriteEvents;
     use crate::simulation::config::{
-        CommandLineArgs, ComputationalSetup, Config, Drt, DrtProcessType, DrtService, EdgeWeight,
-        MetisOptions, PartitionMethod, Partitioning, Simulation, VertexWeight, parse_key_val,
+        CommandLineArgs, CompressionType, ComputationalSetup, Config, Controller, EdgeWeight,
+        MetisOptions, PartitionMethod, Partitioning, QSim, Replanning, Routing, StrategySetting,
+        TeleportedParams, VertexWeight, parse_key_val,
     };
-    use crate::simulation::config::{Ids, Network, Population, Vehicles};
+    use crate::simulation::config::{Ids, Network, Population, Transit, Vehicles};
     use crate::simulation::config::{Logging, RoutingMode};
+    use crate::simulation::replanning::{
+        KEEP_LAST_SELECTED_STRATEGY_NAME, WORST_SCORE_STRATEGY_NAME,
+    };
     use std::io::Write;
     use tempfile::NamedTempFile;
 
@@ -914,7 +1301,7 @@ mod tests {
             random_seed: config::DEFAULT_RANDOM_SEED,
         };
 
-        let simulation = Simulation {
+        let qsim = QSim {
             start_time: 0,
             end_time: 42,
             ticks_per_second: 1,
@@ -922,10 +1309,18 @@ mod tests {
             stuck_threshold: 1,
             main_modes: vec!["bike".to_string()],
         };
+        let controller = Controller {
+            first_iteration: 2,
+            last_iteration: 4,
+            write_events_interval: 3,
+            write_plans_interval: 5,
+            compression_type: CompressionType::Zst,
+        };
 
         config.set_partitioning(partitioning);
         config.set_computational_setup(computational_setup);
-        config.set_simulation(simulation);
+        config.set_qsim(qsim);
+        config.set_controller(controller);
 
         let yaml = serde_yaml::to_string(&config).expect("Failed to serialize yaml");
 
@@ -954,12 +1349,66 @@ mod tests {
         assert_eq!(parsed_config.computational_setup().replanning_threads, 7);
         assert_eq!(parsed_config.computational_setup().retry_time_seconds, 41);
 
-        assert_eq!(parsed_config.simulation().start_time, 0);
-        assert_eq!(parsed_config.simulation().end_time, 42);
-        assert_eq!(parsed_config.simulation().ticks_per_second, 1);
-        assert_eq!(parsed_config.simulation().sample_size, 0.1);
-        assert_eq!(parsed_config.simulation().stuck_threshold, 1);
-        assert_eq!(parsed_config.simulation().main_modes, vec!["bike"]);
+        assert_eq!(parsed_config.controller().first_iteration, 2);
+        assert_eq!(parsed_config.controller().last_iteration, 4);
+        assert_eq!(parsed_config.controller().write_events_interval, 3);
+        assert_eq!(parsed_config.controller().write_plans_interval, 5);
+        assert_eq!(
+            parsed_config.controller().compression_type,
+            CompressionType::Zst
+        );
+        assert_eq!(parsed_config.qsim().start_time, 0);
+        assert_eq!(parsed_config.qsim().end_time, 42);
+        assert_eq!(parsed_config.qsim().ticks_per_second, 1);
+        assert_eq!(parsed_config.qsim().sample_size, 0.1);
+        assert_eq!(parsed_config.qsim().stuck_threshold, 1);
+        assert_eq!(parsed_config.qsim().main_modes, vec!["bike"]);
+    }
+
+    #[test]
+    fn controller_defaults_include_iteration_range_and_compression() {
+        let config = Config::default();
+
+        assert_eq!(config.controller().first_iteration, 0);
+        assert_eq!(config.controller().last_iteration, 1000);
+        assert_eq!(config.controller().write_events_interval, 50);
+        assert_eq!(config.controller().write_plans_interval, 50);
+        assert_eq!(config.controller().compression_type, CompressionType::Proto);
+    }
+
+    #[test]
+    fn deprecated_simulation_module_migrates_to_qsim_and_controller() {
+        let yaml = r#"
+        modules:
+          simulation:
+            type: Simulation
+            first_iteration: 2
+            last_iteration: 4
+            write_events_interval: 3
+            write_plans_interval: 5
+            start_time: 1
+            end_time: 42
+            ticks_per_second: 10
+            sample_size: 0.5
+            stuck_threshold: 99
+            main_modes: ["car", "bike"]
+        "#;
+
+        let parsed_config: Config = serde_yaml::from_str(yaml).expect("failed to parse config");
+        assert_eq!(parsed_config.controller().first_iteration, 2);
+        assert_eq!(parsed_config.controller().last_iteration, 4);
+        assert_eq!(parsed_config.controller().write_events_interval, 3);
+        assert_eq!(parsed_config.controller().write_plans_interval, 5);
+        assert_eq!(
+            parsed_config.controller().compression_type,
+            CompressionType::Proto
+        );
+        assert_eq!(parsed_config.qsim().start_time, 1);
+        assert_eq!(parsed_config.qsim().end_time, 42);
+        assert_eq!(parsed_config.qsim().ticks_per_second, 10);
+        assert_eq!(parsed_config.qsim().sample_size, 0.5);
+        assert_eq!(parsed_config.qsim().stuck_threshold, 99);
+        assert_eq!(parsed_config.qsim().main_modes, vec!["car", "bike"]);
     }
 
     #[test]
@@ -1004,6 +1453,236 @@ mod tests {
     }
 
     #[test]
+    fn read_routing_modes_from_yaml() {
+        let yaml = r#"
+        modules:
+          routing:
+            type: Routing
+            mode: UsePlans
+            network_modes:
+              - car
+              - bike
+            teleported_mode_params:
+              - mode: walk
+                beeline_distance_factor: 1.3
+                teleported_mode_speed: 1.4
+              - mode: pt
+                beeline_distance_factor: 1.1
+                teleported_mode_speed: 8.0
+        "#;
+
+        let parsed_config: Config = serde_yaml::from_str(yaml).expect("failed to parse config");
+
+        assert_eq!(parsed_config.routing().mode, RoutingMode::UsePlans);
+        assert_eq!(parsed_config.routing().network_modes, vec!["car", "bike"]);
+        assert_eq!(parsed_config.routing().access_egress_mode, "walk");
+        assert_eq!(
+            parsed_config.routing().teleported_mode_params,
+            vec![
+                TeleportedParams {
+                    mode: "walk".to_string(),
+                    beeline_distance_factor: 1.3,
+                    teleported_mode_speed: 1.4,
+                },
+                TeleportedParams {
+                    mode: "pt".to_string(),
+                    beeline_distance_factor: 1.1,
+                    teleported_mode_speed: 8.0,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn routing_defaults_include_walk_access_egress_and_teleported_params() {
+        let default_routing = Routing::default();
+        assert_eq!(default_routing.access_egress_mode, "walk");
+        assert_eq!(
+            default_routing.teleported_mode_params,
+            vec![TeleportedParams {
+                mode: "walk".to_string(),
+                beeline_distance_factor: 1.3,
+                teleported_mode_speed: 3.0 / 3.6,
+            }]
+        );
+
+        let default_config = Config::default();
+        assert_eq!(default_config.routing().access_egress_mode, "walk");
+        assert_eq!(
+            default_config.routing().teleported_mode_params,
+            vec![TeleportedParams {
+                mode: "walk".to_string(),
+                beeline_distance_factor: 1.3,
+                teleported_mode_speed: 3.0 / 3.6,
+            }]
+        );
+
+        let yaml = r#"
+        modules:
+          routing:
+            type: Routing
+            mode: UsePlans
+        "#;
+
+        let parsed_config: Config = serde_yaml::from_str(yaml).expect("failed to parse config");
+
+        assert_eq!(parsed_config.routing().mode, RoutingMode::UsePlans);
+        assert!(parsed_config.routing().network_modes.is_empty());
+        assert_eq!(parsed_config.routing().access_egress_mode, "walk");
+        assert_eq!(
+            parsed_config.routing().teleported_mode_params,
+            vec![TeleportedParams {
+                mode: "walk".to_string(),
+                beeline_distance_factor: 1.3,
+                teleported_mode_speed: 3.0 / 3.6,
+            }]
+        );
+    }
+
+    #[test]
+    fn read_replanning_from_yaml() {
+        let yaml = r#"
+        modules:
+          replanning:
+            type: Replanning
+            fraction_of_iterations_to_disable_innovation: 0.8
+            max_agent_plan_memory: 7
+            plan_selector_for_removal: BestScore
+            strategy_settings:
+              - name: ReRoute
+                weight: 0.1
+                subpopulation: person
+              - name: BestScore
+                weight: 0.9
+                subpopulation: freight
+        "#;
+
+        let parsed_config: Config = serde_yaml::from_str(yaml).expect("failed to parse config");
+
+        assert_eq!(
+            parsed_config.replanning(),
+            &Replanning {
+                fraction_of_iterations_to_disable_innovation: 0.8,
+                max_agent_plan_memory: 7,
+                plan_selector_for_removal: "BestScore".to_string(),
+                strategy_settings: vec![
+                    StrategySetting {
+                        name: "ReRoute".to_string(),
+                        weight: 0.1,
+                        subpopulation: "person".to_string(),
+                    },
+                    StrategySetting {
+                        name: "BestScore".to_string(),
+                        weight: 0.9,
+                        subpopulation: "freight".to_string(),
+                    },
+                ],
+            }
+        );
+    }
+
+    #[test]
+    fn replanning_defaults_are_available_on_default_config() {
+        let config = Config::default();
+
+        assert_eq!(
+            config.replanning(),
+            &Replanning {
+                fraction_of_iterations_to_disable_innovation: 1.0,
+                max_agent_plan_memory: 5,
+                plan_selector_for_removal: WORST_SCORE_STRATEGY_NAME.to_string(),
+                strategy_settings: vec![StrategySetting {
+                    name: KEEP_LAST_SELECTED_STRATEGY_NAME.to_string(),
+                    weight: 1.0,
+                    subpopulation: "person".to_string(),
+                }],
+            }
+        );
+    }
+
+    #[test]
+    fn routing_empty_teleported_params_use_default_walk() {
+        let yaml = r#"
+        modules:
+          routing:
+            type: Routing
+            mode: UsePlans
+            teleported_mode_params: []
+        "#;
+
+        let parsed_config: Config = serde_yaml::from_str(yaml).expect("failed to parse config");
+
+        assert_eq!(
+            parsed_config.routing().teleported_mode_params,
+            vec![TeleportedParams {
+                mode: "walk".to_string(),
+                beeline_distance_factor: 1.3,
+                teleported_mode_speed: 3.0 / 3.6,
+            }]
+        );
+    }
+
+    #[test]
+    fn routing_other_teleported_params_also_include_default_walk() {
+        let yaml = r#"
+        modules:
+          routing:
+            type: Routing
+            mode: UsePlans
+            teleported_mode_params:
+              - mode: pt
+                beeline_distance_factor: 1.1
+                teleported_mode_speed: 8.0
+        "#;
+
+        let parsed_config: Config = serde_yaml::from_str(yaml).expect("failed to parse config");
+
+        assert_eq!(
+            parsed_config.routing().teleported_mode_params,
+            vec![
+                TeleportedParams {
+                    mode: "pt".to_string(),
+                    beeline_distance_factor: 1.1,
+                    teleported_mode_speed: 8.0,
+                },
+                TeleportedParams {
+                    mode: "walk".to_string(),
+                    beeline_distance_factor: 1.3,
+                    teleported_mode_speed: 3.0 / 3.6,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn routing_explicit_walk_params_replace_defaults_without_duplicates() {
+        let yaml = r#"
+        modules:
+          routing:
+            type: Routing
+            mode: UsePlans
+            teleported_mode_params:
+              - mode: walk
+                beeline_distance_factor: 1.1
+                teleported_mode_speed: 1.4
+              - mode: walk
+                beeline_distance_factor: 1.2
+                teleported_mode_speed: 1.5
+        "#;
+
+        let parsed_config: Config = serde_yaml::from_str(yaml).expect("failed to parse config");
+
+        assert_eq!(
+            parsed_config.routing().teleported_mode_params,
+            vec![TeleportedParams {
+                mode: "walk".to_string(),
+                beeline_distance_factor: 1.2,
+                teleported_mode_speed: 1.5,
+            }]
+        );
+    }
+
+    #[test]
     fn test_imbalance_factor() {
         assert_eq!(
             MetisOptions::default().set_imbalance_factor(0.03).ufactor(),
@@ -1034,55 +1713,6 @@ mod tests {
         assert_eq!(
             MetisOptions::default().set_imbalance_factor(1.1).ufactor(),
             1100
-        );
-    }
-
-    #[test]
-    fn test_drt() {
-        let serde = r#"
-        modules:
-          drt:
-            type: Drt
-            process_type: OneProcess
-            services:
-              - mode: drt_a
-                stop_duration: 60
-                max_wait_time: 900
-                max_travel_time_alpha: 1.3
-                max_travel_time_beta: 600.
-        "#;
-
-        let mut config = Config::default();
-        let drt = Drt {
-            process_type: DrtProcessType::OneProcess,
-            services: vec![DrtService {
-                mode: "drt_a".to_string(),
-                stop_duration: 60,
-                max_wait_time: 900,
-                max_travel_time_alpha: 1.3,
-                max_travel_time_beta: 600.,
-            }],
-        };
-        config.modules.insert("drt".to_string(), Box::new(drt));
-
-        let parsed_config: Config = serde_yaml::from_str(serde).expect("failed to parse config");
-        assert_eq!(
-            parsed_config.drt().unwrap().process_type,
-            DrtProcessType::OneProcess
-        );
-        assert_eq!(
-            parsed_config.drt().unwrap().services[0].mode,
-            "drt_a".to_string()
-        );
-        assert_eq!(parsed_config.drt().unwrap().services[0].stop_duration, 60);
-        assert_eq!(parsed_config.drt().unwrap().services[0].max_wait_time, 900);
-        assert_eq!(
-            parsed_config.drt().unwrap().services[0].max_travel_time_alpha,
-            1.3
-        );
-        assert_eq!(
-            parsed_config.drt().unwrap().services[0].max_travel_time_beta,
-            600.
         );
     }
 
@@ -1150,6 +1780,55 @@ modules:
         };
         let config = Config::from_args(args);
         assert_eq!(config.population().path, None);
+    }
+
+    #[test]
+    fn transit_defaults_to_no_schedule() {
+        let config = Config::default();
+
+        assert_eq!(None, config.transit().schedule_path);
+    }
+
+    #[test]
+    fn read_transit_schedule_path_from_yaml() {
+        let yaml = r#"
+modules:
+  transit:
+    type: Transit
+    schedule_path: schedule.xml.gz
+"#;
+
+        let parsed_config: Config = serde_yaml::from_str(yaml).expect("failed to parse config");
+
+        assert_eq!(
+            Some(PathBuf::from("schedule.xml.gz")),
+            parsed_config.transit().schedule_path
+        );
+    }
+
+    #[test]
+    fn test_override_transit_schedule_path() {
+        let yaml = r#"
+modules:
+  transit:
+    type: Transit
+    schedule_path: schedule.xml
+"#;
+        let file = write_temp_config(yaml);
+        let args = CommandLineArgs {
+            config: file.path().to_str().unwrap().to_string(),
+            overrides: vec![(
+                "transit.schedule_path".to_string(),
+                "schedule.binpb".to_string(),
+            )],
+        };
+
+        let config = Config::from_args(args);
+
+        assert_eq!(
+            Some(PathBuf::from("schedule.binpb")),
+            config.transit().schedule_path
+        );
     }
 
     #[test]
@@ -1263,6 +1942,9 @@ modules:
         config.set_vehicles(Vehicles {
             path: Some("veh".into()),
         });
+        config.set_transit(Transit {
+            schedule_path: Some("schedule".into()),
+        });
         config.set_ids(Ids {
             path: Some("ids".into()),
         });
@@ -1278,8 +1960,15 @@ modules:
             num_parts: 1,
             method: PartitionMethod::None,
         });
-        config.set_routing(crate::simulation::config::Routing {
+        config.set_routing(Routing {
             mode: RoutingMode::UsePlans,
+            network_modes: Vec::new(),
+            access_egress_mode: "walk".to_string(),
+            teleported_mode_params: vec![TeleportedParams {
+                mode: "walk".to_string(),
+                beeline_distance_factor: 1.3,
+                teleported_mode_speed: 3.0 / 3.6,
+            }],
         });
         config
     }
@@ -1306,6 +1995,42 @@ modules:
             "3".to_string(),
         )]);
         assert_eq!(config.computational_setup().replanning_threads, 3);
+    }
+
+    #[test]
+    fn override_controller_and_qsim_settings() {
+        let mut config = base_config();
+        config.apply_overrides(&[
+            ("controller.first_iteration".to_string(), "12".to_string()),
+            ("controller.last_iteration".to_string(), "34".to_string()),
+            (
+                "controller.write_events_interval".to_string(),
+                "7".to_string(),
+            ),
+            (
+                "controller.write_plans_interval".to_string(),
+                "9".to_string(),
+            ),
+            ("controller.compression_type".to_string(), "zst".to_string()),
+            ("qsim.start_time".to_string(), "1".to_string()),
+            ("qsim.end_time".to_string(), "2".to_string()),
+            ("qsim.ticks_per_second".to_string(), "10".to_string()),
+            ("qsim.sample_size".to_string(), "0.25".to_string()),
+            ("qsim.stuck_threshold".to_string(), "30".to_string()),
+            ("qsim.main_modes".to_string(), "car,bike".to_string()),
+        ]);
+
+        assert_eq!(config.controller().first_iteration, 12);
+        assert_eq!(config.controller().last_iteration, 34);
+        assert_eq!(config.controller().write_events_interval, 7);
+        assert_eq!(config.controller().write_plans_interval, 9);
+        assert_eq!(config.controller().compression_type, CompressionType::Zst);
+        assert_eq!(config.qsim().start_time, 1);
+        assert_eq!(config.qsim().end_time, 2);
+        assert_eq!(config.qsim().ticks_per_second, 10);
+        assert_eq!(config.qsim().sample_size, 0.25);
+        assert_eq!(config.qsim().stuck_threshold, 30);
+        assert_eq!(config.qsim().main_modes, vec!["car", "bike"]);
     }
 
     #[test]

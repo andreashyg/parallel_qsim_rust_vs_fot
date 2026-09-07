@@ -11,6 +11,8 @@ use nohash_hasher::IntMap;
 use rand::SeedableRng;
 use rand::prelude::IteratorRandom;
 use rand::rngs::StdRng;
+use rayon::iter::IntoParallelRefIterator;
+use rayon::iter::ParallelIterator;
 use std::f64;
 
 /// Disutility data for a pair of nodes, in both forward and backward direction.
@@ -76,7 +78,7 @@ impl AltLandmarkData {
             DEFAULT_NUMBER_OF_LANDMARKS
         };
         //TODO do not choose random landmarks
-        (0..graph.num_nodes()).choose_multiple(&mut StdRng::seed_from_u64(42), number_of_landmarks)
+        (0..graph.num_nodes()).sample(&mut StdRng::seed_from_u64(42), number_of_landmarks)
     }
 
     /// Calculate travel disutilities from given list of landmarks to all other nodes in the graph,
@@ -88,7 +90,7 @@ impl AltLandmarkData {
     ) -> Result<Vec<Vec<ForwardBackwardTravelDisutility>>, GraphError> {
         // for every landmark...
         landmarks
-            .iter()
+            .par_iter()
             .map(
                 |landmark_node| -> Result<Vec<ForwardBackwardTravelDisutility>, GraphError> {
                     // ... calculate forward and backward disutilities to all other nodes

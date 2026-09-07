@@ -1,5 +1,5 @@
+use nohash_hasher::IntMap;
 use serde::{Deserialize, Deserializer, Serialize};
-use std::collections::HashMap;
 use std::path::Path;
 use tracing::{info, warn};
 
@@ -10,7 +10,7 @@ use crate::simulation::io::xml;
 use crate::simulation::io::xml::attributes::IOAttributes;
 use crate::simulation::scenario::population::{
     InternalActivity, InternalLeg, InternalPerson, InternalPlan, InternalPlanElement,
-    InternalRoute, Population,
+    InternalRoute, Population, SUBPOPULATION,
 };
 use crate::simulation::scenario::vehicles::Garage;
 use crate::simulation::time::SimTime;
@@ -18,8 +18,12 @@ use crate::simulation::time::SimTime;
 pub(crate) fn load_from_xml(
     path: impl AsRef<Path>,
     garage: &mut Garage,
-) -> HashMap<Id<InternalPerson>, InternalPerson> {
-    let io_pop = IOPopulation::from_file(path);
+) -> IntMap<Id<InternalPerson>, InternalPerson> {
+    let mut io_pop = IOPopulation::from_file(path);
+
+    info!("Sorting population by id.");
+    io_pop.persons.sort_by(|a, b| a.id.cmp(&b.id));
+
     create_ids(&io_pop, garage);
     create_population(io_pop)
 }
@@ -73,8 +77,8 @@ fn create_ids(io_pop: &IOPopulation, garage: &mut Garage) {
         });
 }
 
-fn create_population(io_pop: IOPopulation) -> HashMap<Id<InternalPerson>, InternalPerson> {
-    let mut result = HashMap::new();
+fn create_population(io_pop: IOPopulation) -> IntMap<Id<InternalPerson>, InternalPerson> {
+    let mut result = IntMap::default();
     for io_person in io_pop.persons {
         let person = InternalPerson::from(io_person);
         result.insert(person.id().clone(), person);
@@ -279,6 +283,8 @@ pub struct IOPlan {
         serialize_with = "bool_to_yes_no"
     )]
     pub selected: bool,
+    #[serde(rename = "@score", skip_serializing_if = "Option::is_none")]
+    pub score: Option<f64>,
     // https://users.rust-lang.org/t/serde-deserializing-a-vector-of-enums/51647/2
     #[serde(rename = "$value")]
     pub elements: Vec<IOPlanElement>,
@@ -296,6 +302,7 @@ impl From<&InternalPlan> for IOPlan {
 
         IOPlan {
             selected,
+            score: internal_plan.score,
             elements: io_plan_elements,
         }
     }
@@ -395,6 +402,10 @@ pub struct IOPopulation {
 
 impl IOPopulation {
     pub fn from_file(file_path: impl AsRef<Path>) -> IOPopulation {
+        info!(
+            "IOPopulation: Reading population from file {}",
+            file_path.as_ref().display()
+        );
         let population: IOPopulation = xml::read_from_file(file_path);
         info!(
             "IOPopulation: Finished reading population. Population contains {} persons",
@@ -429,7 +440,7 @@ impl From<&Population> for IOPopulation {
             let io_person = IOPerson {
                 id: ipers_id.to_string(),
                 plans: io_plans,
-                attributes: IOAttributes::from_internal_none_if_empty(internal_person.attributes()),
+                attributes: io_person_attributes(internal_person),
             };
 
             io_persons.push(io_person);
@@ -441,6 +452,15 @@ impl From<&Population> for IOPopulation {
     }
 }
 
+fn io_person_attributes(internal_person: &InternalPerson) -> Option<IOAttributes> {
+    let mut attributes = internal_person.attributes().clone();
+    attributes.insert(
+        SUBPOPULATION,
+        internal_person.subpopulation().external().to_string(),
+    );
+    IOAttributes::from_internal_none_if_empty(&attributes)
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs::create_dir_all;
@@ -450,14 +470,16 @@ mod tests {
     use crate::simulation::id::Id;
     use crate::simulation::io::xml::attributes::{IOAttribute, IOAttributes};
     use crate::simulation::io::xml::population::{
-        IOActivity, IOLeg, IOPerson, IOPlanElement, IOPopulation, load_from_xml, write_to_xml,
+        IOActivity, IOLeg, IOPerson, IOPlan, IOPlanElement, IOPopulation, load_from_xml,
+        write_to_xml,
     };
     use crate::simulation::logging::init_std_out_logging_thread_local;
     use crate::simulation::scenario::network::Network;
-    use crate::simulation::scenario::population::Population;
+    use crate::simulation::scenario::population::{InternalPerson, InternalPlan, Population};
     use crate::simulation::scenario::vehicles::Garage;
-    use macros::integration_test;
+    use macros::deterministic_id_test;
     use quick_xml::de::from_str;
+    use quick_xml::se::to_string;
 
     /**
     This tests against the first person from the equil mod. Probably this doesn't cover all
@@ -520,6 +542,7 @@ mod tests {
 
         let plan = person.plans.first().unwrap();
         assert!(plan.selected);
+        assert_eq!(None, plan.score);
         assert_eq!(7, plan.elements.len());
 
         // probe for first leg and second activity
@@ -562,6 +585,83 @@ mod tests {
                 panic!("Plan element at inded 6 was expected to be an activity but was a Leg.")
             }
         }
+    }
+
+    #[test]
+    fn reads_optional_plan_score() {
+        let xml = r#"
+            <population>
+                <person id="1">
+                    <plan selected="yes" score="-12.5">
+                        <activity type="home" link="1" />
+                    </plan>
+                    <plan selected="no">
+                        <activity type="home" link="1" />
+                    </plan>
+                </person>
+            </population>
+        "#;
+
+        let population: IOPopulation = from_str(xml).unwrap();
+        let plans = &population.persons[0].plans;
+
+        assert_eq!(Some(-12.5), plans[0].score);
+        assert_eq!(None, plans[1].score);
+    }
+
+    #[test]
+    fn writes_plan_score_only_when_present() {
+        let with_score = to_string(&IOPlan {
+            selected: true,
+            score: Some(7.25),
+            elements: Vec::new(),
+        })
+        .unwrap();
+        let without_score = to_string(&IOPlan {
+            selected: true,
+            score: None,
+            elements: Vec::new(),
+        })
+        .unwrap();
+
+        assert!(with_score.contains("score=\"7.25\""));
+        assert!(!without_score.contains("score="));
+    }
+
+    #[deterministic_id_test]
+    fn writes_default_subpopulation_attribute() {
+        let population = Population::from_persons(vec![InternalPerson::new(
+            Id::create("1"),
+            InternalPlan::default(),
+        )]);
+        let io_population = IOPopulation::from(&population);
+        let attributes = io_population.persons[0].attributes.as_ref().unwrap();
+
+        assert_eq!(Some("person"), attributes.find("subpopulation"));
+    }
+
+    #[deterministic_id_test]
+    fn writes_non_default_subpopulation_attribute() {
+        let person = InternalPerson::from(IOPerson {
+            attributes: Some(IOAttributes {
+                attributes: vec![IOAttribute::new_with_class(
+                    "subpopulation".to_string(),
+                    "java.lang.String".to_string(),
+                    "freight".to_string(),
+                )],
+            }),
+            id: "1".to_string(),
+            plans: vec![IOPlan {
+                selected: true,
+                score: None,
+                elements: Vec::new(),
+            }],
+        });
+        let population = Population::from_persons(vec![person]);
+        let io_population = IOPopulation::from(&population);
+        let attributes = io_population.persons[0].attributes.as_ref().unwrap();
+
+        assert_eq!(Some("freight"), attributes.find("subpopulation"));
     }
 
     #[test]
@@ -626,7 +726,17 @@ mod tests {
         assert_eq!(34, population.persons.len())
     }
 
-    #[integration_test]
+    #[test]
+    fn write_and_read_population_zstd() {
+        let population = IOPopulation::from_file("./assets/population-v6-34-persons.xml");
+        let path = PathBuf::from("./test_output/io/xml_population/population.xml.zst");
+        population.to_file(&path);
+
+        let result = IOPopulation::from_file(&path);
+        assert_eq!(population.persons.len(), result.persons.len());
+    }
+
+    #[deterministic_id_test]
     fn test_conversion() {
         let _net = Network::from_file(
             "./assets/equil/equil-network.xml",
@@ -727,7 +837,7 @@ mod tests {
 
     /// compare input population XML to result of writing the same population to XML.
     /// Works via parsing both XMLs into IOPopulations and comparing those.
-    #[integration_test]
+    #[deterministic_id_test]
     fn test_xml_writer() {
         let _guard = init_std_out_logging_thread_local();
 

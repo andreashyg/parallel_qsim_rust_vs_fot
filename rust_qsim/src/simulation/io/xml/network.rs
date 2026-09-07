@@ -1,6 +1,8 @@
 use crate::simulation::io::xml;
 use crate::simulation::io::xml::attributes::{IOAttribute, IOAttributes};
-use crate::simulation::scenario::network::Network;
+use crate::simulation::scenario::network::{
+    LinkAttributeOverrides, Network, merged_link_attributes,
+};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::path::Path;
@@ -11,7 +13,15 @@ pub(crate) fn load_from_xml(path: &Path) -> Network {
     Network::from(io_net)
 }
 
-pub(crate) fn write_to_xml(network: &Network, path: &Path) {
+pub(crate) fn write_to_xml_with_link_attribute_overrides(
+    network: &Network,
+    path: &Path,
+    overrides: &LinkAttributeOverrides,
+) {
+    to_io_network(network, overrides).to_file(path);
+}
+
+fn to_io_network(network: &Network, overrides: &LinkAttributeOverrides) -> IONetwork {
     let mut result = IONetwork::new(None);
 
     for node in network.nodes() {
@@ -43,15 +53,18 @@ pub(crate) fn write_to_xml(network: &Network, path: &Path) {
             .modes
             .iter()
             .map(|m| m.external().to_string())
-            .reduce(|modes, mode| format!("{modes},{mode}"))
-            .unwrap();
-        let attributes = IOAttributes {
-            attributes: vec![IOAttribute {
-                name: String::from("partition"),
-                value: link.partition.to_string(),
-                class: String::from("java.lang.Integer"),
-            }],
-        };
+            .collect::<Vec<_>>()
+            .join(",");
+        let merged_attributes = merged_link_attributes(link, overrides);
+        let mut attributes = IOAttributes::from(&merged_attributes);
+        attributes
+            .attributes
+            .retain(|attribute| attribute.name != "partition");
+        attributes.attributes.push(IOAttribute {
+            name: String::from("partition"),
+            value: link.partition.to_string(),
+            class: String::from("java.lang.Integer"),
+        });
 
         let io_link = IOLink {
             id: link.id.external().to_string(),
@@ -68,7 +81,7 @@ pub(crate) fn write_to_xml(network: &Network, path: &Path) {
         result.links_mut().push(io_link);
     }
 
-    result.to_file(path);
+    result
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Clone)]
@@ -187,7 +200,13 @@ mod tests {
 
     use quick_xml::de::from_str;
 
-    use crate::simulation::io::xml::network::IONetwork;
+    use crate::simulation::InternalAttributes;
+    use crate::simulation::id::Id;
+    use crate::simulation::io::xml::network::{IONetwork, to_io_network};
+    use crate::simulation::network::STORAGE_CAPACITY_USED_IN_QSIM;
+    use crate::simulation::scenario::Coordinate;
+    use crate::simulation::scenario::network::{Link, LinkAttributeOverrides, Network, Node};
+    use macros::deterministic_id_test;
 
     static OUTPUT_FOLDER: &str = "./test_output/io/network/";
 
@@ -204,6 +223,51 @@ mod tests {
                 fs::remove_file(entry.unwrap().path()).unwrap();
             }
         }
+    }
+
+    #[deterministic_id_test]
+    fn storage_capacity_attribute_overlay_is_written_to_xml_without_mutating_network() {
+        let mut network = Network::new();
+        let from = Node::new(Id::create("from"), Coordinate::default(), 0, 1);
+        let to = Node::new(Id::create("to"), Coordinate::default(), 0, 1);
+        let link_id = Id::create("link");
+        let link = Link::new_with_default(link_id.clone(), &from, &to);
+        network.add_node(from);
+        network.add_node(to);
+        network.add_link(link);
+
+        let mut link_attributes = InternalAttributes::default();
+        link_attributes.insert(STORAGE_CAPACITY_USED_IN_QSIM, 200.);
+        let mut overrides = LinkAttributeOverrides::default();
+        overrides.insert(link_id.clone(), link_attributes);
+
+        let io_network = to_io_network(&network, &overrides);
+        let attributes = &io_network.links()[0]
+            .attributes
+            .as_ref()
+            .unwrap()
+            .attributes;
+        let storage_attribute = attributes
+            .iter()
+            .find(|attribute| attribute.name == STORAGE_CAPACITY_USED_IN_QSIM)
+            .unwrap();
+
+        assert_eq!("java.lang.Double", storage_attribute.class);
+        assert_eq!("200.0", storage_attribute.value);
+        assert_eq!(
+            1,
+            attributes
+                .iter()
+                .filter(|attribute| attribute.name == "partition")
+                .count()
+        );
+        assert_eq!(
+            None,
+            network
+                .get_link(&link_id)
+                .attributes
+                .get::<f64>(STORAGE_CAPACITY_USED_IN_QSIM)
+        );
     }
 
     #[test]
@@ -226,6 +290,31 @@ mod tests {
 
         let network: IONetwork = from_str(xml).unwrap();
         let file_path = get_output_folder(test_name).join("network.xml.gz");
+        network.to_file(&file_path);
+
+        let result = IONetwork::from_file(file_path.to_str().unwrap());
+        assert_eq!(network, result);
+    }
+
+    #[test]
+    fn write_and_read_simple_network_zstd() {
+        let test_name = "write_and_read_simple_network_zstd";
+        clear_output_folder(test_name);
+
+        let xml = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\
+                <!DOCTYPE network SYSTEM \"http://www.matsim.org/files/dtd/network_v1.dtd\">
+                <network name=\"test network\">
+                    <nodes>
+                        <node id=\"1\" x=\"-20000\" y=\"0\"/>
+                    </nodes>
+                    <links effectivecellsize=\"385.3\">
+                        <link id=\"23\" from=\"1\" to=\"1\" length=\"10000.00\" capacity=\"36000\" freespeed=\"27.78\" permlanes=\"1\" modes=\"car,bike\"  />
+                    </links>
+                </network>
+            ";
+
+        let network: IONetwork = from_str(xml).unwrap();
+        let file_path = get_output_folder(test_name).join("network.xml.zst");
         network.to_file(&file_path);
 
         let result = IONetwork::from_file(file_path.to_str().unwrap());

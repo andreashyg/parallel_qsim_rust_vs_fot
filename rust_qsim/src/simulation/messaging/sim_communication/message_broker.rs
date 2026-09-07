@@ -1,11 +1,14 @@
+use crate::simulation::agents::SimulationAgentLogic;
 use crate::simulation::id::Id;
-use crate::simulation::messaging::messages::InternalSyncMessage;
+use crate::simulation::messaging::messages::{InternalSyncMessage, ScheduledTeleportation};
 use crate::simulation::messaging::sim_communication::SimCommunicator;
 use crate::simulation::network::sim_network::{SimNetworkPartition, StorageUpdate};
 use crate::simulation::scenario::network::{Link, Network};
 use crate::simulation::time::Tick;
 use crate::simulation::vehicles::SimulationVehicle;
-use std::collections::{BinaryHeap, HashMap, HashSet};
+use ahash::HashMapExt;
+use nohash_hasher::{IntMap, IntSet};
+use std::collections::BinaryHeap;
 use std::rc::Rc;
 
 pub struct NetMessageBroker<C>
@@ -13,12 +16,12 @@ where
     C: SimCommunicator,
 {
     communicator: Rc<C>,
-    out_messages: HashMap<u32, InternalSyncMessage>,
+    out_messages: IntMap<u32, InternalSyncMessage>,
     in_messages: BinaryHeap<InternalSyncMessage>,
     // store link mapping with internal ids instead of id structs, because vehicles only store internal
     // ids (usize) and this way we don't need to keep a reference to the global network's id store
-    link_mapping: HashMap<Id<Link>, u32>,
-    neighbors: HashSet<u32>,
+    link_mapping: IntMap<Id<Link>, u32>,
+    neighbors: IntSet<u32>,
     global_sync: bool,
 }
 
@@ -69,6 +72,22 @@ where
         message.add_veh(vehicle);
     }
 
+    pub(crate) fn add_teleportation(
+        &mut self,
+        teleportation: ScheduledTeleportation,
+        now: impl Into<Tick>,
+    ) {
+        let now = now.into();
+        let link_id = teleportation.agent().curr_link_id().unwrap();
+        let partition = *self.link_mapping.get(link_id).unwrap();
+        let rank = self.rank();
+        let message = self
+            .out_messages
+            .entry(partition)
+            .or_insert_with(|| InternalSyncMessage::new(now, rank, partition));
+        message.add_teleportation(teleportation);
+    }
+
     pub fn add_cap_update(&mut self, cap: StorageUpdate, now: impl Into<Tick>) {
         let now = now.into();
         let rank = self.rank();
@@ -85,7 +104,7 @@ where
 
     pub fn send_recv(&mut self, now: impl Into<Tick>) -> Vec<InternalSyncMessage> {
         let now = now.into();
-        let vehicles = self.prepare_send_recv_vehicles(now);
+        let vehicles = self.prepare_send_recv(now);
 
         let mut result: Vec<InternalSyncMessage> = Vec::new();
         let mut expected_vehicle_messages = self.neighbors.clone();
@@ -126,7 +145,7 @@ where
 
     fn pop_from_cache(
         &mut self,
-        expected_messages: &mut HashSet<u32>,
+        expected_messages: &mut IntSet<u32>,
         messages: &mut Vec<InternalSyncMessage>,
         now: Tick,
     ) {
@@ -140,10 +159,10 @@ where
         }
     }
 
-    fn prepare_send_recv_vehicles(&mut self, now: Tick) -> HashMap<u32, InternalSyncMessage> {
+    fn prepare_send_recv(&mut self, now: Tick) -> IntMap<u32, InternalSyncMessage> {
         let capacity = self.out_messages.len();
         let mut messages =
-            std::mem::replace(&mut self.out_messages, HashMap::with_capacity(capacity));
+            std::mem::replace(&mut self.out_messages, IntMap::with_capacity(capacity));
 
         for partition in &self.neighbors {
             let neighbor_rank = *partition;
@@ -169,13 +188,13 @@ mod tests {
     use crate::simulation::time::SimTime;
     use crate::simulation::vehicles::SimulationVehicle;
     use crate::test_utils::create_agent;
-    use macros::integration_test;
+    use macros::deterministic_id_test;
     use std::rc::Rc;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::thread;
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn send_recv_empty_msgs() {
         let sends = Arc::new(AtomicUsize::new(0));
 
@@ -212,7 +231,7 @@ mod tests {
 
     /// This test moves a vehicle from partition 0 to 2 and then to partition 3. The test involves
     /// Two send_recv steps.
-    #[integration_test]
+    #[deterministic_id_test]
     fn send_recv_local_vehicle_msg() {
         execute_test(|communicator| {
             let mut broker = create_net_message_broker(communicator);
@@ -267,7 +286,7 @@ mod tests {
         });
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn send_recv_remote_message() {
         execute_test(|communicator| {
             let mut broker = create_net_message_broker(communicator);
@@ -300,7 +319,7 @@ mod tests {
         });
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn send_recv_local_and_remote_msg() {
         execute_test(|communicator| {
             let mut broker = create_net_message_broker(communicator);
@@ -350,20 +369,15 @@ mod tests {
         communicator: ChannelSimCommunicator,
     ) -> NetMessageBroker<ChannelSimCommunicator> {
         let rank = communicator.rank();
-        let config = config::Simulation {
-            start_time: 0,
-            end_time: 0,
-            ticks_per_second: 1,
-            sample_size: 0.0,
-            stuck_threshold: 0,
-            main_modes: vec![],
-        };
-        let partition = SimNetworkPartition::from_network(
-            &create_network(),
-            rank,
-            &config,
-            config::DEFAULT_RANDOM_SEED,
-        );
+        let mut config = config::Config::default();
+        config.qsim_mut().start_time = 0;
+        config.qsim_mut().end_time = 0;
+        config.qsim_mut().ticks_per_second = 1;
+        config.qsim_mut().sample_size = 0.0;
+        config.qsim_mut().stuck_threshold = 0;
+        config.qsim_mut().main_modes.clear();
+        let network = create_network();
+        let partition = SimNetworkPartition::from_network_for_test(&network, rank, &config);
 
         assert_eq!(partition.get_node_ids().len(), 1);
 
@@ -380,7 +394,7 @@ mod tests {
         NetMessageBroker::new(Rc::new(communicator), &create_network(), &partition, false)
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn send_recv_storage_cap() {
         execute_test(|communicator| {
             let mut broker = create_net_message_broker(communicator);

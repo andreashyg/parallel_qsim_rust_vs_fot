@@ -20,6 +20,8 @@ use std::str::FromStr;
 use std::time::Duration;
 
 pub const PREPLANNING_HORIZON: &str = "preplanningHorizon";
+pub const SUBPOPULATION: &str = "subpopulation";
+pub const DEFAULT_SUBPOPULATION: &str = "person";
 
 trait FromIOPerson<T> {
     fn from_io(io: T, id: Id<InternalPerson>) -> Self;
@@ -34,6 +36,7 @@ pub fn from_file<F: Fn(&InternalPerson) -> bool>(
         load_from_proto(path, filter)
     } else if path.as_ref().extension().unwrap().eq("xml")
         || path.as_ref().extension().unwrap().eq("gz")
+        || path.as_ref().extension().unwrap().eq("zst")
     {
         let persons = crate::simulation::io::xml::population::load_from_xml(path, garage)
             .into_iter()
@@ -42,19 +45,9 @@ pub fn from_file<F: Fn(&InternalPerson) -> bool>(
         Population { persons }
     } else {
         panic!(
-            "Tried to load {:?}. File format not supported. Either use `.xml`, `.xml.gz`, or `.binpb` as extension",
+            "Tried to load {:?}. File format not supported. Either use `.xml`, `.xml.gz`, `.xml.zst`, or `.binpb` as extension",
             path.as_ref()
         );
-    }
-}
-
-pub fn to_file(population: &Population, path: &Path) {
-    if path.extension().unwrap().eq("binpb") {
-        write_to_proto(population, path);
-    } else if path.extension().unwrap().eq("xml") || path.extension().unwrap().eq("gz") {
-        crate::simulation::io::xml::population::write_to_xml(population, path);
-    } else {
-        panic!("file format not supported. Either use `.xml`, `.xml.gz`, or `.binpb` as extension");
     }
 }
 
@@ -168,7 +161,18 @@ impl Population {
     }
 
     pub fn to_file(&self, file_path: &Path) {
-        to_file(self, file_path);
+        if file_path.extension().unwrap().eq("binpb") {
+            write_to_proto(self, file_path);
+        } else if file_path.extension().unwrap().eq("xml")
+            || file_path.extension().unwrap().eq("gz")
+            || file_path.extension().unwrap().eq("zst")
+        {
+            crate::simulation::io::xml::population::write_to_xml(self, file_path);
+        } else {
+            panic!(
+                "file format not supported. Either use `.xml`, `.xml.gz`, `.xml.zst`, or `.binpb` as extension"
+            );
+        }
     }
 }
 
@@ -202,7 +206,7 @@ pub enum InternalRoute {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct InternalGenericRoute {
-    pub start_link: Id<Link>,
+    start_link: Id<Link>,
     end_link: Id<Link>,
     trav_time: Option<Duration>,
     distance: Option<f64>,
@@ -224,7 +228,7 @@ pub struct InternalPtRoute {
 #[derive(Debug, PartialEq, Clone)]
 pub struct InternalPtRouteDescription {
     pub transit_route_id: String,
-    pub boarding_time: Option<Duration>,
+    pub boarding_time: Option<SimTime>,
     pub transit_line_id: String,
     pub access_facility_id: String,
     pub egress_facility_id: String,
@@ -238,6 +242,7 @@ pub enum InternalPlanElement {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct InternalPlan {
+    pub score: Option<f64>,
     pub selected: bool,
     pub elements: Vec<InternalPlanElement>,
 }
@@ -246,6 +251,7 @@ pub struct InternalPlan {
 pub struct InternalPerson {
     id: Id<InternalPerson>,
     plans: Vec<InternalPlan>,
+    subpopulation: Id<String>,
     attributes: InternalAttributes,
 }
 
@@ -268,6 +274,7 @@ impl InternalPerson {
         InternalPerson {
             id,
             plans: vec![plan],
+            subpopulation: Id::create(DEFAULT_SUBPOPULATION),
             attributes: InternalAttributes::default(),
         }
     }
@@ -278,6 +285,14 @@ impl InternalPerson {
 
     pub fn plans(&self) -> &Vec<InternalPlan> {
         &self.plans
+    }
+
+    pub fn plans_mut(&mut self) -> &mut Vec<InternalPlan> {
+        &mut self.plans
+    }
+
+    pub fn subpopulation(&self) -> &Id<String> {
+        &self.subpopulation
     }
 
     pub fn plan_element_at(&self, index: usize) -> Option<&InternalPlanElement> {
@@ -300,6 +315,7 @@ impl InternalPerson {
 impl Default for InternalPlan {
     fn default() -> Self {
         Self {
+            score: None,
             selected: true,
             elements: Vec::new(),
         }
@@ -330,6 +346,26 @@ impl InternalPlan {
             .iter()
             .filter_map(|e| match e {
                 InternalPlanElement::Activity(act) => Some(act),
+                _ => None,
+            })
+            .collect()
+    }
+
+    pub fn acts_mut(&mut self) -> Vec<&mut InternalActivity> {
+        self.elements
+            .iter_mut()
+            .filter_map(|e| match e {
+                InternalPlanElement::Activity(act) => Some(act),
+                _ => None,
+            })
+            .collect()
+    }
+
+    pub fn legs_mut(&mut self) -> Vec<&mut InternalLeg> {
+        self.elements
+            .iter_mut()
+            .filter_map(|e| match e {
+                InternalPlanElement::Leg(leg) => Some(leg),
                 _ => None,
             })
             .collect()
@@ -382,7 +418,7 @@ impl FromStr for InternalPtRouteDescription {
 
         Ok(InternalPtRouteDescription {
             transit_route_id: trim_quotes(&desc["transitRouteId"]),
-            boarding_time: desc["boardingTime"].as_str().and_then(parse_duration),
+            boarding_time: desc["boardingTime"].as_str().and_then(parse_time),
             transit_line_id: trim_quotes(&desc["transitLineId"]),
             access_facility_id: trim_quotes(&desc["accessFacilityId"]),
             egress_facility_id: trim_quotes(&desc["egressFacilityId"]),
@@ -450,8 +486,8 @@ impl InternalRoute {
                 let route = io
                     .route
                     .unwrap_or_default()
-                    .split(' ')
-                    .map(|link| Id::create(link.trim()))
+                    .split_whitespace()
+                    .map(Id::create)
                     .collect();
                 InternalRoute::Network(InternalNetworkRoute {
                     generic_delegate: generic,
@@ -495,7 +531,7 @@ impl InternalRoute {
                     boarding_time: ptr
                         .description
                         .boarding_time
-                        .map(|t| SimTime::from_duration(t).format_hh_mm_ss_trimmed())
+                        .map(|t| t.format_hh_mm_ss_trimmed())
                         .unwrap_or_else(|| "undefined".to_string()),
                     transit_line_id: ptr.description.transit_line_id,
                     access_facility_id: ptr.description.access_facility_id,
@@ -543,7 +579,7 @@ impl From<PtRouteDescription> for InternalPtRouteDescription {
     fn from(value: PtRouteDescription) -> Self {
         InternalPtRouteDescription {
             transit_route_id: value.transit_route_id,
-            boarding_time: value.boarding_time_ns.map(Duration::from_nanos),
+            boarding_time: value.boarding_time_ns.map(SimTime::from_nanos),
             transit_line_id: value.transit_line_id,
             access_facility_id: value.access_facility_id,
             egress_facility_id: value.egress_facility_id,
@@ -707,7 +743,7 @@ impl From<IOActivity> for InternalActivity {
             act_type: Id::create(&io.r#type),
             link_id: Id::create(&io.link.expect("Activity must have a link id")),
             coord: io.x.map(|x| {
-                Coordinate::new(
+                Coordinate::new_2d(
                     x,
                     io.y.expect("y coordinate should be given when x coord is given"),
                 )
@@ -728,7 +764,7 @@ impl From<Activity> for InternalActivity {
         InternalActivity {
             act_type: Id::get_from_ext(&value.act_type),
             link_id: Id::get_from_ext(&value.link_id),
-            coord: Some(Coordinate::with_z(
+            coord: Some(Coordinate::new_3d(
                 value.coordinate.as_ref().unwrap().x,
                 value.coordinate.as_ref().unwrap().y,
                 value.coordinate.as_ref().unwrap().z,
@@ -787,6 +823,13 @@ fn parse_duration(value: &str) -> Option<Duration> {
 impl From<IOPerson> for InternalPerson {
     fn from(io: IOPerson) -> Self {
         let id = Id::create(&io.id);
+        let attributes = io
+            .attributes
+            .map(InternalAttributes::from)
+            .unwrap_or_default();
+        let subpopulation = attributes
+            .get::<String>(SUBPOPULATION)
+            .unwrap_or_else(|| DEFAULT_SUBPOPULATION.to_string());
         InternalPerson {
             id: id.clone(),
             plans: io
@@ -794,10 +837,8 @@ impl From<IOPerson> for InternalPerson {
                 .into_iter()
                 .map(|p| InternalPlan::from_io(p, id.clone()))
                 .collect(),
-            attributes: io
-                .attributes
-                .map(InternalAttributes::from)
-                .unwrap_or_default(),
+            subpopulation: Id::create(&subpopulation),
+            attributes,
         }
     }
 }
@@ -805,9 +846,13 @@ impl From<IOPerson> for InternalPerson {
 impl From<Person> for InternalPerson {
     fn from(value: Person) -> Self {
         let id: Id<InternalPerson> = Id::get_from_ext(&value.id);
+        let subpopulation = value
+            .subpopulation
+            .unwrap_or_else(|| DEFAULT_SUBPOPULATION.to_string());
         InternalPerson {
             id: id.clone(),
             plans: value.plan.into_iter().map(InternalPlan::from).collect(),
+            subpopulation: Id::create(&subpopulation),
             attributes: InternalAttributes::from(&value.attributes),
         }
     }
@@ -845,6 +890,7 @@ impl InternalPlanElement {
 impl FromIOPerson<IOPlan> for InternalPlan {
     fn from_io(io: IOPlan, id: Id<InternalPerson>) -> Self {
         InternalPlan {
+            score: io.score,
             selected: io.selected,
             elements: io
                 .elements
@@ -885,6 +931,7 @@ impl From<Plan> for InternalPlan {
         }
 
         InternalPlan {
+            score: io.score,
             selected: io.selected,
             elements,
         }
@@ -895,7 +942,8 @@ impl From<Plan> for InternalPlan {
 mod tests {
     use crate::simulation::config::{MetisOptions, PartitionMethod};
     use crate::simulation::id::Id;
-    use crate::simulation::io::xml::population::{IOLeg, IORoute};
+    use crate::simulation::io::xml::attributes::{IOAttribute, IOAttributes};
+    use crate::simulation::io::xml::population::{IOLeg, IOPerson, IOPlan, IORoute};
     use crate::simulation::scenario::Coordinate;
     use crate::simulation::scenario::network::{Link, Network};
     use crate::simulation::scenario::population::{
@@ -904,15 +952,15 @@ mod tests {
     use crate::simulation::scenario::vehicles::Garage;
     use crate::simulation::scenario::vehicles::InternalVehicle;
     use crate::simulation::time::SimTime;
-    use macros::integration_test;
+    use macros::deterministic_id_test;
     use std::collections::HashSet;
     use std::path::PathBuf;
     use std::time::Duration;
 
-    #[test]
+    #[deterministic_id_test]
     fn cmp_end_time_uses_bounded_open_ended_sentinel() {
         let activity = InternalActivity::new(
-            Some(Coordinate::new(0.0, 0.0)),
+            Some(Coordinate::new_2d(0.0, 0.0)),
             "home",
             Id::create("1"),
             None,
@@ -926,7 +974,70 @@ mod tests {
         );
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
+    fn person_from_xml_uses_subpopulation_attribute() {
+        let person = InternalPerson::from(IOPerson {
+            attributes: Some(IOAttributes {
+                attributes: vec![IOAttribute::new_with_class(
+                    "subpopulation".to_string(),
+                    "java.lang.String".to_string(),
+                    "freight".to_string(),
+                )],
+            }),
+            id: "1".to_string(),
+            plans: vec![IOPlan {
+                selected: true,
+                score: None,
+                elements: Vec::new(),
+            }],
+        });
+
+        assert_eq!("freight", person.subpopulation().external());
+    }
+
+    #[deterministic_id_test]
+    fn person_from_xml_defaults_subpopulation_to_person() {
+        let person = InternalPerson::from(IOPerson {
+            attributes: None,
+            id: "1".to_string(),
+            plans: vec![IOPlan {
+                selected: true,
+                score: None,
+                elements: Vec::new(),
+            }],
+        });
+
+        assert_eq!("person", person.subpopulation().external());
+    }
+
+    #[deterministic_id_test]
+    fn network_route_ignores_xml_text_whitespace() {
+        let route = InternalRoute::from_io(
+            IORoute {
+                r#type: Some("links".to_string()),
+                start_link: Some("1".to_string()),
+                end_link: Some("20".to_string()),
+                trav_time: None,
+                distance: None,
+                vehicle: Some("1_car".to_string()),
+                route: Some("1 6 15 20\n                ".to_string()),
+            },
+            Id::create("1"),
+            Id::create("car"),
+        );
+
+        assert_eq!(
+            vec![
+                Id::<Link>::get_from_ext("1"),
+                Id::<Link>::get_from_ext("6"),
+                Id::<Link>::get_from_ext("15"),
+                Id::<Link>::get_from_ext("20"),
+            ],
+            route.as_network().unwrap().route
+        );
+    }
+
+    #[deterministic_id_test]
     fn from_io_1_plan() {
         let _net = Network::from_file_as_is(&PathBuf::from("./assets/equil/equil-network.xml"));
         let mut garage = Garage::from_file(&PathBuf::from("./assets/equil/equil-vehicles.xml"));
@@ -974,7 +1085,7 @@ mod tests {
         );
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn from_io_multi_mode() {
         let _net = Network::from_file_as_is(&PathBuf::from("./assets/3-links/3-links-network.xml"));
         let mut garage = Garage::from_file(&PathBuf::from("./assets/3-links/vehicles.xml"));
@@ -1020,7 +1131,7 @@ mod tests {
         // todo test bookkeeping of garage person_2_vehicle
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn from_io() {
         let net = Network::from_file(
             "./assets/equil/equil-network.xml",
@@ -1047,7 +1158,7 @@ mod tests {
         assert!(pop1.persons.is_empty() || pop2.persons.is_empty());
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn test_from_xml_to_binpb_same() {
         let net = Network::from_file(
             "./assets/equil/equil-network.xml",
@@ -1068,7 +1179,7 @@ mod tests {
         assert_eq!(population, population2);
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn test_from_io_generic_route() {
         Id::<Link>::create("1");
         Id::<Link>::create("2");
@@ -1111,7 +1222,7 @@ mod tests {
         );
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn test_from_io_pt_route() {
         Id::<Link>::create("1");
         Id::<Link>::create("2");

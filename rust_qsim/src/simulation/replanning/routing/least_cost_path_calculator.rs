@@ -5,6 +5,7 @@ use crate::simulation::scenario::vehicles::InternalVehicle;
 use crate::simulation::time::SimTime;
 use derive_builder::Builder;
 use std::fmt::Debug;
+use std::num::FpCategory;
 use std::time::Duration;
 
 /// Disutility is the unit of the cost values used in routing
@@ -13,7 +14,7 @@ pub type Disutility = f64;
 /// Travel time function, mapping any network link to a travel time, depending on the departure time
 /// and optionally the person and vehicle.
 pub trait TravelTime: Debug + Send + Sync {
-    /// get travel time of given link at given time, optionally for a specific person and vehicle
+    /// get travel time of a given link at a given time, optionally for a specific person and vehicle
     fn travel_time(
         &self,
         link: &Link,
@@ -68,7 +69,7 @@ impl TravelTime for FreeSpeedTravelTimeAndDisutility {
         _vehicle: Option<&InternalVehicle>,
     ) -> Duration {
         // the given vehicle type is ignored => true freespeed
-        Duration::from_secs_f64(link.length / link.freespeed)
+        travel_time(link.length, link.freespeed)
     }
 }
 
@@ -114,7 +115,7 @@ impl TravelTime for FreeOrMaxSpeedTravelTimeAndDisutility {
             link.freespeed
         };
 
-        Duration::from_secs_f64(link.length / max_speed)
+        travel_time(link.length, max_speed)
     }
 }
 
@@ -138,6 +139,19 @@ impl TravelDisutility for FreeOrMaxSpeedTravelTimeAndDisutility {
         // the travel time function, which respects the vehicle's max speed if given, and otherwise
         // uses the freespeed)
         self.travel_disutility(link, SimTime::from_secs(0), None, None)
+    }
+}
+
+fn travel_time(length: f64, speed: f64) -> Duration {
+    if length < 10e-10 {
+        return Duration::ZERO;
+    }
+    let duration = length / speed;
+    match duration.classify() {
+        FpCategory::Nan | FpCategory::Infinite => Duration::MAX,
+        FpCategory::Normal | FpCategory::Subnormal | FpCategory::Zero => {
+            Duration::from_secs_f64(duration)
+        }
     }
 }
 
@@ -185,14 +199,14 @@ pub trait LeastCostPathCalculator: Send + Sync {
     /// If no path is found, either because the to-link is unreachable or because the from- or
     /// to-link do not exist in the graph, None is returned.
     /// Otherwise, the path is returned together with its travel time and disutility.
-    fn calc_route(&self, request: LeastCostPathRequest) -> Option<LeastCostPath>;
+    fn calc_least_cost_path(&self, request: LeastCostPathRequest) -> Option<LeastCostPath>;
 }
 
 #[cfg(test)]
 mod tests {
     use crate::simulation::id::Id;
-    use crate::simulation::replanning::routing::a_star_router::DijkstraRouter;
-    use macros::integration_test;
+    use crate::simulation::replanning::routing::a_star::Dijkstra;
+    use macros::deterministic_id_test;
     use std::sync::Arc;
     use std::time::Duration;
 
@@ -213,7 +227,7 @@ mod tests {
 
     /// simple test just to make sure that the interface works. More precise testing is done
     /// in the respective files where implementations of LeastCostPathCaltulator are defined.
-    #[integration_test]
+    #[deterministic_id_test]
     fn test_least_cost_path_interface() {
         // triangle graph
         let network = get_triangle_test_network();
@@ -221,7 +235,7 @@ mod tests {
         // DijkstraRouter is an alias for AStarRouter<ZeroHeuristic>
         let travel_cost = Arc::new(FreeOrMaxSpeedTravelTimeAndDisutility);
         let router =
-            DijkstraRouter::new(Arc::new(network), None, travel_cost.clone(), travel_cost).unwrap();
+            Dijkstra::new(Arc::new(network), None, travel_cost.clone(), travel_cost).unwrap();
 
         let request = LeastCostPathRequestBuilder::default()
             .from(Id::create("1")) // these links are connected via
@@ -231,7 +245,7 @@ mod tests {
 
         let expected_path: Vec<Id<Link>> = [Id::create("4")].into_iter().collect();
 
-        let result = router.calc_route(request);
+        let result = router.calc_least_cost_path(request);
         assert_eq!(
             result,
             Some(LeastCostPath {
@@ -243,7 +257,7 @@ mod tests {
     }
 
     /// Test the FreeOrMaxSpeedTravelTimeAndDisutility implementation of TravelTime and TravelDisutility
-    #[integration_test]
+    #[deterministic_id_test]
     fn test_free_or_max_speed_travel_time_and_disutility() {
         let fomsttad = FreeOrMaxSpeedTravelTimeAndDisutility;
 

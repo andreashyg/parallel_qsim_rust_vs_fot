@@ -1,3 +1,4 @@
+use crate::simulation::Identifiable;
 use crate::simulation::agents::agent::SimulationAgent;
 use crate::simulation::agents::{
     ActivityStartedEvent, AgentEvent, EndTime, EnvironmentalEventObserver, SimulationAgentLogic,
@@ -8,7 +9,7 @@ use crate::simulation::controller::ThreadLocalComputationalEnvironment;
 use crate::simulation::events::{ActivityEndEventBuilder, ActivityStartEventBuilder};
 use crate::simulation::scenario::population::InternalPerson;
 use crate::simulation::time::{SimClock, SimTime, Tick};
-use crate::simulation::time_queue::{Identifiable, TimeQueue};
+use crate::simulation::time_queue::TimeQueue;
 use tracing::instrument;
 
 pub struct ActivityEngine {
@@ -83,7 +84,7 @@ impl ActivityEngine {
                     .person(agent.id().clone())
                     .link(agent.curr_act().link_id.clone())
                     .act_type(agent.curr_act().act_type.clone())
-                    .coordinate(agent.curr_act().coord.clone())
+                    .coordinate(agent.curr_act().coord.as_ref().unwrap().clone())
                     .build()
                     .unwrap(),
             );
@@ -124,7 +125,7 @@ impl ActivityEngine {
                 .person(agent.agent.id().clone())
                 .link(act.link_id.clone())
                 .act_type(act.act_type.clone())
-                .coordinate(act.coord.clone())
+                .coordinate(act.coord.as_ref().unwrap().clone())
                 .build()
                 .unwrap(),
         );
@@ -214,8 +215,8 @@ impl<'c> ActivityEngineBuilder<'c> {
     }
 
     pub fn build(self) -> ActivityEngine {
-        let clock = SimClock::new(self.config.simulation().ticks_per_second);
-        let now = clock.secs_to_tick(self.config.simulation().start_time as u64);
+        let clock = SimClock::new(self.config.qsim().ticks_per_second);
+        let now = clock.secs_to_tick(self.config.qsim().start_time as u64);
         let now_time = clock.tick_to_time(now);
 
         let mut asleep = TimeQueue::new();
@@ -280,6 +281,7 @@ mod tests {
     use crate::external_services::routing::{
         InternalRoutingRequest, InternalRoutingRequestPayloadBuilder, InternalRoutingResponse,
     };
+    use crate::simulation::Identifiable;
     use crate::simulation::agents::SimulationAgentLogic;
     use crate::simulation::agents::agent::SimulationAgent;
     use crate::simulation::config::Config;
@@ -297,15 +299,14 @@ mod tests {
         InternalPlanElement, InternalRoute,
     };
     use crate::simulation::time::SimTime;
-    use crate::simulation::time_queue::Identifiable;
-    use macros::integration_test;
+    use macros::deterministic_id_test;
     use std::collections::HashMap;
     use std::sync::Arc;
     use std::thread::JoinHandle;
     use std::time::Duration;
     use tokio::sync::mpsc::Receiver;
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn test_activity_engine_build() {
         let mut engine =
             ActivityEngineBuilder::new(vec![], &Config::default(), Default::default()).build();
@@ -315,7 +316,7 @@ mod tests {
         engine.end(SimTime::from_secs(0));
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn test_activity_engine_wake_up_plan() {
         let plan = create_plan();
 
@@ -334,7 +335,7 @@ mod tests {
         }
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn test_activity_engine_wake_up_subsecond_due_time() {
         let plan = create_plan();
         let agent = SimulationAgent::new_plan_based(InternalPerson::new(Id::create("1"), plan));
@@ -356,7 +357,7 @@ mod tests {
         assert_eq!(engine.awake_q.len(), 1);
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn test_activity_engine_end() {
         let plan = create_plan();
 
@@ -377,7 +378,7 @@ mod tests {
         }
     }
 
-    #[integration_test]
+    #[deterministic_id_test]
     fn test_activity_engine_with_preplanning_horizon() {
         // The new mode id needs to be created before the test, so that it gets the correct internal id.
         Id::<String>::create("new_mode");

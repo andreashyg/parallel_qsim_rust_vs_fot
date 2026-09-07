@@ -79,8 +79,8 @@ pub fn create_vehicle_type(
     }
 }
 
-pub fn config() -> config::Simulation {
-    config::Simulation {
+pub fn qsim_config() -> config::QSim {
+    config::QSim {
         start_time: 0,
         end_time: 0,
         ticks_per_second: 1,
@@ -88,4 +88,10 @@ pub fn config() -> config::Simulation {
         stuck_threshold: u32::MAX,
         main_modes: vec![String::from("car")],
     }
+}
+
+pub fn config() -> config::Config {
+    let mut config = config::Config::default();
+    config.set_qsim(qsim_config());
+    config
 }

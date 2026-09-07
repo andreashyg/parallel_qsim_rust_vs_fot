@@ -1,5 +1,5 @@
 use clap::Parser;
-use postprocessing::event_extraction::{LinkToPathMap, TravelTimeAndSumDepPerPathCSVWriter};
+use pre_postprocessing::event_extraction::{LinkToPathMap, TravelTimeAndSumDepPerPathCSVWriter};
 use rust_qsim::simulation::events::EventsManager;
 use rust_qsim::simulation::events::utils::{read_events, read_partitioned_events};
 use rust_qsim::simulation::id;

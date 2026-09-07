@@ -1,5 +1,5 @@
 [workspace]
-members = ["rust_qsim", "macros", "postprocessing", "runners"]
+members = ["rust_qsim", "macros", "pre_postprocessing", "runners"]
 resolver = "2"
 
 [profile.bench]

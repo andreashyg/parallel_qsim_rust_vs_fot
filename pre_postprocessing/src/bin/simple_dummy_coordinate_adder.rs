@@ -3,7 +3,7 @@ use std::fs::create_dir_all;
 use std::path::PathBuf;
 
 use clap::Parser;
-use postprocessing::activity_dummy_coordinates::add_dummy_coordinates_to_file;
+use pre_postprocessing::activity_dummy_coordinates::add_dummy_coordinates_to_file;
 use rust_qsim::simulation::logging::init_std_out_logging_thread_local;
 use tracing::info;
 

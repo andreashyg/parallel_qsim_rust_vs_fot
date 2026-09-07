@@ -427,8 +427,9 @@ mod test {
         // braess network, with all events not related to vehicles 0, 1, 2, 3, 16, 28 removed,
         // and also for those vehicles, only events relevant for the traveltime extraction left.
         // This makes it possible to verify paths and travel times by hand
-        let input_path =
-            PathBuf::from("./../postprocessing/src/tests/resources/simplified_braess_events.xml");
+        let input_path = PathBuf::from(
+            "./../pre_postprocessing/src/tests/resources/simplified_braess_events.xml",
+        );
 
         // the travel time extractor always writes to csv, so we have to test by writing to csv as
         // well

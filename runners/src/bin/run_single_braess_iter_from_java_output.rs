@@ -5,6 +5,10 @@ use rust_qsim::simulation::config::{
 use rust_qsim::simulation::controller::controller::ControllerBuilder;
 use rust_qsim::simulation::logging::init_std_out_logging_thread_local;
 use rust_qsim::simulation::scenario::Scenario;
+use rust_qsim::simulation::scenario::population::Population as ScenarioPopulation;
+
+use pre_postprocessing::activity_time_replacement::replace_activity_times;
+
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::info;
@@ -109,7 +113,20 @@ fn main() {
     let config = Arc::new(config);
 
     // Load and adapt mod
-    let scenario = Scenario::load(config);
+    let mut scenario = Scenario::load(config);
+
+    let mut scenario_garage_clone = scenario.garage.clone();
+
+    // Population with more accurate activity times (decimals) to replace the activity times in the
+    // population loaded from the java output
+    let ref_pop_with_correct_times = ScenarioPopulation::from_file(
+        PathBuf::from(resource_folder).join(format!(
+            "uniteratedPlans_TimeFormatHHMMSSDOTSS/beta{beta}random1.output_plans.xml.gz"
+        )),
+        &mut scenario_garage_clone,
+    );
+
+    replace_activity_times(&mut scenario.population, ref_pop_with_correct_times);
 
     // Create and run simulation
     let controller = ControllerBuilder::default_with_scenario(scenario)

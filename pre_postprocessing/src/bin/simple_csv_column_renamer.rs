@@ -1,5 +1,5 @@
 use clap::Parser;
-use postprocessing::csv_column_renaming::rename_csv_columns;
+use pre_postprocessing::csv_column_renaming::rename_csv_columns;
 use rust_qsim::simulation::logging::init_std_out_logging_thread_local;
 use std::path::PathBuf;
 use tracing::info;

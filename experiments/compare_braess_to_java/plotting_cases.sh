@@ -208,7 +208,7 @@ plot_original_java_data_once_per_replanning_variant_case() {
   echo "Plotting average travel times and summed departures once per replanning variant for parameters: replanning_variant=${replanning_variant} for ORIGINAL JAVA DATA"
 
   # Plot the average travel times and summed departures once per replanning variant.
-  if ! python python_plotting/braess/tt_and_sd_dev_over_beta.py "${replanning_variant}" "$seeds_to_avg_over" "$output_plots_dir" "false"
+  if ! python python_plotting/braess/tt_and_sd_dev_over_beta.py "${replanning_variant}" "$seeds_to_avg_over" "$output_plots_dir" "true"
   then
     echo "Plotting failed, continuing with next case." >&2
     record_failure plotting "$replanning_variant" "all_betas" "avg_over_java_seeds" "ORIGINAL JAVA DATA"

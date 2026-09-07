@@ -21,10 +21,11 @@ read_config_file_entry REPLANNING_VARIANTS replanning_variants
 read_config_file_entry BETAS betas
 
 # either "java" or "rust", to select over which random seeds to iterate or average over.
-WHICH_SEEDS_TO_AVG_OVER=(
-  "java"
-  "rust"
-  )
+#WHICH_SEEDS_TO_AVG_OVER=(
+#  "java"
+#  "rust"
+#  )
+read_config_file_entry WHICH_SEEDS_TO_AVG_OVER which_seeds_to_avg_over
 
 # when fixing a rust seed and varying java (e.g.: plot results based on java runs using different seeds there, but
 # all just run with a single rust seed), use this seed
@@ -214,7 +215,16 @@ run_all_seeds_for_replvar_variedseed_beta_combo() {
 
   shift 4
 
-  for seed_index in {0..19}; do
+#  get length of rust_seeds_to_iterate_over or java_seed_indices_to_iterate_over depending on seeds_to_avg_over
+  local seed_count
+  if [[ "$seeds_to_avg_over" == "rust" ]]; then
+    seed_count=${#RUST_SEEDS_TO_ITERATE_OVER[@]}
+  else
+    seed_count=${#JAVA_SEED_INDICES_TO_ITERATE_OVER[@]}
+  fi
+
+#  means "for seed_index in 0..seed_count-1 do"
+  for seed_index in $(seq 0 $((seed_count - 1))); do
     "$actual_callback" "$replanning_variant" "$seeds_to_avg_over" "$beta" "$seed_index" "$@"
   done
 }
@@ -244,9 +254,19 @@ run_all_seeds_for_replvar_variedseed_beta_combo_parallel() {
   export delete_output_dir_if_existing
   export skip_existing_output_dir
 
+  #  get length of rust_seeds_to_iterate_over or java_seed_indices_to_iterate_over depending on seeds_to_avg_over
+  local seed_count
+  if [[ "$seeds_to_avg_over" == "rust" ]]; then
+    seed_count=${#RUST_SEEDS_TO_ITERATE_OVER[@]}
+  else
+    seed_count=${#JAVA_SEED_INDICES_TO_ITERATE_OVER[@]}
+  fi
+
+
   parallel --will-cite -j "${MAX_PARALLEL_JOBS:-8}" \
     "bash -lc 'source ${common_q}; ${callback_q} ${replanning_q} ${seeds_q} ${beta_q} {}${extra_args}'" \
-    ::: {0..19}
+    ::: $(seq 0 $((seed_count - 1)))
+#    the $seq 0 ..... means {0....seed_count-1}
 
   import_failure_log "$failure_log"
   rm -f "$failure_log"

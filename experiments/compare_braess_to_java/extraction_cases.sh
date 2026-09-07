@@ -71,6 +71,11 @@ try_extracting_measurements_from_java_case() {
   local beta="$3"
   local seed_index="$4"
 
+  # seeds_to_avg_over must be "java" here, since we are trying to extract measurements from the original java runs.
+  if [ "$seeds_to_avg_over" != "java" ]; then
+    return 0
+  fi
+
   # this will set read_from_random to the java seed index based on whether we are averaging over java seeds or rust
   # seeds.
   # In the former case, gets the corresponding java seed index from the array of java seeds to iterate over,
@@ -84,7 +89,7 @@ try_extracting_measurements_from_java_case() {
   # directory where the measured data (travel times and summed departures) will be extracted to.
   # This is the same for the original java runs and the rust runs, since we want to compare them
   # in the same (kind of) plots.
-  local extracted_data_dir="${SIM_OUTPUT_BASE_DIR}/${replanning_variant}/varying_${seeds_to_avg_over}_seeds/analysis/extracted_data"
+  local extracted_data_dir="${SIM_OUTPUT_BASE_DIR}/${replanning_variant}/recreating_java_results/analysis/extracted_data"
 
   local tt_csv_path_newextraction="${extracted_data_dir}/average_route_tts_per_deptime_beta${beta}_read_from_random_${read_from_random}_original_java_data_newextraction.csv"
   local sd_csv_path_newextraction="${extracted_data_dir}/summed_deps_per_time_beta${beta}_read_from_random_${read_from_random}_original_java_data_newextraction.csv"

@@ -11,6 +11,8 @@ parse_common_args "$@"
 
 # plot averages over all seeds (for each beta)
 run_for_each_replvar_variedseed_beta_combo plot_avg_over_seeds_case
+# plot averages over all seeds (for each beta) for the original java data
+run_for_each_replvar_variedseed_beta_combo plot_original_java_data_avg_over_seeds_case
 
 # print all failures that occurred during the batch run, if any.
 print_failure_summary

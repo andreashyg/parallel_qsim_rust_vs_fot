@@ -8,7 +8,7 @@ from setup import NASH_TT_POINTS, NASH_SD_POINTS, COLORS, LABELS, FONT_SIZE, LEG
     TOP_COLOUR, BETAS
 
 
-def get_interpolated_nash_vals(at_xvals: pd.Index, mode: str, for_path: Optional[int] = None) -> np.ndarray:
+def get_interpolated_nash_vals(at_xvals: pd.Index, mode: str, for_path: Optional[int] = None) -> np.ndarray[float]:
     """
     Returns an array with the interpolated values of NASH_TT_POINTS or NASH_SD_POINTS, at the provided x values.
     """
@@ -48,7 +48,6 @@ def plot_extracted_sd_over_time(ax: plt.Axes, sd_df: pd.DataFrame, ybotlim: Opti
     sd_df_copy["time"] = pd.concat(
         [sd_df_copy["time"], pd.Series([100])], ignore_index=True)  # append a 100 to the time column for plotting
     for i in range(3):
-        # TODO is this what we want? It isn't done this way in the TT plots, but that probably makes sense because the TT plots aren't cumulative, but the SD plots are cumulative.
         sd_df_copy[f"sum_departures_path_{i}"] = pd.concat([
             pd.Series([0]),
             # prepend a 0 to the cumulative flow to make it start at 0 instead of 1, for better comparison with NASH lines
@@ -142,7 +141,7 @@ def plot_scatter_over_beta(s: pd.Series, ax: plt.Axes, mode: str):
     ax.set_ylabel(ylabel, fontsize=FONT_SIZE)
 
 
-def plot_textbox(ax: plt.Axes, text: str, x: float, y: float, bbox_props: dict = None):
+def plot_textbox(ax: plt.Axes, text: str, x: float, y: float, bbox_props: Optional[dict] = None):
     if bbox_props is None:
         bbox_props = dict(boxstyle="round,pad=0.3", facecolor="white", edgecolor="black", alpha=0.5)
     ax.text(x, y, text, transform=ax.transAxes, fontsize=FONT_SIZE, verticalalignment='top', bbox=bbox_props)
@@ -257,14 +256,17 @@ def compute_deviation_to_reference_df(csv_path_template: str, betas: List, seeds
 
     If reference_values_path is None, the function will compute the deviation from Nash equilibrium values.
 
-    # TODO update text if calculation is changed.
-    Currently, the absolute value is taken at the lowest level, i.e., when calculating the deviation between e.g.
-    sd from the nash reference value **for a specific path, at a specific time, for a specific seed and specific beta**.
-    Then the mean of those absolute deviations is taken across all paths and time steps, for that specific seed-beta
+    The absolute value is taken at the lowest level. For sd, this means, tha abs is taken when calculating the
+    deviation between the reference value and measured sd **for a specific path, at a specific time, for a specific
+    seed and specific beta**.
+    For tt, we take the absolute value of the value of the average travel time (across all paths), but still for a
+    specific time, seed and beta.
+    Then the mean of those absolute deviations is taken across all (paths and) time steps, for that specific seed-beta
     combination.
 
-    Returns DataFrame with shape (seeds, betas), where each cell contains the average
-    absolute deviation from reference values for that seed-beta combination.
+    Returns:
+        A pandas DataFrame with shape (seeds, betas), where each cell contains the average
+        absolute deviation from reference values for that seed-beta combination.
     """
 
     if mode == "sd":
@@ -325,10 +327,6 @@ def compute_deviation_to_reference_df(csv_path_template: str, betas: List, seeds
                         # also remove last time step from data_to_check, since it has no corresponding nash value
                         data_to_check = data_to_check[0:-1]
 
-                        # prepend a 0 to the cumulative flow to make it start at 0 instead of 1, for better comparison with NASH lines
-                        # also remove the last time step, since it has no corresponding nash value
-                        # data_to_check = pd.concat([pd.Series([0]), data_to_check], ignore_index=True)[0:-1]
-
                     else:
                         # Read reference values from the specified path
                         reference_values = pd.read_csv(reference_values_path.format(beta=beta))
@@ -363,11 +361,12 @@ def compute_deviation_to_reference_df(csv_path_template: str, betas: List, seeds
                     # Read reference values from the specified path
                     reference_values = pd.read_csv(reference_values_path.format(beta=beta))
                     # Use provided reference values
-                    if col_name not in reference_values.columns:
-                        raise ValueError(f"Reference values must contain a column for path {col_name}")
+                    if data_col not in reference_values.columns:
+                        raise ValueError(f"Reference values must contain a column for path {data_col}")
 
-                    ref_series = reference_values[col_name].values
+                    ref_series = reference_values[data_col].values
 
+                # TODO this is where something would have to change, if the absolute value is taken at another place.
                 deviation_over_time_of_avg_tt = np.abs(df[data_col].values - ref_series)
                 mean_deviation = np.nanmean(deviation_over_time_of_avg_tt)
             result.loc[seed, beta] = mean_deviation
@@ -382,23 +381,22 @@ def compute_deviation_to_reference_series_but_avg_first(csv_path_template: str, 
                                                         mode: str,
                                                         reference_values_path: Optional[str] = None) -> pd.Series:
     """
-    #TODO docstring is copy pasted, needs update
-    Load CSV files for different beta and seed combinations, compute the mean absolute
-    deviation from reference values across all time steps and paths.
+    Load CSV files for different beta and seed combinations, compute the mean sd or tt values per time step over all
+    seeds for each beta, and (only) then compute the mean absolute deviation of these averaged values from reference
+    values across all time steps and paths.
+
     If reference_values_path is None, the function will compute the deviation from Nash equilibrium values.
 
-    # TODO should maybe change:
-    **NOTE:** currently, seeds are used as parameter for "use_random_seeds", but in the future, it should also be able
-    to be used for "read_random_seeds"
+    Note that the values are thus averaged across seeds before the absolute deviation is calculated.
+    This is different from compute_deviation_to_reference_df, where the absolute deviation is calculated for each seed.
+    This means that deviations can cancel each other out.
 
-    # TODO update text if calculation is changed.
-    Currently, the absolute value is taken at the lowest level, i.e., when calculating the deviation between e.g.
-    sd from the nash reference value **for a specific path, at a specific time, for a specific seed and specific beta**.
-    Then the mean of those absolute deviations is taken across all paths and time steps, for that specific seed-beta
-    combination.
+    Also note that for sd values, the deviation is considered per path, and then averaged across paths. For tt values,
+    the deviation is considered for the average travel time across all paths.
 
-    Returns DataFrame with shape (seeds, betas), where each cell contains the average
-    absolute deviation from Nash values for that seed-beta combination.
+    Returns:
+        A pandas Series with shape (seeds, betas), where each cell contains the average
+        absolute deviation from reference values for that seed-beta combination.
     """
 
     if mode == "sd":

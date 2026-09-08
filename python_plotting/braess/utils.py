@@ -8,7 +8,7 @@ from setup import NASH_TT_POINTS, NASH_SD_POINTS, COLORS, LABELS, FONT_SIZE, LEG
     TOP_COLOUR, BETAS
 
 
-def get_interpolated_nash_vals(at_xvals: pd.Index, mode: str, for_path: Optional[int] = None) -> np.ndarray[float]:
+def get_interpolated_nash_vals(at_xvals: pd.Index, mode: str, for_path: Optional[int] = None):
     """
     Returns an array with the interpolated values of NASH_TT_POINTS or NASH_SD_POINTS, at the provided x values.
     """
@@ -159,13 +159,14 @@ def plot_value_count_table(ax: plt.Axes, value_counts: pd.Series, xscale: float 
     df[percent_col_name] = (df[count_col_name] / df[count_col_name].sum() * 100).round(2)
 
     # Create a table and add it to the axes
-    table = ax.table(cellText=df.values,
-                     colLabels=df.columns,
-                     cellLoc='center',
-                     loc='upper left',
-                     bbox=None,
-                     cellColours=[["white"] * len(df.columns)] * len(df),
-                     alpha=1.0)
+    table = plt.table(ax=ax,
+                      cellText=df.values,
+                      colLabels=df.columns,
+                      cellLoc='center',
+                      loc='upper left',
+                      bbox=None,
+                      cellColours=[["white"] * len(df.columns)] * len(df),
+                      alpha=1.0)
 
     table.auto_set_font_size(False)
     table.set_fontsize(FONT_SIZE)

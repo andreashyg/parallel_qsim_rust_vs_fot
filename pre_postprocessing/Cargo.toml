@@ -1,5 +1,5 @@
 [package]
-name = "postprocessing"
+name = "pre_postprocessing"
 version = "0.1.0"
 edition = "2024"
 
@@ -10,3 +10,4 @@ tracing = "0.1"
 clap = { version = "4.0.29", features = ["derive"] }
 polars = { version = "0.53.0", features = ["lazy", "cum_agg", "strings"] }
 polars-lazy = "0.53.0"
+flate2 = "1.1.2"

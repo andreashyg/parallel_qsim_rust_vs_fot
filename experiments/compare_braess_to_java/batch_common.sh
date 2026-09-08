@@ -2,39 +2,59 @@
 
 set -uo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+read_config_file_entry() {
+  local -n var_to_change="$1"
+  local key="$2"
+  mapfile -t var_to_change < <(yq -r ".${key} | if type == \"array\" then .[] else . end" "$SCRIPT_DIR/../config.yaml")
+}
+
 # Variants for the replanning strategy to use in the experiments. These simply correspond to variants that were used
 # in the Java implementation of the Braess experiment, and whose output plans are read by the Rust implementation to
 # simulate the same scenario.
-REPLANNING_VARIANTS=(
-  sel-exp1-switch-at50
-  sel-exp1-switch-at80
-  sel-exp10-switch-at80
-)
+read_config_file_entry REPLANNING_VARIANTS replanning_variants
 
 # Parameter for time steps and vehicle size.
 # One time step has length 1/beta seconds (i.e., we have beta ticks per second).
 # Vehicles have pce 1/(beta^2) and length 7.5/(beta^2)
-BETAS=(1 2 4 8 16)
+read_config_file_entry BETAS betas
 
-# these are the counters for the reruns with different random seeds that were performed in Java. Meaning that these
-# values are used to read the corresponding output plans from the Java implementation of the Braess experiment.
-READ_FROM_RANDOM_VALUES=({1..1})  # only use the first random seed used in Java, because the differences there are not
-# what we are interested in here, instead it's more relevant to compare different random seeds in Rust.
+# either "java" or "rust", to select over which random seeds to iterate or average over.
+#WHICH_SEEDS_TO_AVG_OVER=(
+#  "java"
+#  "rust"
+#  )
+read_config_file_entry WHICH_SEEDS_TO_AVG_OVER which_seeds_to_avg_over
 
-# random seeds used in the rust simulations
-USE_RANDOM_SEED_VALUES=({42..61})  # arbitrary range of 20 random seeds to use in the Rust simulations
+# when fixing a rust seed and varying java (e.g.: plot results based on java runs using different seeds there, but
+# all just run with a single rust seed), use this seed
+read_config_file_entry RUST_SEED_WHEN_FIXED rust_seed_when_fixed
 
-OUTPUT_BASE_DIR="./../runs-svn/Abschlussarbeiten/2026/andreas-hygrell-rust-vs-fot/compare_braess_to_java"
+# when fixing a java seed (while varying rust seeds), use this index (the actual seed differs)
+read_config_file_entry JAVA_SEED_INDEX_WHEN_FIXED java_seed_index_when_fixed
+
+# when varying rust seeds, use these
+read_config_file_entry RUST_SEEDS_TO_ITERATE_OVER rust_seeds_to_iterate_over
+
+# when varying java seeds, use these indices (the actual seeds differ)
+read_config_file_entry JAVA_SEED_INDICES_TO_ITERATE_OVER java_seed_indices_to_iterate_over
+
+# Base directory where the simulation output directories will be created.
+read_config_file_entry SIM_OUTPUT_BASE_DIR sim_output_base_dir
 
 # Collect failures so the scripts can finish all experiments/extractions and only report problems at the end.
 EXPERIMENT_FAILURES=()
 EXTRACTION_FAILURES=()
+PLOTTING_FAILURES=()
+DUMMY_COORDINATE_ADDING_FAILURES=()
+REFORMATTING_FAILURES=()
 
 # if this command line argument is given, the rust config will use config.overwrite_files = DeleteDirectoryIfExists
-delete_output_dir_if_existing=false
+: "${delete_output_dir_if_existing:=false}"
 # if this command line argument is given, the bash script will skip the experiment case if the output directory already
 # exists.
-skip_existing_output_dir=false
+: "${skip_existing_output_dir:=false}"
 # other command line arguments are not supported, but could be added here in the future.
 
 # this is a function called to read command line arguments
@@ -54,69 +74,304 @@ parse_common_args() {
         ;;
     esac
   done
+
+  # Needed for GNU parallel worker shells.
+  export delete_output_dir_if_existing
+  export skip_existing_output_dir
 }
 
-# function called to call another function (the actual run of an experiment) repeatedly for every combination of
-# parameters (replanning_variant, beta, read_from_random). The function to call is passed as the first argument.
-# It will be called with the parameters:
-#   replanning_variant, beta, read_from_random, use_random_seed, output_root_dir, output_dir
-# accordingly.
-for_each_experiment_case() {
-  local callback="$1"
+get_simulation_output_directory() {
+  local replanning_variant=$1
+  local seeds_to_avg_over=$2
+  local beta=$3
+  local read_from_random=$4
+  local use_random_seed=$5
 
-  # Iterate over every experiment combination and delegate the work to the given callback.
+  echo "${SIM_OUTPUT_BASE_DIR}/${replanning_variant}/varying_${seeds_to_avg_over}_seeds/beta${beta}/read_from_random_${read_from_random}_use_random_seed_${use_random_seed}"
+}
+
+get_java_seed_from_index() {
+  local seeds_to_avg_over="$1"
+  local seed_index="$2"
+
+  if [ "$seeds_to_avg_over" = "java" ]; then
+    echo "${JAVA_SEED_INDICES_TO_ITERATE_OVER[$seed_index]}"
+  elif [ "$seeds_to_avg_over" = "rust" ]; then
+    echo "$JAVA_SEED_INDEX_WHEN_FIXED"
+  else
+    echo "Unknown seeds_to_avg_over value: $seeds_to_avg_over" >&2
+    exit 1
+  fi
+}
+
+get_rust_seed_from_index() {
+  local seeds_to_avg_over="$1"
+  local seed_index="$2"
+
+  if [ "$seeds_to_avg_over" = "rust" ]; then
+    echo "${RUST_SEEDS_TO_ITERATE_OVER[$seed_index]}"
+  elif [ "$seeds_to_avg_over" = "java" ]; then
+    echo "$RUST_SEED_WHEN_FIXED"
+  else
+    echo "Unknown seeds_to_avg_over value: $seeds_to_avg_over" >&2
+    exit 1
+  fi
+}
+
+get_original_java_replanning_folder_string() {
+  local replanning_variant="$1"
+
+  if [ "${replanning_variant}" = "sel-exp1-switch-at50" ]; then
+    echo "2026-05-8-12-16-8_500it_reRouteProba0.1until0.5it_selExpBeta1proba0.9_msaFrom0.5it"
+  elif [ "${replanning_variant}" = "sel-exp1-switch-at80" ]; then
+    echo "2026-05-10-10-2-21_500it_reRouteProba0.1until0.8it_selExpBeta1proba0.9_msaFrom0.8it"
+  elif [ "${replanning_variant}" = "sel-exp10-switch-at80" ]; then
+    echo "2026-05-12-8-42-24_500it_reRouteProba0.1until0.8it_selExpBeta10proba0.9_msaFrom0.8it"
+  else
+    echo "unknown replanning_variant value: $replanning_variant" >&2
+    return 1
+  fi
+}
+# function that iterates through every combination
+# of replanning variant and "seed to vary", and calls the callback
+# for those two parameters, plus any additional parameters passed to this function.
+run_for_each_replvar_variedseed_combo() {
+  local callback=$1
+  shift  # consumes the first argument
+  # this means that "$@" is now all arguments after callback
+
+  # Iterate over every parameter combination and delegate the work to the given callback.
   for replanning_variant in "${REPLANNING_VARIANTS[@]}"; do
-    local output_root_dir="${OUTPUT_BASE_DIR}/${replanning_variant}"
-    for beta in "${BETAS[@]}"; do
-      for read_from_random in "${READ_FROM_RANDOM_VALUES[@]}"; do
-        for use_random_seed in "${USE_RANDOM_SEED_VALUES[@]}"; do
-          local output_dir="${output_root_dir}/beta${beta}/read_from_random_${read_from_random}_use_random_seed_${use_random_seed}"
-
-          # if the output directory already exists and the corresponding cla was given, skip this experiment
-          skip=false
-          if [ -d "$output_dir" ] && [ "${skip_existing_output_dir}" = "true" ]; then
-            skip=true
-            echo "Skipping due to existing output directory: $output_dir"
-          fi
-          "$callback" "$replanning_variant" "$beta" "$read_from_random" "$use_random_seed" "$output_root_dir" "$output_dir" "$skip"
-        done
-      done
+    for seeds_to_avg_over in "${WHICH_SEEDS_TO_AVG_OVER[@]}"; do
+      "$callback" "$replanning_variant" "$seeds_to_avg_over" "$@"
     done
   done
 }
 
-# function to called to record a failure in either the experiment run or the extraction run.
+run_all_betas_for_replvar_variedseed_combo() {
+  local replanning_variant="$1"
+  local seeds_to_avg_over="$2"
+  local actual_callback="$3"
+
+  shift 3
+
+  for beta in "${BETAS[@]}"; do
+    "$actual_callback" "$replanning_variant" "$seeds_to_avg_over" "$beta" "$@"
+  done
+}
+
+run_all_betas_for_replvar_variedseed_combo_parallel() {
+  local replanning_variant="$1"
+  local seeds_to_avg_over="$2"
+  local actual_callback="$3"
+  local batch_common_file="${BASH_SOURCE[0]}"
+  shift 3
+
+  local callback_q replanning_q seeds_q common_q arg extra_args=""
+  local failure_log
+  failure_log="$(mktemp)"
+  printf -v callback_q '%q' "$actual_callback"
+  printf -v replanning_q '%q' "$replanning_variant"
+  printf -v seeds_q '%q' "$seeds_to_avg_over"
+  printf -v common_q '%q' "$batch_common_file"
+  for arg in "$@"; do
+    extra_args+=" $(printf '%q' "$arg")"
+  done
+
+  export FAILURE_LOG_FILE="$failure_log"
+  export delete_output_dir_if_existing
+  export skip_existing_output_dir
+
+  parallel --will-cite -j "${MAX_PARALLEL_JOBS:-8}" \
+    "bash -lc 'source ${common_q}; ${callback_q} ${replanning_q} ${seeds_q} {}${extra_args}'" \
+    ::: "${BETAS[@]}"
+
+  import_failure_log "$failure_log"
+  rm -f "$failure_log"
+  unset FAILURE_LOG_FILE
+}
+
+run_for_each_replvar_variedseed_beta_combo() {
+  local actual_callback=$1
+  shift
+
+  # This will:
+  # - iterate over every replanning_variant and seeds_to_avg_over combination
+  # - for each combination, iterate over every beta and call actual_callback with replanning_variant, seeds_to_avg_over,
+  #   beta, and any additional parameters passed to this function.
+  run_for_each_replvar_variedseed_combo run_all_betas_for_replvar_variedseed_combo "$actual_callback" "$@"
+
+
+#  for beta in "${BETAS[@]}"; do
+#    run_for_each_replvar_variedseed_combo "$actual_callback" "$beta" "$@"
+#  done
+}
+
+run_all_seeds_for_replvar_variedseed_beta_combo() {
+  local replanning_variant="$1"
+  local seeds_to_avg_over="$2"
+  local beta="$3"
+  local actual_callback="$4"
+
+  shift 4
+
+#  get length of rust_seeds_to_iterate_over or java_seed_indices_to_iterate_over depending on seeds_to_avg_over
+  local seed_count
+  if [[ "$seeds_to_avg_over" == "rust" ]]; then
+    seed_count=${#RUST_SEEDS_TO_ITERATE_OVER[@]}
+  else
+    seed_count=${#JAVA_SEED_INDICES_TO_ITERATE_OVER[@]}
+  fi
+
+#  means "for seed_index in 0..seed_count-1 do"
+  for seed_index in $(seq 0 $((seed_count - 1))); do
+    "$actual_callback" "$replanning_variant" "$seeds_to_avg_over" "$beta" "$seed_index" "$@"
+  done
+}
+
+run_all_seeds_for_replvar_variedseed_beta_combo_parallel() {
+  local replanning_variant="$1"
+  local seeds_to_avg_over="$2"
+  local beta="$3"
+  local actual_callback="$4"
+  local batch_common_file="${BASH_SOURCE[0]}"
+
+  shift 4
+
+  local callback_q replanning_q seeds_q beta_q common_q arg extra_args=""
+  local failure_log
+  failure_log="$(mktemp)"
+  printf -v callback_q '%q' "$actual_callback"
+  printf -v replanning_q '%q' "$replanning_variant"
+  printf -v seeds_q '%q' "$seeds_to_avg_over"
+  printf -v beta_q '%q' "$beta"
+  printf -v common_q '%q' "$batch_common_file"
+  for arg in "$@"; do
+    extra_args+=" $(printf '%q' "$arg")"
+  done
+
+  export FAILURE_LOG_FILE="$failure_log"
+  export delete_output_dir_if_existing
+  export skip_existing_output_dir
+
+  #  get length of rust_seeds_to_iterate_over or java_seed_indices_to_iterate_over depending on seeds_to_avg_over
+  local seed_count
+  if [[ "$seeds_to_avg_over" == "rust" ]]; then
+    seed_count=${#RUST_SEEDS_TO_ITERATE_OVER[@]}
+  else
+    seed_count=${#JAVA_SEED_INDICES_TO_ITERATE_OVER[@]}
+  fi
+
+
+  parallel --will-cite -j "${MAX_PARALLEL_JOBS:-8}" \
+    "bash -lc 'source ${common_q}; ${callback_q} ${replanning_q} ${seeds_q} ${beta_q} {}${extra_args}'" \
+    ::: $(seq 0 $((seed_count - 1)))
+#    the $seq 0 ..... means {0....seed_count-1}
+
+  import_failure_log "$failure_log"
+  rm -f "$failure_log"
+  unset FAILURE_LOG_FILE
+}
+
+run_for_each_replvar_variedseed_beta_seed_combo() {
+  local actual_callback=$1
+  shift
+
+  # This will:
+  # - iterate over every replanning_variant, seeds_to_avg_over and beta combination
+  # - for each combination, iterate over every seed_index and call actual_callback with replanning_variant,
+  # seeds_to_avg_over, beta, seed_index and any other parameters
+  run_for_each_replvar_variedseed_beta_combo run_all_seeds_for_replvar_variedseed_beta_combo "$actual_callback" "$@"
+}
+
+run_for_each_replvar_variedseed_beta_seed_combo_parallel() {
+  local actual_callback=$1
+  shift
+
+  # This will:
+  # - iterate over every replanning_variant, seeds_to_avg_over and beta combination
+  # - for each combination, iterate over every seed_index and call actual_callback with replanning_variant,
+  # seeds_to_avg_over, beta, seed_index and any other parameters
+  run_for_each_replvar_variedseed_beta_combo run_all_seeds_for_replvar_variedseed_beta_combo_parallel "$actual_callback" "$@"
+}
+
+
+# function to called to record a failure in either the experiment run or the extraction or plotting run.
 # Called with the arguments:
-#   kind: either "experiment" or "extraction"
+#   kind: either "experiment" or "extraction" or "plotting"
 # and
 #   replanning_variant, beta, read_from_random, output_dir, use_random_seed
-# Will append a string describing the failure to the corresponding array (EXPERIMENT_FAILURES or EXTRACTION_FAILURES).
+# Will append a string describing the failure to the corresponding array (EXPERIMENT_FAILURES or EXTRACTION_FAILURES
+# or PLOTTING_FAILURES).
 record_failure() {
   local kind="$1"
   local replanning_variant="$2"
   local beta="$3"
   local read_from_random="$4"
-  local output_dir="$5"
-  local use_random_seed="$6"
+  local use_random_seed="$5"
 
   case "$kind" in
     experiment)
-      EXPERIMENT_FAILURES+=("${replanning_variant} beta=${beta} read_from_random=${read_from_random} dir=${output_dir} use_random_seed=${use_random_seed}")
+      EXPERIMENT_FAILURES+=("${replanning_variant} beta=${beta} read_from_random=${read_from_random} use_random_seed=${use_random_seed}")
       ;;
     extraction)
-      EXTRACTION_FAILURES+=("${replanning_variant} beta=${beta} read_from_random=${read_from_random} dir=${output_dir} use_random_seed=${use_random_seed}")
+      EXTRACTION_FAILURES+=("${replanning_variant} beta=${beta} read_from_random=${read_from_random} use_random_seed=${use_random_seed}")
+      ;;
+    plotting)
+      PLOTTING_FAILURES+=("${replanning_variant} beta=${beta} read_from_random=${read_from_random} use_random_seed=${use_random_seed}")
+      ;;
+    dummy_coordinate_adding)
+      DUMMY_COORDINATE_ADDING_FAILURES+=("${replanning_variant} beta=${beta} read_from_random=${read_from_random} use_random_seed=${use_random_seed}")
+      ;;
+    reformatting)
+      REFORMATTING_FAILURES+=("${replanning_variant} beta=${beta} read_from_random=${read_from_random} use_random_seed=${use_random_seed}")
       ;;
     *)
       echo "Unknown failure kind: $kind" >&2
       exit 1
       ;;
   esac
+
+  if [ -n "${FAILURE_LOG_FILE:-}" ]; then
+    printf '%s\t%s\t%s\t%s\t%s\n' \
+      "$kind" "$replanning_variant" "$beta" "$read_from_random" "$use_random_seed" >> "$FAILURE_LOG_FILE"
+  fi
+}
+
+import_failure_log() {
+  local failure_log_file="$1"
+  local kind replanning_variant beta read_from_random use_random_seed
+
+  [ -s "$failure_log_file" ] || return 0
+
+  while IFS=$'\t' read -r kind replanning_variant beta read_from_random use_random_seed; do
+    case "$kind" in
+      experiment)
+        EXPERIMENT_FAILURES+=("${replanning_variant} beta=${beta} read_from_random=${read_from_random} use_random_seed=${use_random_seed}")
+        ;;
+      extraction)
+        EXTRACTION_FAILURES+=("${replanning_variant} beta=${beta} read_from_random=${read_from_random} use_random_seed=${use_random_seed}")
+        ;;
+      plotting)
+        PLOTTING_FAILURES+=("${replanning_variant} beta=${beta} read_from_random=${read_from_random} use_random_seed=${use_random_seed}")
+        ;;
+      dummy_coordinate_adding)
+        DUMMY_COORDINATE_ADDING_FAILURES+=("${replanning_variant} beta=${beta} read_from_random=${read_from_random} use_random_seed=${use_random_seed}")
+        ;;
+      reformatting)
+        REFORMATTING_FAILURES+=("${replanning_variant} beta=${beta} read_from_random=${read_from_random} use_random_seed=${use_random_seed}")
+        ;;
+      *)
+        echo "Unknown failure kind in failure log: $kind" >&2
+        ;;
+    esac
+  done < "$failure_log_file"
 }
 
 # function to print a summary of all failures recorded during the batch run. Will print the number of failures and the
 # details of each failure.
 print_failure_summary() {
-  if [ "${#EXPERIMENT_FAILURES[@]}" -eq 0 ] && [ "${#EXTRACTION_FAILURES[@]}" -eq 0 ]; then
+  if [ "${#EXPERIMENT_FAILURES[@]}" -eq 0 ] && [ "${#EXTRACTION_FAILURES[@]}" -eq 0 ] && [ "${#PLOTTING_FAILURES[@]}" -eq 0 ] && [ "${#DUMMY_COORDINATE_ADDING_FAILURES[@]}" -eq 0 ] && [ "${#REFORMATTING_FAILURES[@]}" -eq 0 ]; then
     echo "No failures recorded."
     return 0
   fi
@@ -136,105 +391,44 @@ print_failure_summary() {
       echo "    - $failure"
     done
   fi
+
+  if [ "${#PLOTTING_FAILURES[@]}" -gt 0 ]; then
+    echo "  Plotting failures (${#PLOTTING_FAILURES[@]}):"
+    for failure in "${PLOTTING_FAILURES[@]}"; do
+      echo "    - $failure"
+    done
+  fi
+
+  if [ "${#DUMMY_COORDINATE_ADDING_FAILURES[@]}" -gt 0 ]; then
+    echo "  Dummy coordinate adding failures (${#DUMMY_COORDINATE_ADDING_FAILURES[@]}):"
+    for failure in "${DUMMY_COORDINATE_ADDING_FAILURES[@]}"; do
+      echo "    - $failure"
+    done
+  fi
+
+  if [ "${#REFORMATTING_FAILURES[@]}" -gt 0 ]; then
+    echo "  Reformatting failures (${#REFORMATTING_FAILURES[@]}):"
+    for failure in "${REFORMATTING_FAILURES[@]}"; do
+      echo "    - $failure"
+    done
+  fi
 }
 
-# function to run a single experiment case. Called with the arguments:
-#   replanning_variant, beta, read_from_random, use_random_seed, output_root_dir, output_dir
-# Will run the Rust simulation with the given parameters and write the output to the given output directory.
-# If the simulation fails, it will record the failure and continue with the next case
-run_experiment_case() {
-  local replanning_variant="$1"
-  local beta="$2"
-  local read_from_random="$3"
-  local use_random_seed="$4"
-  local _output_root_dir="$5"
-  local output_dir="$6"
-  local skip="$7"
+__BATCH_COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${__BATCH_COMMON_DIR}/run_cases.sh"
+source "${__BATCH_COMMON_DIR}/extraction_cases.sh"
+source "${__BATCH_COMMON_DIR}/plotting_cases.sh"
 
-  if [ "$skip" = "true" ]; then
-    return 0
-  fi
+export -f run_and_extract_and_plot_per_seed_case
+export -f run_and_extract_case
+export -f try_extracting_measurements_from_java_case
+export -f reformat_original_java_extracted_measurements_case
+export -f plot_original_java_data_per_seed_case
+export -f plot_per_seed_case
+export -f plot_avg_over_seeds_case
+export -f record_failure
 
-
-  echo "Running rust simulation with parameters: replanning_variant=$replanning_variant, beta=$beta, read_from_random=$read_from_random, use_random_seed=$use_random_seed"
-
-  echo "Output directory: $output_dir"
-
-  local delete_output_dir_arg=()
-  if [ "$delete_output_dir_if_existing" = true ]; then
-    delete_output_dir_arg=(--delete-output-dir-if-existing)
-  fi
-
-  # Run the Rust simulation; failures are reported but do not stop the batch.
-  if ! cargo run --release --bin run_braess_from_java -- \
-    --beta "$beta" \
-    --read-from-random "$read_from_random" \
-    --use-random-seed "$use_random_seed" \
-    --replanning-variant "$replanning_variant" \
-    --output-dir "$output_dir" \
-    "${delete_output_dir_arg[@]}"
-  then
-    echo "Experiment failed, continuing with next case." >&2
-    record_failure experiment "$replanning_variant" "$beta" "$read_from_random" "$output_dir" "$use_random_seed"
-    return 1
-  fi
-
-  return 0
-}
-
-# function to run the travel time & summed departures extraction for a single experiment case. Called with the arguments:
-#   replanning_variant, beta, read_from_random, use_random_seed, output_root_dir, output_dir, skip
-# Will read the events written by the simulation in the given output directory and write the average travel times per
-# route to a CSV file in the analysis subdirectory of the output root directory.
-extract_travel_time_sum_dep_case() {
-  local replanning_variant="$1"
-  local beta="$2"
-  local read_from_random="$3"
-  local use_random_seed="$4"
-  local output_root_dir="$5"
-  local output_dir="$6"
-  local skip="$7"
-
-  if [ "$skip" = "true" ]; then
-    return 0
-  fi
-
-
-  echo "Extracting average travel times and summed departures for parameters: replanning_variant=$replanning_variant, beta=$beta, read_from_random=$read_from_random"
-
-  local input_file_stem="${output_dir}/events/events"
-  local tt_csv_path="${output_root_dir}/analysis/average_route_tts_per_deptime_beta${beta}_read_from_random_${read_from_random}_use_random_seed_${use_random_seed}.csv"
-  local sd_csv_path="${output_root_dir}/analysis/summed_deps_per_time_beta${beta}_read_from_random_${read_from_random}_use_random_seed_${use_random_seed}.csv"
-
-  echo "writing into $tt_csv_path and $sd_csv_path"
-
-  # Extract travel times and summed departures from the events written by the simulation.
-  if ! cargo run --release --bin event_data_extractor -- \
-    --input-file-stem "$input_file_stem" \
-    --input-file-format "binpb" \
-    --tt-csv-path "$tt_csv_path" \
-    --sd-csv-path "$sd_csv_path" \
-    --num-parts 1 \
-    --link-to-path-map-name "braess" \
-    --id-store-path "${output_dir}/output_ids.binpb" \
-    --beta "$beta"
-  then
-    echo "Travel-time/summed departures extraction failed, continuing with next case." >&2
-    record_failure extraction "$replanning_variant" "$beta" "$read_from_random" "$output_dir" "$use_random_seed"
-    return 1
-  fi
-
-  return 0
-}
-
-# function to run a single experiment case and then extract the travel times from the events written by the simulation.
-run_and_extract_case() {
-  # Only extract travel times if the simulation run finished successfully.
-  if run_experiment_case "$@"; then
-    extract_travel_time_sum_dep_case "$@"
-  else
-    echo "Skipping travel time/summed departures extraction because the experiment failed." >&2
-  fi
-
-  return 0
-}
+export -f get_java_seed_from_index
+export -f get_rust_seed_from_index
+export -f get_simulation_output_directory
+export -f get_original_java_replanning_folder_string

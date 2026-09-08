@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE population SYSTEM "http://www.matsim.org/files/dtd/population_v6.dtd">
+
+<population>
+
+
+    <!-- ====================================================================== -->
+
+    <person id="0">
+        <attributes>
+            <attribute name="vehicles" class="org.matsim.vehicles.PersonVehicles">{"car":"0"}</attribute>
+        </attributes>
+        <plan selected="no">
+            <activity type="dummy" link="0_1" end_time="00:00:00.0">
+            </activity>
+            <leg mode="car">
+                <attributes>
+                    <attribute name="routingMode" class="java.lang.String">car</attribute>
+                </attributes>
+                <route type="links" start_link="0_1" end_link="5_6" trav_time="undefined" distance="375000.0"
+                       vehicleRefId="null">0_1 1_2 2_3 3_4 4_5 5_6
+                </route>
+            </leg>
+            <activity type="dummy" link="5_6">
+            </activity>
+        </plan>
+
+        <plan score="121.76908240596627" selected="yes">
+            <activity type="dummy" link="0_1" end_time="00:00:00.0">
+            </activity>
+            <leg mode="car">
+                <attributes>
+                    <attribute name="routingMode" class="java.lang.String">car</attribute>
+                </attributes>
+                <route type="links" start_link="0_1" end_link="5_6" trav_time="undefined" distance="300000.0"
+                       vehicleRefId="0">0_1 1_2 2_4 4_5 5_6
+                </route>
+            </leg>
+            <activity type="dummy" link="5_6">
+            </activity>
+        </plan>
+
+        <plan selected="no">
+            <activity type="dummy" link="0_1" end_time="00:00:00.0">
+            </activity>
+            <leg mode="car">
+                <attributes>
+                    <attribute name="routingMode" class="java.lang.String">car</attribute>
+                </attributes>
+                <route type="links" start_link="0_1" end_link="5_6" trav_time="undefined" distance="300000.0"
+                       vehicleRefId="null">0_1 1_2 2_3 3_5 5_6
+                </route>
+            </leg>
+            <activity type="dummy" link="5_6">
+            </activity>
+        </plan>
+
+    </person>
+
+    <!-- ====================================================================== -->
+
+    <person id="1">
+        <attributes>
+            <attribute name="vehicles" class="org.matsim.vehicles.PersonVehicles">{"car":"1"}</attribute>
+        </attributes>
+        <plan selected="no">
+            <activity type="dummy" link="0_1" end_time="00:00:00.25">
+            </activity>
+            <leg mode="car">
+                <attributes>
+                    <attribute name="routingMode" class="java.lang.String">car</attribute>
+                </attributes>
+                <route type="links" start_link="0_1" end_link="5_6" trav_time="undefined" distance="375000.0"
+                       vehicleRefId="null">0_1 1_2 2_3 3_4 4_5 5_6
+                </route>
+            </leg>
+            <activity type="dummy" link="5_6">
+            </activity>
+        </plan>
+
+        <plan selected="no">
+            <activity type="dummy" link="0_1" end_time="00:00:00.25">
+            </activity>
+            <leg mode="car">
+                <attributes>
+                    <attribute name="routingMode" class="java.lang.String">car</attribute>
+                </attributes>
+                <route type="links" start_link="0_1" end_link="5_6" trav_time="undefined" distance="300000.0"
+                       vehicleRefId="null">0_1 1_2 2_4 4_5 5_6
+                </route>
+            </leg>
+            <activity type="dummy" link="5_6">
+            </activity>
+        </plan>
+
+        <plan score="121.76908240596627" selected="yes">
+            <activity type="dummy" link="0_1" end_time="00:00:00.25">
+            </activity>
+            <leg mode="car">
+                <attributes>
+                    <attribute name="routingMode" class="java.lang.String">car</attribute>
+                </attributes>
+                <route type="links" start_link="0_1" end_link="5_6" trav_time="undefined" distance="300000.0"
+                       vehicleRefId="1">0_1 1_2 2_3 3_5 5_6
+                </route>
+            </leg>
+            <activity type="dummy" link="5_6">
+            </activity>
+        </plan>
+
+    </person>
+
+    <!-- ====================================================================== -->
+
+    <person id="10">
+        <attributes>
+            <attribute name="vehicles" class="org.matsim.vehicles.PersonVehicles">{"car":"10"}</attribute>
+        </attributes>
+        <plan selected="no">
+            <activity type="dummy" link="0_1" end_time="00:00:02.5">
+            </activity>
+            <leg mode="car">
+                <attributes>
+                    <attribute name="routingMode" class="java.lang.String">car</attribute>
+                </attributes>
+                <route type="links" start_link="0_1" end_link="5_6" trav_time="undefined" distance="375000.0"
+                       vehicleRefId="null">0_1 1_2 2_3 3_4 4_5 5_6
+                </route>
+            </leg>
+            <activity type="dummy" link="5_6">
+            </activity>
+        </plan>
+
+        <plan score="121.76908240596627" selected="yes">
+            <activity type="dummy" link="0_1" end_time="00:00:02.5">
+            </activity>
+            <leg mode="car">
+                <attributes>
+                    <attribute name="routingMode" class="java.lang.String">car</attribute>
+                </attributes>
+                <route type="links" start_link="0_1" end_link="5_6" trav_time="undefined" distance="300000.0"
+                       vehicleRefId="10">0_1 1_2 2_4 4_5 5_6
+                </route>
+            </leg>
+            <activity type="dummy" link="5_6">
+            </activity>
+        </plan>
+
+        <plan selected="no">
+            <activity type="dummy" link="0_1" end_time="00:00:02.5">
+            </activity>
+            <leg mode="car">
+                <attributes>
+                    <attribute name="routingMode" class="java.lang.String">car</attribute>
+                </attributes>
+                <route type="links" start_link="0_1" end_link="5_6" trav_time="undefined" distance="300000.0"
+                       vehicleRefId="null">0_1 1_2 2_3 3_5 5_6
+                </route>
+            </leg>
+            <activity type="dummy" link="5_6">
+            </activity>
+        </plan>
+
+    </person>
+
+    <!-- ====================================================================== -->
+
+</population>

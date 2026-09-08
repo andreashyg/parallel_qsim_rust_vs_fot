@@ -1,5 +1,5 @@
 use clap::Parser;
-use postprocessing::event_extraction::{LinkToPathMap, TravelTimeAndSumDepPerPathCSVWriter};
+use pre_postprocessing::event_extraction::{LinkToPathMap, TravelTimeAndSumDepPerPathCSVWriter};
 use rust_qsim::simulation::events::EventsManager;
 use rust_qsim::simulation::events::utils::{read_events, read_partitioned_events};
 use rust_qsim::simulation::id;
@@ -75,7 +75,7 @@ fn main() {
         0u32 => {
             read_events(
                 &mut event_mgr,
-                &input_path_stem.join(args.input_file_format),
+                &input_path_stem.with_added_extension(args.input_file_format),
             )
             .expect("Failed to read events from input file");
         }

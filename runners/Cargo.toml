@@ -7,3 +7,5 @@ edition = "2024"
 clap = { version = "4.0.29", features = ["derive"] }
 rust_qsim = { path = "../rust_qsim" }
 tracing = "0.1"
+pre_postprocessing = { path = "../pre_postprocessing" }
+

@@ -1,11 +1,10 @@
-import os
 import sys
 
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from setup import FIG_SIZE, ROOT_DATA_PATH
-from utils import plot_nash_lines, plot_extracted_sd_over_time, plot_extracted_tt_over_time, \
+from setup import FIG_SIZE
+from utils import plot_extracted_sd_over_time, plot_extracted_tt_over_time, \
     get_elementwise_difference_df, plot_textbox, plot_value_count_table, ExperimentSet
 
 if __name__ == '__main__':

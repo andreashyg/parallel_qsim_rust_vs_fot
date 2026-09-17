@@ -1,12 +1,8 @@
-import os
-
 import sys
 from matplotlib import pyplot as plt
 
-from setup import ROOT_DATA_PATH, FIG_SIZE, JAVA_SEED_INDICES_TO_ITERATE_OVER, RUST_SEEDS_TO_ITERATE_OVER, \
-    RUST_SEED_WHEN_FIXED, JAVA_SEED_INDEX_WHEN_FIXED, BOXPLOT_FIG_SIZE
-from utils import plot_boxplot_over_beta, plot_scatter_over_beta, \
-    compute_deviation_to_reference_df, compute_deviation_to_reference_series_but_avg_first, ExperimentSet
+from setup import BOXPLOT_FIG_SIZE
+from utils import plot_boxplot_over_beta, compute_deviation_to_reference_df, ExperimentSet
 
 if __name__ == '__main__':
     # _, replanning_variant, seeds_to_avg_over, output_dir, read_original_java = sys.argv

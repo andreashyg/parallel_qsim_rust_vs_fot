@@ -1,10 +1,9 @@
-import os
 import sys
 
 import matplotlib.pyplot as plt
 
 import pandas as pd
-from setup import FIG_SIZE, ROOT_DATA_PATH, RUST_SEEDS_TO_ITERATE_OVER
+from setup import FIG_SIZE
 from utils import plot_extracted_sd_over_time, plot_extracted_tt_over_time, get_elementwise_avg_df, \
     get_elementwise_difference_df, plot_value_count_table, plot_textbox, ExperimentSet
 

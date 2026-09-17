@@ -1,12 +1,9 @@
-import os
 import sys
 
 from matplotlib import pyplot as plt
 
-from utils import plot_boxplot_over_beta, plot_scatter_over_beta, compute_deviation_to_reference_df, \
-    compute_deviation_to_reference_series_but_avg_first, ExperimentSet
-from setup import ROOT_DATA_PATH, FIG_SIZE, BETAS, RUST_SEEDS_TO_ITERATE_OVER, \
-    JAVA_SEED_INDEX_WHEN_FIXED, BOXPLOT_FIG_SIZE
+from utils import plot_scatter_over_beta, compute_deviation_to_reference_series_but_avg_first, ExperimentSet
+from setup import FIG_SIZE
 
 if __name__ == '__main__':
     # _, replanning_variant, fixed_file_dir, dir_to_avg, output_dir = sys.argv
@@ -151,7 +148,7 @@ if __name__ == '__main__':
     #     pass
     #
     fig_sd_avg.savefig(experiment_set.get_sd_plot_path("{beta}", read_random, use_random))
-    
+
     # fig_sd_avg.savefig(
     #     output_dir + f"/sd_avg_first_deviation_scatterplots__rust_minus_java/sd_avg_first_deviation_scatterplot.pdf"
     # )

@@ -6,26 +6,46 @@ import matplotlib.pyplot as plt
 
 from setup import FIG_SIZE, ROOT_DATA_PATH
 from utils import plot_nash_lines, plot_extracted_sd_over_time, plot_extracted_tt_over_time, \
-    get_elementwise_difference_df, plot_textbox, plot_value_count_table
+    get_elementwise_difference_df, plot_textbox, plot_value_count_table, ExperimentSet
 
 if __name__ == '__main__':
-    _, beta, replanning_variant, read_random, use_random, main_dir_1, main_dir_2, output_dir = sys.argv
+    (_, beta, replanning_variant, read_random, use_random, experiment_set_name, base_output_dir,
+     output_tt_plot_path_pattern, output_sd_plot_path_pattern, main_input_tt_csv_path_pattern,
+     main_input_sd_csv_path_pattern, secondary_input_tt_csv_path_pattern,
+     secondary_input_sd_csv_path_pattern) = sys.argv
 
-    if main_dir_1 == "recreating_java_results":
-        file_name_end_1 = f"_beta{beta}_read_from_random_{read_random}_reformatted_original_java_data.csv"
+    beta = int(beta)
+    read_random = int(read_random)
+    if use_random.lower() == "none":
+        use_random = None
     else:
-        file_name_end_1 = f"_beta{beta}_read_from_random_{read_random}_use_random_seed_{use_random}.csv"
+        use_random = int(use_random)
 
-    if main_dir_2 == "recreating_java_results":
-        file_name_end_2 = f"_beta{beta}_read_from_random_{read_random}_reformatted_original_java_data.csv"
-    else:
-        file_name_end_2 = f"_beta{beta}_read_from_random_{read_random}_use_random_seed_{use_random}.csv"
+    experiment_set = ExperimentSet(base_output_dir, replanning_variant, experiment_set_name,
+                                   output_tt_plot_path_pattern, output_sd_plot_path_pattern,
+                                   main_input_tt_csv_path_pattern, main_input_sd_csv_path_pattern,
+                                   secondary_input_tt_csv_path_pattern, secondary_input_sd_csv_path_pattern)
 
-    tt_path_1 = ROOT_DATA_PATH + f"/{replanning_variant}/{main_dir_1}/analysis/extracted_data/average_route_tts_per_deptime" + file_name_end_1
-    sd_path_1 = ROOT_DATA_PATH + f"/{replanning_variant}/{main_dir_1}/analysis/extracted_data/summed_deps_per_time" + file_name_end_1
+    tt_path_1 = experiment_set.get_path_to_tt_csv_to_read(beta, read_random, use_random, secondary=False)
+    sd_path_1 = experiment_set.get_path_to_sd_csv_to_read(beta, read_random, use_random, secondary=False)
+    tt_path_2 = experiment_set.get_path_to_tt_csv_to_read(beta, read_random, use_random, secondary=True)
+    sd_path_2 = experiment_set.get_path_to_sd_csv_to_read(beta, read_random, use_random, secondary=True)
 
-    tt_path_2 = ROOT_DATA_PATH + f"/{replanning_variant}/{main_dir_2}/analysis/extracted_data/average_route_tts_per_deptime" + file_name_end_2
-    sd_path_2 = ROOT_DATA_PATH + f"/{replanning_variant}/{main_dir_2}/analysis/extracted_data/summed_deps_per_time" + file_name_end_2
+    # if main_dir_1 == "recreating_java_results":
+    #     file_name_end_1 = f"_beta{beta}_read_from_random_{read_random}_reformatted_original_java_data.csv"
+    # else:
+    #     file_name_end_1 = f"_beta{beta}_read_from_random_{read_random}_use_random_seed_{use_random}.csv"
+    #
+    # if main_dir_2 == "recreating_java_results":
+    #     file_name_end_2 = f"_beta{beta}_read_from_random_{read_random}_reformatted_original_java_data.csv"
+    # else:
+    #     file_name_end_2 = f"_beta{beta}_read_from_random_{read_random}_use_random_seed_{use_random}.csv"
+    #
+    # tt_path_1 = ROOT_DATA_PATH + f"/{replanning_variant}/{main_dir_1}/analysis/extracted_data/average_route_tts_per_deptime" + file_name_end_1
+    # sd_path_1 = ROOT_DATA_PATH + f"/{replanning_variant}/{main_dir_1}/analysis/extracted_data/summed_deps_per_time" + file_name_end_1
+    #
+    # tt_path_2 = ROOT_DATA_PATH + f"/{replanning_variant}/{main_dir_2}/analysis/extracted_data/average_route_tts_per_deptime" + file_name_end_2
+    # sd_path_2 = ROOT_DATA_PATH + f"/{replanning_variant}/{main_dir_2}/analysis/extracted_data/summed_deps_per_time" + file_name_end_2
 
     ### TT
     fig_tt, ax_tt = plt.subplots(figsize=FIG_SIZE)
@@ -52,13 +72,16 @@ if __name__ == '__main__':
         # include this as a table in the plot, with the difference in the first column, the count in the second column
         plot_value_count_table(ax_tt, tt_diff_counts)
 
-    try:
-        os.makedirs(output_dir + f"/tt_per_path_over_deptime__{main_dir_1}_minus_{main_dir_2}")
-    except FileExistsError:
-        pass
+    experiment_set.create_plot_dirs(beta, read_random, use_random)
 
-    fig_tt.savefig(
-        output_dir + f"/tt_per_path_over_deptime__{main_dir_1}_minus_{main_dir_2}/tt_per_path_over_deptime_beta{beta}_read_from_random_{read_random}_use_random_seed{use_random}.pdf")
+    # try:
+    #     os.makedirs(output_dir + f"/tt_per_path_over_deptime__{main_dir_1}_minus_{main_dir_2}")
+    # except FileExistsError:
+    #     pass
+
+    fig_tt.savefig(experiment_set.get_tt_plot_path(beta, read_random, use_random))
+    # fig_tt.savefig(
+    #     output_dir + f"/tt_per_path_over_deptime__{main_dir_1}_minus_{main_dir_2}/tt_per_path_over_deptime_beta{beta}_read_from_random_{read_random}_use_random_seed{use_random}.pdf")
 
     ### SD
     fig_sd, ax_sd = plt.subplots(figsize=FIG_SIZE)
@@ -79,10 +102,11 @@ if __name__ == '__main__':
         # include this as a table in the plot, with the difference in the first column, the count in the second column, and the percentage in the third column
         plot_value_count_table(ax_sd, sd_diff_counts)
 
-    try:
-        os.makedirs(output_dir + f"/sd_per_path_over_time__{main_dir_1}_minus_{main_dir_2}")
-    except FileExistsError:
-        pass
+    # try:
+    #     os.makedirs(output_dir + f"/sd_per_path_over_time__{main_dir_1}_minus_{main_dir_2}")
+    # except FileExistsError:
+    #     pass
 
-    fig_sd.savefig(
-        output_dir + f"/sd_per_path_over_time__{main_dir_1}_minus_{main_dir_2}/sd_per_path_over_time_beta{beta}_read_from_random_{read_random}_use_random_seed{use_random}.pdf")
+    fig_sd.savefig(experiment_set.get_sd_plot_path(beta, read_random, use_random))
+    # fig_sd.savefig(
+    #     output_dir + f"/sd_per_path_over_time__{main_dir_1}_minus_{main_dir_2}/sd_per_path_over_time_beta{beta}_read_from_random_{read_random}_use_random_seed{use_random}.pdf")

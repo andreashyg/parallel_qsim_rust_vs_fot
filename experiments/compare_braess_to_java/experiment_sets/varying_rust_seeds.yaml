@@ -1,0 +1,69 @@
+# Setup
+globals:
+  experiment_set_name: varying_rust_seeds
+  base_output_dir: /tmp/output
+  experiment_output_dir_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/beta{beta}/read_from_random_{read_from_random}_use_random_seed_{use_random_seed}"
+  delete_output_dir_if_existing: true
+  max_parallel_jobs: 8
+
+param_sweep:
+  replanning_variants:
+    - sel-exp10-switch-at80
+  betas: [ 1 ]
+  java_seed_indices: [ 1, 20, 4 ]
+  rust_seeds: [ 42, 43 ]
+
+# What to actually run in this experiment set:
+modules:
+  - run_rust_based_on_java_output:
+    type: RunRustBasedOnJavaOutput
+    overwrite_mode: DeleteDirectoryIfExists
+  - extract_measurements_from_events:
+    type: ExtractMeasurementsFromEvents
+    input_file_stem_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/beta{beta}/read_from_random_{read_from_random}_use_random_seed_{use_random_seed}/events/events"
+    input_file_format: binpb
+    tt_csv_output_path_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/average_route_tts_per_deptime_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.csv"
+    sd_csv_output_path_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/summed_deps_per_time_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.csv"
+    num_parts: 1
+  - plot_tt_and_sd_per_seed:
+    type: PlotTtAndSdPerSeed
+    output_tt_plot_path_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/plots/per_seed/tt_per_path_over_deptime/tt_per_path_over_deptime_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.pdf"
+    output_sd_plot_path_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/plots/per_seed/sd_per_path_over_time/sd_per_path_over_time_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.pdf"
+    input_tt_csv_path_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/average_route_tts_per_deptime_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.csv"
+    input_sd_csv_path_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/summed_deps_per_time_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.csv"
+  - plot_tt_and_sd_avgd_over_seeds:
+    type: PlotTtAndSdAvgdOverSeeds
+    output_tt_plot_path_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/plots/avg_over_rust_seeds/tt_per_path_over_deptime/tt_per_path_over_deptime_beta{beta}_read_from_random_{read_from_random}.pdf"
+    output_sd_plot_path_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/plots/avg_over_rust_seeds/sd_per_path_over_time/sd_per_path_over_time_beta{beta}_read_from_random_{read_from_random}.pdf"
+    input_tt_csv_path_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/average_route_tts_per_deptime_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.csv"
+    input_sd_csv_path_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/summed_deps_per_time_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.csv"
+    seeds_to_avg_over: RustSeeds
+  - plot_tt_and_sd_deviation_to_nash_boxplots:
+    type: PlotTtAndSdDeviationToNashBoxplotsOverBeta
+    output_tt_plot_path_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/plots/deviations/tt_avg_deviation_boxplots/tt_avg_deviation_boxplot.pdf"
+    output_sd_plot_path_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/plots/deviations/sd_avg_deviation_boxplots/sd_avg_deviation_boxplot.pdf"
+    input_tt_csv_path_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/average_route_tts_per_deptime_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.csv"
+    input_sd_csv_path_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/summed_deps_per_time_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.csv"
+    seeds_to_avg_over: RustSeeds
+  - plot_tt_and_sd_deviation_to_nash_scatterplots:
+    type: PlotTtAndSdDeviationToNashScatterplotsOverBeta
+    output_tt_plot_path_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/plots/deviations/tt_avg_first_deviation_scatterplots/tt_avg_first_deviation_scatterplot.pdf"
+    output_sd_plot_path_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/plots/deviations/sd_avg_first_deviation_scatterplots/sd_avg_first_deviation_scatterplot.pdf"
+    input_tt_csv_path_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/average_route_tts_per_deptime_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.csv"
+    input_sd_csv_path_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/summed_deps_per_time_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.csv"
+    seeds_to_avg_over: RustSeeds
+
+# TODO: continue by:
+#  commiting all the changes so far
+#  looking at this config: what could be simplified reasonably? how to avoid all the repetition and so on
+#  also, maybe not all paths are necessary, but only endings, or e.g. the plot name and folder structure for different runs should
+#  always be the same for the same plot type I guess, so then it's only about the parent directory (=experiment set name maybe?)
+#  same for the csv files to read. I only need to decide which one I want to read, but the name could be automatic.
+#   PROBLEM: sometimes the names can't all follow exactly the same pattern, e.g., original java data contains nothing
+#   about the use_random_seed and so on.
+
+# this should all be in some global config
+sim_output_base_dir: ./../runs-svn/Abschlussarbeiten/2026/andreas-hygrell-rust-vs-fot/compare_braess_to_java
+original_dir_to_read_from: ../runs-svn/braess/refinement/no_spillback_scenario
+
+experiment_output_dir_pattern: { experiment_set_name }/{replanning_variant}/{experiment_set_name}/beta{beta}/read_from_random_{read_from_random}_use_random_seed_{use_random_seed}

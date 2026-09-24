@@ -1,6 +1,7 @@
+use rust_qsim::simulation::scenario::Coordinate;
 use rust_qsim::simulation::scenario::population::Population;
 
-pub fn replace_activity_times(
+pub fn replace_activity_times_and_add_dummy_coords_to_acts(
     pop_to_be_changed: &mut Population,
     pop_with_correct_times: Population,
 ) {
@@ -13,6 +14,10 @@ pub fn replace_activity_times(
             // ...and if so, replace the activity times in the person with the correct times
             for plan in person.plans_mut() {
                 for activity in plan.acts_mut() {
+                    if activity.coord.is_none() {
+                        activity.coord = Some(Coordinate::new_2d(0.0, 0.0)); // set coordinates to (0, 0) to avoid issues with missing coordinates
+                    }
+
                     // there is always one activity with end time (which should be replaced) and one
                     // activity without an end time (where nothing is to be done)
                     if activity.end_time.is_some() {
@@ -58,7 +63,10 @@ mod tests {
             &mut Garage::new(),
         );
 
-        replace_activity_times(&mut pop_to_be_changed, pop_with_correct_times);
+        replace_activity_times_and_add_dummy_coords_to_acts(
+            &mut pop_to_be_changed,
+            pop_with_correct_times,
+        );
 
         for (person_id, person) in pop_to_be_changed.persons {
             for plan in person.plans() {

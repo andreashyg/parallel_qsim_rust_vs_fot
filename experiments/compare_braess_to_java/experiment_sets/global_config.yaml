@@ -1,0 +1,21 @@
+global_parameters:
+  global_log_file_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/global_log.txt"
+  original_dir_to_read_from: "./../runs-svn/braess/refinement/no_spillback_scenario"
+  file_name_end_pattern_with_beta_rr_ur: "_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}"
+  file_name_end_pattern_with_beta_rr: "_beta{beta}_read_from_random_{read_from_random}"
+  file_name_end_pattern_with_beta: "_beta{beta}"
+  # Note: the below pattern is the complete output dir, not just the start, since the common part is in fact all of it
+  common_output_from_runs_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/output_from_runs/beta{beta}/read_from_random_{read_from_random}_use_random_seed_{use_random_seed}"
+  common_extracted_data_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data"
+  common_plots_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/plots"
+
+  # These are used when replacing activity times in the original java output plans with the correct activity times
+  original_output_pop_pattern: "{original_dir_to_read_from}/{replanning_variant}/beta{beta}/random{read_from_random}/beta{beta}random{read_from_random}.output_plans.xml.gz"
+  pop_with_correct_activity_times_pattern: "{original_dir_to_read_from}/uniteratedPlans_TimeFormatHHMMSSDOTSS/beta{beta}random1.output_plans.xml.gz"
+  vehicle_file_pattern: "{original_dir_to_read_from}/no_spillback_beta{beta}_vehicles.xml"
+  # This is the population that will be used when performing runs based on output plans. That is, the original java
+  # output plans, but with the activity times replaced with the correct ones.
+  corrected_output_pop_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/pops_with_fixed_activity_times/beta{beta}/beta{beta}random{read_from_random}.output_plans.xml.gz"
+
+  # This is for running runs based on original java output plans in java:
+  original_output_config_pattern: "{original_dir_to_read_from}/{replanning_variant}/beta{beta}/random{read_from_random}/beta{beta}random{read_from_random}.output_config.xml"

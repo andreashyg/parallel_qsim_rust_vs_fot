@@ -9,3 +9,7 @@ serde_yaml = "0.9.34+deprecated"
 typetag = "0.2.18"
 
 rust_qsim = { path = "../rust_qsim" }
+clap = { version = "4.6.7", features = ["derive"] }
+tracing = "0.1"
+tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3.0", features = ["json", "fmt", "std", "registry", "env-filter"] }

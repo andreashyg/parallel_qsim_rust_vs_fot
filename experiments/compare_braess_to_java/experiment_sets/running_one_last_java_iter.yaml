@@ -1,59 +1,55 @@
 # Setup
 globals:
-  experiment_set_name: varying_rust_seeds
+  experiment_set_name: running_one_last_java_iter
   base_output_dir: ./../runs-svn/Abschlussarbeiten/2026/andreas-hygrell-rust-vs-fot/compare_braess_to_java_newrunner
   max_parallel_jobs: 8
-  # the following two patterns are used in multiple modules, so they are defined here to avoid repetition.
-  # they don't need to be overwritten in modules, since I will only read from this in the original experiment set itself,
-  # except for when doing comparisons (but there I specify the secondary path pattern explicitly anyway).
-  # If needed, it is however possible to overwrite by adding it to the optional overwrites fields in the modules.
   tt_csv_path_pattern: "{common_extracted_data_pattern}/average_route_tts_per_deptime{file_name_end}.csv"
   sd_csv_path_pattern: "{common_extracted_data_pattern}/summed_deps_per_time{file_name_end}.csv"
 
 param_sweep:
   replanning_variants:
     - sel-exp10-switch-at80
-  betas: [ 1, 2, 4, 8, 16, 32, 64 ]
-  java_seed_indices: [ 1 ]
-  rust_seeds: [ 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61 ]
-
-
-# TODO:
-#  !!run all experiment sets fully (this should only be the running one last java iter thing remaining now)
-#  cleanup and commit
-#  look at java-one-last-iteration plots in latex (the code is already there, just the plots don't exist).
-#  then later maybe change the order of experiment set and replanning variant
-#  consider whether it is very stupid to use replanning variant ".."
-#  Then improve logging (aka remove print statements, move them to the right place (since the logging keeps track of
-#  where the message comes from (at least which module, decide whether to do print of log when within a module
-#  (will have duplicate "info:" things otherwise)
-#  Then maybe think about whether I should add failure kinds to all modules, and if I should handle the failures in a
-#  new way
+  betas: [ 1, 2 ] # , 4, 8, 16, 32, 64 ]
+  # only take the first run of the original java runs, but recreate it 20 times with different use_random_seeds
+  java_seed_indices: [ 1 ]  # TODO this must be renamed, since it is simply the read_from_random when recreating with java
+  rust_seeds: [ 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61 ]  # TODO this must be renamed, since it is simply the use_random_seed when recreating with java
 
 # What to actually run in this experiment set:
 modules:
-  # Replace activity times in the population with the correct ones, so that we can run based on the original java output plans
+  # before being able to run based on original java runs, we need to replace the activity times in the population with
+  # the correct ones
   - replace_activity_times_in_population:
     type: ReplaceActivityTimesInPopulation
 
-  # Run rust experiments based on the output of the original java runs
-  # Note: in this experiment set, we do 20 rust runs (with seeds 42..61), but in turn, only for java seed 1, so 20 runs for each beta.
-  - run_rust_based_on_java_output:
-    type: RunRustBasedOnJavaOutput
+  #   run one last iteration in java based on the output of the original java runs, but with different use_random_seeds
+  #   Note: we are only taking the first run of the original java runs, but recreate it 20 times with different use_random_seeds
+  - run_one_last_java_iter:
+    type: RunJavaSingleIterBasedOnJavaOutput
     overwrite_mode: DeleteDirectoryIfExists
-  # Extract measurements from the events files from the rust runs
+    config_file_pattern: "{original_dir_to_read_from}/{replanning_variant}/beta{beta}/random{read_from_random}/beta{beta}random{read_from_random}.output_config.xml"
+    overwrites:
+      max_parallel_jobs: 4  # Java is already multi-threaded, so we don't need to/cannot run many in parallel
+
+  # TODO this should be possible to avoid maybe? if I run the things with different settings
+  # add dummy coordinates to the events files from the runs, so they can be read by the rust event mgr.
+  - add_dummy_coordinates_to_events:
+    type: AddDummyCoordinatesToEvents
+    input_file_pattern: "{common_output_from_runs_pattern}/beta{beta}random{read_from_random}.output_events.xml.gz"
+    output_file_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/original_event_files_with_added_coordinates/beta{beta}/random{read_from_random}/beta{beta}random{read_from_random}_use_random_seed{use_random_seed}.output_events.xml.gz"
+
+  # extract measurements from the events files from the runs
   - extract_measurements_from_events:
     type: ExtractMeasurementsFromEvents
-    input_file_stem_pattern: "{common_output_from_runs_pattern}/events/events"
-    input_file_format: binpb
-    num_parts: 1
+    input_file_stem_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/original_event_files_with_added_coordinates/beta{beta}/random{read_from_random}/beta{beta}random{read_from_random}_use_random_seed{use_random_seed}.output_events"
+    input_file_format: xml.gz
+    num_parts: 0
 
-  # Plot the measurements from the runs
+  # plot the measurements from the runs
   - plot_tt_and_sd_per_seed:
     type: PlotTtAndSdPerSeed
   - plot_tt_and_sd_avgd_over_seeds:
     type: PlotTtAndSdAvgdOverSeeds
-    seeds_to_avg_over: RustSeeds
+    seeds_to_avg_over: RustSeeds  # TODO this must also be renamed
   - plot_tt_and_sd_deviation_to_nash_boxplots:
     type: PlotTtAndSdDeviationToNashBoxplotsOverBeta
     seeds_to_avg_over: RustSeeds
@@ -62,6 +58,8 @@ modules:
     seeds_to_avg_over: RustSeeds
 
   #  Plot the differences to the original java runs
+  #  FIXME problem: this doesnt work yet, probably because the departure times are not aligned. Fix this and run again!
+  #  TODO update: I think it works now, but I haven't run it yet with all betas.
   - plot_tt_and_sd_diff_to_original_java_per_seed:
     type: PlotTtAndSdDiffPerSeed
     minus_what: "original_java"

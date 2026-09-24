@@ -1,8 +1,8 @@
 globals:
   experiment_set_name: test_set
   base_output_dir: /tmp/output
-  experiment_output_dir_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/beta{beta}/read_from_random_{read_from_random}_use_random_seed_{use_random_seed}"
-  delete_output_dir_if_existing: true
+  #  experiment_output_dir_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/beta{beta}/read_from_random_{read_from_random}_use_random_seed_{use_random_seed}"
+  #  delete_output_dir_if_existing: true
   max_parallel_jobs: 8
 param_sweep:
   replanning_variants:
@@ -16,8 +16,8 @@ modules:
     overwrite_mode: DeleteDirectoryIfExists
   - plot_tt_and_sd_avgd_over_seeds:
     type: PlotTtAndSdAvgdOverSeeds
-    output_tt_plot_path_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/plots/avg_over_rust_seeds/tt_per_path_over_deptime/tt_per_path_over_deptime_beta{beta}_read_from_random_{read_from_random}.pdf"
-    output_sd_plot_path_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/plots/avg_over_rust_seeds/sd_per_path_over_time/sd_per_path_over_time_beta{beta}_read_from_random_{read_from_random}.pdf"
-    input_tt_csv_path_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/average_route_tts_per_deptime_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.csv"
-    input_sd_csv_path_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/summed_deps_per_time_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.csv"
+    #    output_tt_plot_path_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/plots/avg_over_rust_seeds/tt_per_path_over_deptime/tt_per_path_over_deptime_beta{beta}_read_from_random_{read_from_random}.pdf"
+    #    output_sd_plot_path_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/plots/avg_over_rust_seeds/sd_per_path_over_time/sd_per_path_over_time_beta{beta}_read_from_random_{read_from_random}.pdf"
+    #    input_tt_csv_path_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/average_route_tts_per_deptime_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.csv"
+    #    input_sd_csv_path_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/summed_deps_per_time_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.csv"
     seeds_to_avg_over: RustSeeds

@@ -7,15 +7,85 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 
 #[derive(Debug, Deserialize, Serialize)]
+pub struct GlobalConfig {
+    pub global_parameters: HashMap<String, Value>,
+}
+
+impl GlobalConfig {
+    pub(crate) fn get_global_config_parameter<'a>(&self, key: &str) -> Result<&Value, String> {
+        // if key exists in (per experiment set) globals, return that value, else check in
+        // global_config
+        // if let Some(globals) = &self.globals {
+        //     if let Some(value) = globals.get(key) {
+        //         return Ok(value);
+        //     }
+        // }
+        if let Some(value) = self.global_parameters.get(key) {
+            return Ok(value);
+        }
+        // if let Some(global_config) = &self.global_config {
+        //     if let Some(value) = global_config.get(key) {
+        //         return Ok(value);
+        //     }
+        // }
+        Err(format!(
+            "Global parameter '{}' not found in global config.",
+            key
+        ))
+    }
+
+    pub fn replace_common_pattern(&self, pattern: &str) -> Result<String, String> {
+        if pattern.contains("{common_output_from_runs_pattern}") {
+            let actual_pattern = self
+                .get_global_config_parameter("common_output_from_runs_pattern")?
+                .as_str()
+                .ok_or_else(|| "common_output_from_runs_pattern must be a string".to_string())?;
+
+            // Replace the pattern with the actual common output path
+            Ok(pattern.replace("{common_output_from_runs_pattern}", actual_pattern))
+        } else if pattern.contains("{common_extracted_data_pattern}") {
+            let actual_pattern = self
+                .get_global_config_parameter("common_extracted_data_pattern")?
+                .as_str()
+                .ok_or_else(|| "common_extracted_data_pattern must be a string".to_string())?;
+
+            // Replace the pattern with the actual common input path
+            Ok(pattern.replace("{common_extracted_data_pattern}", actual_pattern))
+        } else if pattern.contains("{common_plots_pattern}") {
+            let actual_pattern = self
+                .get_global_config_parameter("common_plots_pattern")?
+                .as_str()
+                .ok_or_else(|| "common_plots_pattern must be a string".to_string())?;
+
+            // Replace the pattern with the actual common input path
+            Ok(pattern.replace("{common_plots_pattern}", actual_pattern))
+        } else if pattern.contains("{original_dir_to_read_from}") {
+            let actual_pattern = self
+                .get_global_config_parameter("original_dir_to_read_from")?
+                .as_str()
+                .ok_or_else(|| "original_dir_to_read_from must be a string".to_string())?;
+            Ok(pattern.replace("{original_dir_to_read_from}", actual_pattern))
+        } else {
+            // If no known pattern is found, return the original pattern
+            Ok(pattern.to_string())
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Config {
     globals: Option<HashMap<String, Value>>,
     param_sweep: HashMap<String, Vec<Value>>,
     modules: Vec<Box<dyn Module>>,
-    global_config: Option<HashMap<String, Value>>, // from separate global config file TODO this will not work automatically like this
+    // global_config: Option<HashMap<String, Value>>, // whis is now a completely different file, not read here.
 }
 
 impl Config {
-    pub(crate) fn get_global_parameter(&self, key: &str) -> Result<&Value, String> {
+    pub(crate) fn get_expset_config_globals_parameter(
+        &self,
+        key: &str,
+        // global_config: &'a GlobalConfig,
+    ) -> Result<&Value, String> {
         // if key exists in (per experiment set) globals, return that value, else check in
         // global_config
         if let Some(globals) = &self.globals {
@@ -23,15 +93,24 @@ impl Config {
                 return Ok(value);
             }
         }
-        if let Some(global_config) = &self.global_config {
-            if let Some(value) = global_config.get(key) {
-                return Ok(value);
-            }
-        }
-        Err(format!(
-            "Global parameter '{}' not found neither in per-experiment-set globals or in global config",
-            key
-        ))
+        // if let Some(value) = global_config.global_parameters.get(key) {
+        //     return Ok(value);
+        // }
+        // if let Some(global_config) = &self.global_config {
+        //     if let Some(value) = global_config.get(key) {
+        //         return Ok(value);
+        //     }
+        // }
+        Err(format!("Global parameter '{}' not found in config.", key))
+    }
+
+    pub(crate) fn get_expset_config_param_sweep_parameter(
+        &self,
+        key: &str,
+    ) -> Result<&Vec<Value>, String> {
+        self.param_sweep
+            .get(key)
+            .ok_or_else(|| format!("Missing param_sweep key: {key}"))
     }
 
     /// Generates a bash array declaration for a given key in config.param_sweep
@@ -52,135 +131,268 @@ impl Config {
         Ok(format!("{var_name}=({})", atoms?.join(" ")))
     }
 
-    pub(crate) fn run_all_modules(&self) -> Result<(), String> {
+    // pub(crate) fn replace_common_pattern(
+    //     &self,
+    //     pattern: &str,
+    //     global_config: &GlobalConfig,
+    // ) -> Result<String, String> {
+    //     if pattern.contains("{common_output_from_runs_pattern}") {
+    //         let actual_pattern = global_config
+    //             .get_global_config_parameter("common_output_from_runs_pattern")?
+    //             .as_str()
+    //             .ok_or_else(|| "common_output_from_runs_pattern must be a string".to_string())?;
+    //
+    //         // Replace the pattern with the actual common output path
+    //         Ok(pattern.replace("{common_output_from_runs_pattern}", actual_pattern))
+    //     } else if pattern.contains("{common_extracted_data_pattern}") {
+    //         let actual_pattern = global_config
+    //             .get_global_config_parameter("common_extracted_data_pattern")?
+    //             .as_str()
+    //             .ok_or_else(|| "common_extracted_data_pattern must be a string".to_string())?;
+    //
+    //         // Replace the pattern with the actual common input path
+    //         Ok(pattern.replace("{common_extracted_data_pattern}", actual_pattern))
+    //     } else if pattern.contains("{common_plots_pattern}") {
+    //         let actual_pattern = global_config
+    //             .get_global_config_parameter("common_plots_pattern")?
+    //             .as_str()
+    //             .ok_or_else(|| "common_plots_pattern must be a string".to_string())?;
+    //
+    //         // Replace the pattern with the actual common input path
+    //         Ok(pattern.replace("{common_plots_pattern}", actual_pattern))
+    //     } else if pattern.contains("{original_dir_to_read_from}") {
+    //         let actual_pattern = global_config
+    //             .get_global_config_parameter("original_dir_to_read_from")?
+    //             .as_str()
+    //             .ok_or_else(|| "original_dir_to_read_from must be a string".to_string())?;
+    //         Ok(pattern.replace("{original_dir_to_read_from}", actual_pattern))
+    //     } else {
+    //         // If no known pattern is found, return the original pattern
+    //         Ok(pattern.to_string())
+    //     }
+    // }
+
+    pub(crate) fn run_all_modules(
+        &self,
+        global_config: &GlobalConfig,
+        // global_log_file: Arc<Mutex<File>>,
+    ) -> Result<(), String> {
+        // Run all modules.
         for module in &self.modules {
-            module.run(self)?;
+            module.run(self, global_config)?;
         }
+
         Ok(())
     }
 }
 
 #[typetag::serde(tag = "type")]
 pub trait Module: Debug {
-    fn run(&self, config: &Config) -> Result<(), String>;
+    fn run(
+        &self,
+        config: &Config,
+        global_config: &GlobalConfig,
+        // global_log_file: Arc<Mutex<File>>,
+    ) -> Result<(), String>;
+
+    /// Some modules may have the possibility to get overwrites for global parameters. The modules
+    /// need to implement where they get them from (typically, a field self.overwrites).
+    fn get_overwrites(&self) -> Option<HashMap<String, Value>>;
+
+    /// Get a global parameter, or an overwrite if it exists.
+    /// Does *not* read the global config, but just the global parameters of the experiment set
+    /// specific config.
+    fn get_expset_config_global_parameter_or_overwrite(
+        &self,
+        config: &Config,
+        param_name: &str,
+    ) -> Result<Value, String> {
+        if let Some(overwrites) = &self.get_overwrites() {
+            if let Some(value) = overwrites.get(param_name) {
+                return Ok(value.clone());
+            }
+        }
+        config
+            .get_expset_config_globals_parameter(param_name)
+            .cloned()
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct RunRustBasedOnJavaOutput {
     pub overwrite_mode: OverwriteFiles,
+    pub overwrites: Option<HashMap<String, Value>>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct RunJavaSingleIterBasedOnJavaOutput {
     pub overwrite_mode: OverwriteFiles,
-    pub config_file_pattern: Option<String>,
-    pub base_dir_to_read_from: Option<String>,
+    // pub config_file_pattern: Option<String>,
+    // pub base_dir_to_read_from: Option<String>,
+    pub overwrites: Option<HashMap<String, Value>>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ExtractMeasurementsFromEvents {
     pub input_file_stem_pattern: Option<String>,
     pub input_file_format: Option<String>,
-    pub tt_csv_output_path_pattern: Option<String>,
-    pub sd_csv_output_path_pattern: Option<String>,
+    // overwrite global parameters by putting them in this hashmap
+    pub overwrites: Option<HashMap<String, Value>>,
+    // pub tt_csv_output_path_pattern: Option<String>,
+    // pub sd_csv_output_path_pattern: Option<String>,
     pub num_parts: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct AddDummyCoordinatesToEvents {
-    pub input_file_stem_pattern: Option<String>,
-    pub output_file_stem_pattern: Option<String>,
+    pub input_file_pattern: Option<String>,
+    pub output_file_pattern: Option<String>,
+    pub overwrites: Option<HashMap<String, Value>>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ReplaceActivityTimesInPopulation {
+    pub overwrites: Option<HashMap<String, Value>>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct PlotTtAndSdPerSeed {
-    pub output_tt_plot_path_pattern: Option<String>,
-    pub output_sd_plot_path_pattern: Option<String>,
-    pub input_tt_csv_path_pattern: Option<String>,
-    pub input_sd_csv_path_pattern: Option<String>,
+    // pub output_tt_plot_path_pattern: Option<String>,
+    // pub output_sd_plot_path_pattern: Option<String>,
+    pub overwrites: Option<HashMap<String, Value>>,
+    // pub input_tt_csv_path_pattern: Option<String>,
+    // pub input_sd_csv_path_pattern: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct PlotTtAndSdDiffPerSeed {
-    pub output_tt_plot_path_pattern: Option<String>,
-    pub output_sd_plot_path_pattern: Option<String>,
-    pub main_input_tt_csv_path_pattern: Option<String>,
-    pub main_input_sd_csv_path_pattern: Option<String>,
+    // pub output_tt_plot_path_pattern: Option<String>,
+    // pub output_sd_plot_path_pattern: Option<String>,
+    pub overwrites: Option<HashMap<String, Value>>,
+    // pub main_input_tt_csv_path_pattern: Option<String>,
+    // pub main_input_sd_csv_path_pattern: Option<String>,
     pub secondary_input_tt_csv_path_pattern: Option<String>,
     pub secondary_input_sd_csv_path_pattern: Option<String>,
+    pub minus_what: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct PlotTtAndSdAvgdOverSeeds {
-    pub output_tt_plot_path_pattern: Option<String>,
-    pub output_sd_plot_path_pattern: Option<String>,
-    pub input_tt_csv_path_pattern: Option<String>,
-    pub input_sd_csv_path_pattern: Option<String>,
+    // pub output_tt_plot_path_pattern: Option<String>,
+    // pub output_sd_plot_path_pattern: Option<String>,
+    pub overwrites: Option<HashMap<String, Value>>,
+    // pub input_tt_csv_path_pattern: Option<String>,
+    // pub input_sd_csv_path_pattern: Option<String>,
     pub seeds_to_avg_over: SeedsToAvgOver,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct PlotTtAndSdAvgdOverSeedsDiff {
-    pub output_tt_plot_path_pattern: Option<String>,
-    pub output_sd_plot_path_pattern: Option<String>,
-    pub main_input_tt_csv_path_pattern: Option<String>,
-    pub main_input_sd_csv_path_pattern: Option<String>,
+    // pub output_tt_plot_path_pattern: Option<String>,
+    // pub output_sd_plot_path_pattern: Option<String>,
+    pub overwrites: Option<HashMap<String, Value>>,
+    // pub main_input_tt_csv_path_pattern: Option<String>,
+    // pub main_input_sd_csv_path_pattern: Option<String>,
     pub secondary_input_tt_csv_path_pattern: Option<String>,
     pub secondary_input_sd_csv_path_pattern: Option<String>,
     pub seeds_to_avg_over: SeedsToAvgOver,
+    pub minus_what: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct PlotTtAndSdDeviationToNashBoxplotsOverBeta {
-    pub output_tt_plot_path_pattern: Option<String>,
-    pub output_sd_plot_path_pattern: Option<String>,
-    pub input_tt_csv_path_pattern: Option<String>,
-    pub input_sd_csv_path_pattern: Option<String>,
+    // pub output_tt_plot_path_pattern: Option<String>,
+    // pub output_sd_plot_path_pattern: Option<String>,
+    pub overwrites: Option<HashMap<String, Value>>,
+    // pub input_tt_csv_path_pattern: Option<String>,
+    // pub input_sd_csv_path_pattern: Option<String>,
     pub seeds_to_avg_over: SeedsToAvgOver,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct PlotTtAndSdDeviationToNashScatterplotsOverBeta {
-    pub output_tt_plot_path_pattern: Option<String>,
-    pub output_sd_plot_path_pattern: Option<String>,
-    pub input_tt_csv_path_pattern: Option<String>,
-    pub input_sd_csv_path_pattern: Option<String>,
+    // pub output_tt_plot_path_pattern: Option<String>,
+    // pub output_sd_plot_path_pattern: Option<String>,
+    pub overwrites: Option<HashMap<String, Value>>,
+    // pub input_tt_csv_path_pattern: Option<String>,
+    // pub input_sd_csv_path_pattern: Option<String>,
     pub seeds_to_avg_over: SeedsToAvgOver,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct PlotTtAndSdDeviationToDiffRunBoxplotsOverBeta {
-    pub output_tt_plot_path_pattern: Option<String>,
-    pub output_sd_plot_path_pattern: Option<String>,
-    pub main_input_tt_csv_path_pattern: Option<String>,
-    pub main_input_sd_csv_path_pattern: Option<String>,
+    // pub output_tt_plot_path_pattern: Option<String>,
+    // pub output_sd_plot_path_pattern: Option<String>,
+    pub overwrites: Option<HashMap<String, Value>>,
+    // pub main_input_tt_csv_path_pattern: Option<String>,
+    // pub main_input_sd_csv_path_pattern: Option<String>,
     pub secondary_input_tt_csv_path_pattern: Option<String>,
     pub secondary_input_sd_csv_path_pattern: Option<String>,
     pub seeds_to_avg_over: SeedsToAvgOver,
+    pub which_deviation: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct PlotTtAndSdDeviationToDiffRunScatterplotsOverBeta {
-    pub output_tt_plot_path_pattern: Option<String>,
-    pub output_sd_plot_path_pattern: Option<String>,
-    pub main_input_tt_csv_path_pattern: Option<String>,
-    pub main_input_sd_csv_path_pattern: Option<String>,
+    // pub output_tt_plot_path_pattern: Option<String>,
+    // pub output_sd_plot_path_pattern: Option<String>,
+    pub overwrites: Option<HashMap<String, Value>>,
+    // pub main_input_tt_csv_path_pattern: Option<String>,
+    // pub main_input_sd_csv_path_pattern: Option<String>,
     pub secondary_input_tt_csv_path_pattern: Option<String>,
     pub secondary_input_sd_csv_path_pattern: Option<String>,
     pub seeds_to_avg_over: SeedsToAvgOver,
+    pub which_deviation: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ReformatOriginalExtractedMeasurements {
     pub original_tt_tsv_file_pattern: Option<String>,
     pub original_sd_tsv_file_pattern: Option<String>,
-    pub reformatted_tt_csv_file_pattern: Option<String>,
-    pub reformatted_sd_csv_file_pattern: Option<String>,
+    // pub reformatted_tt_csv_file_pattern: Option<String>,
+    // pub reformatted_sd_csv_file_pattern: Option<String>,
+    pub overwrites: Option<HashMap<String, Value>>,
+}
+
+/// helper function to get the tt and sd csv path pattern from the module's overwrites if existing,
+/// otherwise from the *experiment set specific* config.
+/// Will replace placeholders {common_output_from_runs_pattern}, {common_extracted_data_pattern},
+/// {common_plots_pattern} and {original_dir_to_read_from} in the path patterns, by reading those
+/// from the *global* config.
+fn get_tt_and_sd_csv_path_patterns(
+    config: &Config,
+    global_config: &GlobalConfig,
+    module: &dyn Module,
+) -> Result<(String, String), String> {
+    // gets the tt_csv_path_pattern and sd_csv_path_pattern from the expset-configs globals, or
+    // from the module's overwrites, if existing.
+    // Then, replaces the placeholders {common_output_from_runs_pattern}, {common_extracted_data_pattern},
+    // {common_plots_pattern} and {original_dir_to_read_from} in the path patterns, by reading those
+    // from the *global* config.
+    let tt_csv_output_path_pattern = global_config.replace_common_pattern(
+        module
+            .get_expset_config_global_parameter_or_overwrite(config, "tt_csv_path_pattern")?
+            .as_str()
+            .ok_or("tt_csv_path_pattern must be a string")?,
+    )?;
+    let sd_csv_output_path_pattern = global_config.replace_common_pattern(
+        module
+            .get_expset_config_global_parameter_or_overwrite(config, "sd_csv_path_pattern")?
+            .as_str()
+            .ok_or("sd_csv_path_pattern must be a string")?,
+    )?;
+
+    Ok((tt_csv_output_path_pattern, sd_csv_output_path_pattern))
 }
 
 #[typetag::serde]
 impl Module for RunRustBasedOnJavaOutput {
-    fn run(&self, config: &Config) -> Result<(), String> {
+    fn run(
+        &self,
+        config: &Config,
+        global_config: &GlobalConfig,
+        // global_log_file: Arc<Mutex<File>>,
+    ) -> Result<(), String> {
         println!("Running RunRustBasedOnJavaOutput module.\n");
 
         let bash_function = BashFunction::new(
@@ -188,13 +400,34 @@ impl Module for RunRustBasedOnJavaOutput {
             "./experiments/compare_braess_to_java/runnable_modules/run_rust_based_on_java_output.sh",
         );
 
-        bash_function.run_for_cartprod_in_parallel(config, None, None)
+        let delete_output_dir_if_existing = match self.overwrite_mode {
+            OverwriteFiles::DeleteDirectoryIfExists => "true".to_string(),
+            _ => "false".to_string(),
+        };
+
+        bash_function.run_for_cartprod_in_parallel(
+            config,
+            global_config,
+            self,
+            Some(vec![delete_output_dir_if_existing]),
+            None,
+            // global_log_file,
+        )
+    }
+
+    fn get_overwrites(&self) -> Option<HashMap<String, Value>> {
+        self.overwrites.clone()
     }
 }
 
 #[typetag::serde]
 impl Module for RunJavaSingleIterBasedOnJavaOutput {
-    fn run(&self, config: &Config) -> Result<(), String> {
+    fn run(
+        &self,
+        config: &Config,
+        global_config: &GlobalConfig,
+        // global_log_file: Arc<Mutex<File>>,
+    ) -> Result<(), String> {
         println!("Running RunJavaSingleIterBasedOnJavaOutput module.\n");
 
         let bash_function = BashFunction::new(
@@ -202,62 +435,153 @@ impl Module for RunJavaSingleIterBasedOnJavaOutput {
             "./experiments/compare_braess_to_java/runnable_modules/run_java_single_iter_based_on_java_output.sh",
         );
 
+        let delete_output_dir_if_existing = match self.overwrite_mode {
+            OverwriteFiles::DeleteDirectoryIfExists => "true".to_string(),
+            _ => "false".to_string(),
+        };
+
         bash_function.run_for_cartprod_in_parallel(
             config,
+            global_config,
+            self,
             Some(vec![
-                self.config_file_pattern
-                    .clone()
-                    .expect("config_file_pattern must be set"),
-                self.base_dir_to_read_from
-                    .clone()
-                    .expect("base_dir_to_read_from must be set"),
+                delete_output_dir_if_existing,
+                // self.config_file_pattern
+                //     .clone()
+                //     .expect("config_file_pattern must be set"),
+                // this is now read from the global config directly in bash
+                // self.base_dir_to_read_from
+                //     .clone()
+                //     .expect("base_dir_to_read_from must be set"),
             ]),
             None,
+            // global_log_file,
         )
+    }
+
+    fn get_overwrites(&self) -> Option<HashMap<String, Value>> {
+        self.overwrites.clone()
     }
 }
 
 #[typetag::serde]
 impl Module for ExtractMeasurementsFromEvents {
-    fn run(&self, config: &Config) -> Result<(), String> {
+    fn run(
+        &self,
+        config: &Config,
+        global_config: &GlobalConfig,
+        // global_log_file: Arc<Mutex<File>>,
+    ) -> Result<(), String> {
         println!("Running ExtractMeasurementsFromEvents module.\n");
+
+        // Note: this will run for all combinations of java and rust seeds. While this would not
+        // make sense in the case of reading original java data, the intended use is that in such
+        // an experiment set, the only rust seed would be "None"
+
+        let (tt_csv_output_path_pattern, sd_csv_output_path_pattern) =
+            get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
 
         let bash_function = BashFunction::new(
             "extract_travel_time_sum_dep_case",
             "./experiments/compare_braess_to_java/runnable_modules/extract_tt_and_sd_from_events.sh",
         );
 
-        // FIXME this should use a function to get these patterns from the config (hierarchy module/globals/global_config)
+        let input_file_stem_pattern = global_config.replace_common_pattern(
+            self.input_file_stem_pattern
+                .as_ref()
+                .ok_or("input_file_stem_pattern must be set")?,
+        )?;
+
         bash_function.run_for_cartprod_in_parallel(
             config,
+            global_config,
+            self,
             Some(vec![
-                self.input_file_stem_pattern
-                    .clone()
-                    .ok_or("input_file_stem_pattern must be set")?,
+                input_file_stem_pattern,
                 self.input_file_format
                     .clone()
                     .ok_or("input_file_format must be set")?,
-                self.tt_csv_output_path_pattern
-                    .clone()
-                    .ok_or("tt_csv_output_path_pattern must be set")?,
-                self.sd_csv_output_path_pattern
-                    .clone()
-                    .ok_or("sd_csv_output_path_pattern must be set")?,
+                // self.tt_csv_output_path_pattern
+                //     .clone()
+                //     .ok_or("tt_csv_output_path_pattern must be set")?,
+                tt_csv_output_path_pattern,
+                // self.sd_csv_output_path_pattern
+                //     .clone()
+                //     .ok_or("sd_csv_output_path_pattern must be set")?,
+                sd_csv_output_path_pattern,
                 self.num_parts.ok_or("num_parts must be set")?.to_string(),
             ]),
             None,
+            // global_log_file,
         )
+    }
+    fn get_overwrites(&self) -> Option<HashMap<String, Value>> {
+        self.overwrites.clone()
     }
 }
 
 #[typetag::serde]
 impl Module for AddDummyCoordinatesToEvents {
-    fn run(&self, config: &Config) -> Result<(), String> {
+    fn run(
+        &self,
+        config: &Config,
+        global_config: &GlobalConfig,
+        // global_log_file: Arc<Mutex<File>>,
+    ) -> Result<(), String> {
         println!("Running AddDummyCoordinatesToEvents module.\n");
 
         let bash_function = BashFunction::new(
             "add_dummy_coordinates_case",
             "./experiments/compare_braess_to_java/runnable_modules/add_dummy_coordinates_to_events.sh",
+        );
+
+        // replace common patterns in the input and output file stem patterns, using the global config
+        let input_file_stem_pattern = global_config.replace_common_pattern(
+            self.input_file_pattern
+                .as_ref()
+                .ok_or("input_file_stem_pattern must be set")?,
+        )?;
+
+        let output_file_stem_pattern = global_config.replace_common_pattern(
+            self.output_file_pattern
+                .as_ref()
+                .ok_or("output_file_stem_pattern must be set")?,
+        )?;
+
+        // // this module doesn't use any rust seeds, so we overwrite the rust_seeds variable to
+        // // contain only one parameter, so that the bash function is only called once per cartesian
+        // // product of the other parameters
+        // let rust_seed_decl_overwrite = "rust_seeds=(None)".to_string();
+        // let overwrites =
+        //     HashMap::from_iter([("rust_seeds".to_string(), rust_seed_decl_overwrite.clone())]);
+
+        bash_function.run_for_cartprod_in_parallel(
+            config,
+            global_config,
+            self,
+            Some(vec![input_file_stem_pattern, output_file_stem_pattern]),
+            None, // Some(overwrites),
+                  // global_log_file,
+        )
+    }
+    fn get_overwrites(&self) -> Option<HashMap<String, Value>> {
+        self.overwrites.clone()
+    }
+}
+
+#[typetag::serde]
+impl Module for ReplaceActivityTimesInPopulation {
+    fn run(
+        &self,
+        config: &Config,
+        global_config: &GlobalConfig,
+        // global_log_file: Arc<Mutex<File>>,
+    ) -> Result<(), String> {
+        println!("Running ReplaceActivityTimesInPopulation module.\n");
+
+        let bash_function = BashFunction::new(
+            "replace_activity_times_case",
+            "./experiments/compare_braess_to_java/runnable_modules/replace_activity_times.sh",
         );
 
         // this module doesn't use any rust seeds, so we overwrite the rust_seeds variable to
@@ -267,22 +591,32 @@ impl Module for AddDummyCoordinatesToEvents {
         let overwrites =
             HashMap::from_iter([("rust_seeds".to_string(), rust_seed_decl_overwrite.clone())]);
 
-        // FIXME also here, the pattern should be read correctly from the config (e.g. using hierarchy)
         bash_function.run_for_cartprod_in_parallel(
             config,
-            Some(vec![
-                self.input_file_stem_pattern.clone().unwrap(),
-                self.output_file_stem_pattern.clone().unwrap(),
-            ]),
+            global_config,
+            self,
+            None,
             Some(overwrites),
+            // global_log_file,
         )
+    }
+    fn get_overwrites(&self) -> Option<HashMap<String, Value>> {
+        self.overwrites.clone()
     }
 }
 
 #[typetag::serde]
 impl Module for PlotTtAndSdPerSeed {
-    fn run(&self, config: &Config) -> Result<(), String> {
+    fn run(
+        &self,
+        config: &Config,
+        global_config: &GlobalConfig,
+        // global_log_file: Arc<Mutex<File>>,
+    ) -> Result<(), String> {
         println!("Running PlotTtAndSdPerSeed module.\n");
+
+        let (tt_csv_input_path_pattern, sd_csv_input_path_pattern) =
+            get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
 
         let bash_function = BashFunction::new(
             "plot_per_seed_case",
@@ -291,29 +625,41 @@ impl Module for PlotTtAndSdPerSeed {
 
         bash_function.run_for_cartprod_in_parallel(
             config,
-            Some(vec![
-                self.output_tt_plot_path_pattern
-                    .clone()
-                    .ok_or("output_tt_plot_path_pattern must be set")?,
-                self.output_sd_plot_path_pattern
-                    .clone()
-                    .ok_or("output_sd_plot_path_pattern must be set")?,
-                self.input_tt_csv_path_pattern
-                    .clone()
-                    .ok_or("input_tt_csv_path_pattern must be set")?,
-                self.input_sd_csv_path_pattern
-                    .clone()
-                    .ok_or("input_sd_csv_path_pattern must be set")?,
-            ]),
+            global_config,
+            self,
+            Some(vec![tt_csv_input_path_pattern, sd_csv_input_path_pattern]),
             None,
+            // global_log_file,
         )
+    }
+    fn get_overwrites(&self) -> Option<HashMap<String, Value>> {
+        self.overwrites.clone()
     }
 }
 
 #[typetag::serde]
 impl Module for PlotTtAndSdDiffPerSeed {
-    fn run(&self, config: &Config) -> Result<(), String> {
+    fn run(
+        &self,
+        config: &Config,
+        global_config: &GlobalConfig,
+        // global_log_file: Arc<Mutex<File>>,
+    ) -> Result<(), String> {
         println!("Running PlotTtAndSdDiffPerSeed module.\n");
+
+        let (tt_csv_input_path_pattern, sd_csv_input_path_pattern) =
+            get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
+
+        let secondary_input_tt_csv_path_pattern = global_config.replace_common_pattern(
+            self.secondary_input_tt_csv_path_pattern
+                .as_ref()
+                .ok_or("secondary_input_tt_csv_path_pattern must be set")?,
+        )?;
+        let secondary_input_sd_csv_path_pattern = global_config.replace_common_pattern(
+            self.secondary_input_sd_csv_path_pattern
+                .as_ref()
+                .ok_or("secondary_input_sd_csv_path_pattern must be set")?,
+        )?;
 
         let bash_function = BashFunction::new(
             "plot_diff_per_seed_case",
@@ -322,35 +668,36 @@ impl Module for PlotTtAndSdDiffPerSeed {
 
         bash_function.run_for_cartprod_in_parallel(
             config,
+            global_config,
+            self,
             Some(vec![
-                self.output_tt_plot_path_pattern
-                    .clone()
-                    .ok_or("output_tt_plot_path_pattern must be set")?,
-                self.output_sd_plot_path_pattern
-                    .clone()
-                    .ok_or("output_sd_plot_path_pattern must be set")?,
-                self.main_input_tt_csv_path_pattern
-                    .clone()
-                    .ok_or("main_input_tt_csv_path_pattern must be set")?,
-                self.main_input_sd_csv_path_pattern
-                    .clone()
-                    .ok_or("main_input_sd_csv_path_pattern must be set")?,
-                self.secondary_input_tt_csv_path_pattern
-                    .clone()
-                    .ok_or("secondary_input_tt_csv_path_pattern must be set")?,
-                self.secondary_input_sd_csv_path_pattern
-                    .clone()
-                    .ok_or("secondary_input_sd_csv_path_pattern must be set")?,
+                tt_csv_input_path_pattern,
+                sd_csv_input_path_pattern,
+                secondary_input_tt_csv_path_pattern,
+                secondary_input_sd_csv_path_pattern,
+                self.minus_what.clone(),
             ]),
             None,
+            // global_log_file,
         )
+    }
+    fn get_overwrites(&self) -> Option<HashMap<String, Value>> {
+        self.overwrites.clone()
     }
 }
 
 #[typetag::serde]
 impl Module for PlotTtAndSdAvgdOverSeeds {
-    fn run(&self, config: &Config) -> Result<(), String> {
+    fn run(
+        &self,
+        config: &Config,
+        global_config: &GlobalConfig,
+        // global_log_file: Arc<Mutex<File>>,
+    ) -> Result<(), String> {
         println!("Running PlotTtAndSdAvgdOverSeeds module.\n");
+
+        let (tt_csv_input_path_pattern, sd_csv_input_path_pattern) =
+            get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
 
         let bash_function = BashFunction::new(
             "plot_avgd_over_seeds_case",
@@ -403,30 +750,46 @@ impl Module for PlotTtAndSdAvgdOverSeeds {
 
         bash_function.run_for_cartprod_in_parallel(
             config,
+            global_config,
+            self,
             Some(vec![
-                self.output_tt_plot_path_pattern
-                    .clone()
-                    .ok_or("output_tt_plot_path_pattern must be set")?,
-                self.output_sd_plot_path_pattern
-                    .clone()
-                    .ok_or("output_sd_plot_path_pattern must be set")?,
-                self.input_tt_csv_path_pattern
-                    .clone()
-                    .ok_or("input_tt_csv_path_pattern must be set")?,
-                self.input_sd_csv_path_pattern
-                    .clone()
-                    .ok_or("input_sd_csv_path_pattern must be set")?,
+                tt_csv_input_path_pattern,
+                sd_csv_input_path_pattern,
                 seeds_to_use_str,
             ]),
             Some(overwrites),
+            // global_log_file,
         )
+    }
+
+    fn get_overwrites(&self) -> Option<HashMap<String, Value>> {
+        self.overwrites.clone()
     }
 }
 
 #[typetag::serde]
 impl Module for PlotTtAndSdAvgdOverSeedsDiff {
-    fn run(&self, config: &Config) -> Result<(), String> {
+    fn run(
+        &self,
+        config: &Config,
+        global_config: &GlobalConfig,
+        // global_log_file: Arc<Mutex<File>>,
+    ) -> Result<(), String> {
         println!("Running PlotTtAndSdAvgdOverSeedsDiff module.\n");
+
+        let (tt_csv_input_path_pattern, sd_csv_input_path_pattern) =
+            get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
+
+        let secondary_input_tt_csv_path_pattern = global_config.replace_common_pattern(
+            self.secondary_input_tt_csv_path_pattern
+                .as_ref()
+                .ok_or("secondary_input_tt_csv_path_pattern must be set")?,
+        )?;
+        let secondary_input_sd_csv_path_pattern = global_config.replace_common_pattern(
+            self.secondary_input_sd_csv_path_pattern
+                .as_ref()
+                .ok_or("secondary_input_sd_csv_path_pattern must be set")?,
+        )?;
 
         let bash_function = BashFunction::new(
             "plot_avgd_over_seeds_diff_case",
@@ -479,36 +842,38 @@ impl Module for PlotTtAndSdAvgdOverSeedsDiff {
 
         bash_function.run_for_cartprod_in_parallel(
             config,
+            global_config,
+            self,
             Some(vec![
-                self.output_tt_plot_path_pattern
-                    .clone()
-                    .ok_or("output_tt_plot_path_pattern must be set")?,
-                self.output_sd_plot_path_pattern
-                    .clone()
-                    .ok_or("output_sd_plot_path_pattern must be set")?,
-                self.main_input_tt_csv_path_pattern
-                    .clone()
-                    .ok_or("main_input_tt_csv_path_pattern must be set")?,
-                self.main_input_sd_csv_path_pattern
-                    .clone()
-                    .ok_or("main_input_sd_csv_path_pattern must be set")?,
-                self.secondary_input_tt_csv_path_pattern
-                    .clone()
-                    .ok_or("secondary_input_tt_csv_path_pattern must be set")?,
-                self.secondary_input_sd_csv_path_pattern
-                    .clone()
-                    .ok_or("secondary_input_sd_csv_path_pattern must be set")?,
+                tt_csv_input_path_pattern,
+                sd_csv_input_path_pattern,
+                secondary_input_tt_csv_path_pattern,
+                secondary_input_sd_csv_path_pattern,
                 seeds_to_use_str,
+                self.minus_what.clone(),
             ]),
             Some(overwrites),
+            // global_log_file,
         )
+    }
+
+    fn get_overwrites(&self) -> Option<HashMap<String, Value>> {
+        self.overwrites.clone()
     }
 }
 
 #[typetag::serde]
 impl Module for PlotTtAndSdDeviationToNashBoxplotsOverBeta {
-    fn run(&self, config: &Config) -> Result<(), String> {
+    fn run(
+        &self,
+        config: &Config,
+        global_config: &GlobalConfig,
+        // global_log_file: Arc<Mutex<File>>,
+    ) -> Result<(), String> {
         println!("Running PlotTtAndSdDeviationBoxplotsOverBeta module.\n");
+
+        let (tt_csv_input_path_pattern, sd_csv_input_path_pattern) =
+            get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
 
         let bash_function = BashFunction::new(
             "plot_deviation_boxplots_over_beta_case",
@@ -573,31 +938,36 @@ impl Module for PlotTtAndSdDeviationToNashBoxplotsOverBeta {
 
         bash_function.run_for_cartprod_in_parallel(
             config,
+            global_config,
+            self,
             Some(vec![
-                self.output_tt_plot_path_pattern
-                    .clone()
-                    .ok_or("output_tt_plot_path_pattern must be set")?,
-                self.output_sd_plot_path_pattern
-                    .clone()
-                    .ok_or("output_sd_plot_path_pattern must be set")?,
-                self.input_tt_csv_path_pattern
-                    .clone()
-                    .ok_or("input_tt_csv_path_pattern must be set")?,
-                self.input_sd_csv_path_pattern
-                    .clone()
-                    .ok_or("input_sd_csv_path_pattern must be set")?,
+                tt_csv_input_path_pattern,
+                sd_csv_input_path_pattern,
                 seeds_to_use_str,
                 betas_to_use_str,
             ]),
             Some(overwrites),
+            // global_log_file,
         )
+    }
+
+    fn get_overwrites(&self) -> Option<HashMap<String, Value>> {
+        self.overwrites.clone()
     }
 }
 
 #[typetag::serde]
 impl Module for PlotTtAndSdDeviationToNashScatterplotsOverBeta {
-    fn run(&self, config: &Config) -> Result<(), String> {
+    fn run(
+        &self,
+        config: &Config,
+        global_config: &GlobalConfig,
+        // global_log_file: Arc<Mutex<File>>,
+    ) -> Result<(), String> {
         println!("Running PlotTtAndSdDeviationScatterplotsOverBeta module.\n");
+
+        let (tt_csv_input_path_pattern, sd_csv_input_path_pattern) =
+            get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
 
         let bash_function = BashFunction::new(
             "plot_deviation_scatterplots_over_beta_case",
@@ -662,31 +1032,47 @@ impl Module for PlotTtAndSdDeviationToNashScatterplotsOverBeta {
 
         bash_function.run_for_cartprod_in_parallel(
             config,
+            global_config,
+            self,
             Some(vec![
-                self.output_tt_plot_path_pattern
-                    .clone()
-                    .ok_or("output_tt_plot_path_pattern must be set")?,
-                self.output_sd_plot_path_pattern
-                    .clone()
-                    .ok_or("output_sd_plot_path_pattern must be set")?,
-                self.input_tt_csv_path_pattern
-                    .clone()
-                    .ok_or("input_tt_csv_path_pattern must be set")?,
-                self.input_sd_csv_path_pattern
-                    .clone()
-                    .ok_or("input_sd_csv_path_pattern must be set")?,
+                tt_csv_input_path_pattern,
+                sd_csv_input_path_pattern,
                 seeds_to_use_str,
                 betas_to_use_str,
             ]),
             Some(overwrites),
+            // global_log_file,
         )
+    }
+
+    fn get_overwrites(&self) -> Option<HashMap<String, Value>> {
+        self.overwrites.clone()
     }
 }
 
 #[typetag::serde]
 impl Module for PlotTtAndSdDeviationToDiffRunBoxplotsOverBeta {
-    fn run(&self, config: &Config) -> Result<(), String> {
+    fn run(
+        &self,
+        config: &Config,
+        global_config: &GlobalConfig,
+        // global_log_file: Arc<Mutex<File>>,
+    ) -> Result<(), String> {
         println!("Running PlotTtAndSdDeviationToDiffRunBoxplotsOverBeta module.\n");
+
+        let (tt_csv_input_path_pattern, sd_csv_input_path_pattern) =
+            get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
+
+        let secondary_input_tt_csv_path_pattern = global_config.replace_common_pattern(
+            self.secondary_input_tt_csv_path_pattern
+                .as_ref()
+                .ok_or("secondary_input_tt_csv_path_pattern must be set")?,
+        )?;
+        let secondary_input_sd_csv_path_pattern = global_config.replace_common_pattern(
+            self.secondary_input_sd_csv_path_pattern
+                .as_ref()
+                .ok_or("secondary_input_sd_csv_path_pattern must be set")?,
+        )?;
 
         let bash_function = BashFunction::new(
             "plot_deviation_boxplots_to_diff_run_over_beta_case",
@@ -749,37 +1135,50 @@ impl Module for PlotTtAndSdDeviationToDiffRunBoxplotsOverBeta {
 
         bash_function.run_for_cartprod_in_parallel(
             config,
+            global_config,
+            self,
             Some(vec![
-                self.output_tt_plot_path_pattern
-                    .clone()
-                    .ok_or("output_tt_plot_path_pattern must be set")?,
-                self.output_sd_plot_path_pattern
-                    .clone()
-                    .ok_or("output_sd_plot_path_pattern must be set")?,
-                self.main_input_tt_csv_path_pattern
-                    .clone()
-                    .ok_or("main_input_tt_csv_path_pattern must be set")?,
-                self.main_input_sd_csv_path_pattern
-                    .clone()
-                    .ok_or("main_input_sd_csv_path_pattern must be set")?,
-                self.secondary_input_tt_csv_path_pattern
-                    .clone()
-                    .ok_or("secondary_input_tt_csv_path_pattern must be set")?,
-                self.secondary_input_sd_csv_path_pattern
-                    .clone()
-                    .ok_or("secondary_input_sd_csv_path_pattern must be set")?,
+                tt_csv_input_path_pattern,
+                sd_csv_input_path_pattern,
+                secondary_input_tt_csv_path_pattern,
+                secondary_input_sd_csv_path_pattern,
                 seeds_to_use_str,
                 betas_to_use_str,
+                self.which_deviation.clone(),
             ]),
             Some(overwrites),
+            // global_log_file,
         )
+    }
+
+    fn get_overwrites(&self) -> Option<HashMap<String, Value>> {
+        self.overwrites.clone()
     }
 }
 
 #[typetag::serde]
 impl Module for PlotTtAndSdDeviationToDiffRunScatterplotsOverBeta {
-    fn run(&self, config: &Config) -> Result<(), String> {
+    fn run(
+        &self,
+        config: &Config,
+        global_config: &GlobalConfig,
+        // global_log_file: Arc<Mutex<File>>,
+    ) -> Result<(), String> {
         println!("Running PlotTtAndSdDeviationToDiffRunScatterplotsOverBeta module.\n");
+
+        let (tt_csv_input_path_pattern, sd_csv_input_path_pattern) =
+            get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
+
+        let secondary_input_tt_csv_path_pattern = global_config.replace_common_pattern(
+            self.secondary_input_tt_csv_path_pattern
+                .as_ref()
+                .ok_or("secondary_input_tt_csv_path_pattern must be set")?,
+        )?;
+        let secondary_input_sd_csv_path_pattern = global_config.replace_common_pattern(
+            self.secondary_input_sd_csv_path_pattern
+                .as_ref()
+                .ok_or("secondary_input_sd_csv_path_pattern must be set")?,
+        )?;
 
         let bash_function = BashFunction::new(
             "plot_deviation_scatterplots_to_diff_run_over_beta_case",
@@ -842,42 +1241,71 @@ impl Module for PlotTtAndSdDeviationToDiffRunScatterplotsOverBeta {
 
         bash_function.run_for_cartprod_in_parallel(
             config,
+            global_config,
+            self,
             Some(vec![
-                self.output_tt_plot_path_pattern
-                    .clone()
-                    .ok_or("output_tt_plot_path_pattern must be set")?,
-                self.output_sd_plot_path_pattern
-                    .clone()
-                    .ok_or("output_sd_plot_path_pattern must be set")?,
-                self.main_input_tt_csv_path_pattern
-                    .clone()
-                    .ok_or("main_input_tt_csv_path_pattern must be set")?,
-                self.main_input_sd_csv_path_pattern
-                    .clone()
-                    .ok_or("main_input_sd_csv_path_pattern must be set")?,
-                self.secondary_input_tt_csv_path_pattern
-                    .clone()
-                    .ok_or("secondary_input_tt_csv_path_pattern must be set")?,
-                self.secondary_input_sd_csv_path_pattern
-                    .clone()
-                    .ok_or("secondary_input_sd_csv_path_pattern must be set")?,
+                tt_csv_input_path_pattern,
+                sd_csv_input_path_pattern,
+                secondary_input_tt_csv_path_pattern,
+                secondary_input_sd_csv_path_pattern,
                 seeds_to_use_str,
                 betas_to_use_str,
+                self.which_deviation.clone(),
             ]),
             Some(overwrites),
+            // global_log_file,
         )
+    }
+
+    fn get_overwrites(&self) -> Option<HashMap<String, Value>> {
+        self.overwrites.clone()
     }
 }
 
 #[typetag::serde]
 impl Module for ReformatOriginalExtractedMeasurements {
-    fn run(&self, config: &Config) -> Result<(), String> {
+    fn run(
+        &self,
+        config: &Config,
+        global_config: &GlobalConfig,
+        // global_log_file: Arc<Mutex<File>>,
+    ) -> Result<(), String> {
         println!("Running ReformatOriginalExtractedMeasurements module.\n");
+
+        let (reformatted_tt_csv_file_pattern, reformatted_sd_csv_file_pattern) =
+            get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
 
         let bash_function = BashFunction::new(
             "reformat_original_java_extracted_measurements_case",
             "./experiments/compare_braess_to_java/runnable_modules/reformat_original_measurements.sh",
         );
+
+        // replace placholders in file name
+        let original_tt_tsv_file_pattern = global_config.replace_common_pattern(
+            self.original_tt_tsv_file_pattern
+                .as_ref()
+                .ok_or("original_tt_tsv_file_pattern must be set")?,
+        )?;
+        let original_sd_tsv_file_pattern = global_config.replace_common_pattern(
+            self.original_sd_tsv_file_pattern
+                .as_ref()
+                .ok_or("original_sd_tsv_file_pattern must be set")?,
+        )?;
+
+        // This is now the default csv file pattern, or overwrites if they are given.
+
+        // let reformatted_tt_csv_file_pattern = config.replace_common_pattern(
+        //     self.reformatted_tt_csv_file_pattern
+        //         .as_ref()
+        //         .ok_or("reformatted_tt_csv_file_pattern must be set")?,
+        //     global_config,
+        // )?;
+        // let reformatted_sd_csv_file_pattern = config.replace_common_pattern(
+        //     self.reformatted_sd_csv_file_pattern
+        //         .as_ref()
+        //         .ok_or("reformatted_sd_csv_file_pattern must be set")?,
+        //     global_config,
+        // )?;
 
         // this module doesn't use any rust seeds, so we overwrite the rust_seeds variable to
         // contain only one parameter, so that the bash function is only called once per cartesian
@@ -888,22 +1316,21 @@ impl Module for ReformatOriginalExtractedMeasurements {
 
         bash_function.run_for_cartprod_in_parallel(
             config,
+            global_config,
+            self,
             Some(vec![
-                self.original_tt_tsv_file_pattern
-                    .clone()
-                    .ok_or("original_tt_tsv_file_pattern must be set")?,
-                self.original_sd_tsv_file_pattern
-                    .clone()
-                    .ok_or("original_sd_tsv_file_pattern must be set")?,
-                self.reformatted_tt_csv_file_pattern
-                    .clone()
-                    .ok_or("reformatted_tt_csv_file_pattern must be set")?,
-                self.reformatted_sd_csv_file_pattern
-                    .clone()
-                    .ok_or("reformatted_sd_csv_file_pattern must be set")?,
+                original_tt_tsv_file_pattern,
+                original_sd_tsv_file_pattern,
+                reformatted_tt_csv_file_pattern,
+                reformatted_sd_csv_file_pattern,
             ]),
             Some(overwrites),
+            // global_log_file,
         )
+    }
+
+    fn get_overwrites(&self) -> Option<HashMap<String, Value>> {
+        self.overwrites.clone()
     }
 }
 
@@ -915,251 +1342,19 @@ pub enum SeedsToAvgOver {
 
 mod tests {
     use super::*;
-    use serde_yaml::Value;
+    use std::fs::File;
 
-    #[test]
-    fn test_shell_execution() {
-        let config = Config {
-            globals: Some(HashMap::from([
-                (
-                    "experiment_set_name".to_string(),
-                    Value::String("test_set".to_string()),
-                ),
-                (
-                    "base_output_dir".to_string(),
-                    Value::String("/tmp/output".to_string()),
-                ),
-                (
-                    "experiment_output_dir_pattern".to_string(),
-                    Value::String(
-                        "{base_output_dir}/{replanning_variant}/{experiment_set_name}/beta{beta}/read_from_random_{read_from_random}_use_random_seed_{use_random_seed}".to_string(),
-                    ),
-                ),
-                (
-                    "delete_output_dir_if_existing".to_string(),
-                    Value::Bool(true),
-                ),
-                ("max_parallel_jobs".to_string(), Value::Number(8.into())),
-            ])),
-            param_sweep: HashMap::from([
-                (
-                    "replanning_variants".to_string(),
-                    vec![Value::String("sel-exp10-switch-at80".to_string())],
-                ),
-                ("betas".to_string(), vec![Value::Number(1.into())]),
-                (
-                    "java_seed_indices".to_string(),
-                    vec![Value::Number(1.into()), Value::Number(20.into()), Value::Number(4.into())],
-                ),
-                ("rust_seeds".to_string(), vec![Value::Number(42.into()), Value::Number(43.into())]),
-            ]),
-            modules: vec![
-                Box::new(RunRustBasedOnJavaOutput {
-                    overwrite_mode: OverwriteFiles::DeleteDirectoryIfExists,
-                }),
-                Box::new(
-                    ExtractMeasurementsFromEvents {
-                        input_file_stem_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/beta{beta}/read_from_random_{read_from_random}_use_random_seed_{use_random_seed}/events/events".to_string()),
-                        input_file_format: Some("binpb".to_string()),
-                        tt_csv_output_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/average_route_tts_per_deptime_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.csv".to_string()),
-                        sd_csv_output_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/summed_deps_per_time_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.csv".to_string()),
-                        num_parts: Some(1)
-                    }),
-                Box::new(PlotTtAndSdPerSeed {
-                    output_tt_plot_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/plots/per_seed/tt_per_path_over_deptime/tt_per_path_over_deptime_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.pdf".to_string()),
-                    output_sd_plot_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/plots/per_seed/sd_per_path_over_time/sd_per_path_over_time_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.pdf".to_string()),
-                    input_tt_csv_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/average_route_tts_per_deptime_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.csv".to_string()),
-                    input_sd_csv_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/summed_deps_per_time_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.csv".to_string()),
-                }),
-                Box::new(AddDummyCoordinatesToEvents {
-                    input_file_stem_pattern: Some("/home/andreas/RustroverProjects/runs-svn/braess/refinement/no_spillback_scenario/2026-05-12-8-42-24_500it_reRouteProba0.1until0.8it_selExpBeta10proba0.9_msaFrom0.8it/beta{beta}/random{read_from_random}/beta{beta}random{read_from_random}.output_events.xml.gz".to_string()),
-                    output_file_stem_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/event_files_with_dummy_coordinates/beta{beta}/random{read_from_random}/beta{beta}random{read_from_random}.output_events.xml.gz".to_string()),
-                }),
-                // extract measurements from the (original java) event files with dummy coordinates
-                Box::new(
-                    ExtractMeasurementsFromEvents {
-                        input_file_stem_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/event_files_with_dummy_coordinates/beta{beta}/random{read_from_random}/beta{beta}random{read_from_random}.output_events".to_string()),
-                        input_file_format: Some("xml.gz".to_string()),
-                        tt_csv_output_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/average_route_tts_per_deptime_beta{beta}_read_from_random_{read_from_random}_original_java_data_new_extraction.csv".to_string()),
-                        sd_csv_output_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/summed_deps_per_time_beta{beta}_read_from_random_{read_from_random}_original_java_data_new_extraction.csv".to_string()),
-                        num_parts: Some(0)
-                    }
-                ),
-                // reformat the original Java extracted measurements
-                Box::new(ReformatOriginalExtractedMeasurements {
-                    original_tt_tsv_file_pattern: Some("/home/andreas/RustroverProjects/runs-svn/braess/refinement/no_spillback_scenario/2026-05-12-8-42-24_500it_reRouteProba0.1until0.8it_selExpBeta10proba0.9_msaFrom0.8it/analysis/average_traveltimes/avgRouteTTsPerDeparture_{beta}_{read_from_random}_500.txt".to_string()),
-                    original_sd_tsv_file_pattern: Some("/home/andreas/RustroverProjects/runs-svn/braess/refinement/no_spillback_scenario/2026-05-12-8-42-24_500it_reRouteProba0.1until0.8it_selExpBeta10proba0.9_msaFrom0.8it/analysis/summed_departures/summedDeparturesPerRoute_{beta}_{read_from_random}_500.txt".to_string()),
-                    reformatted_tt_csv_file_pattern: Some("{base_output_dir}/{replanning_variant}/temp_recreating_java/analysis/extracted_data/average_route_tts_per_deptime_beta{beta}_read_from_random_{read_from_random}_reformatted_original_java_data.csv".to_string()),
-                    reformatted_sd_csv_file_pattern: Some("{base_output_dir}/{replanning_variant}/temp_recreating_java/analysis/extracted_data/summed_deps_per_time_beta{beta}_read_from_random_{read_from_random}_reformatted_original_java_data.csv".to_string()),
-                }),
-                Box::new(PlotTtAndSdPerSeed {
-                    output_tt_plot_path_pattern: Some("{base_output_dir}/{replanning_variant}/temp_recreating_java/analysis/plots/per_seed/tt_per_path_over_deptime/tt_per_path_over_deptime_beta{beta}_read_from_random_{read_from_random}_reformatted_original_java_data.pdf".to_string()),
-                    output_sd_plot_path_pattern: Some("{base_output_dir}/{replanning_variant}/temp_recreating_java/analysis/plots/per_seed/sd_per_path_over_time/sd_per_path_over_time_beta{beta}_read_from_random_{read_from_random}_reformatted_original_java_data.pdf".to_string()),
-                    input_tt_csv_path_pattern: Some("{base_output_dir}/{replanning_variant}/temp_recreating_java/analysis/extracted_data/average_route_tts_per_deptime_beta{beta}_read_from_random_{read_from_random}_reformatted_original_java_data.csv".to_string()),
-                    input_sd_csv_path_pattern: Some("{base_output_dir}/{replanning_variant}/temp_recreating_java/analysis/extracted_data/summed_deps_per_time_beta{beta}_read_from_random_{read_from_random}_reformatted_original_java_data.csv".to_string()),
-                }),
-                Box::new(PlotTtAndSdAvgdOverSeeds {
-                    output_tt_plot_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/plots/avg_over_rust_seeds/tt_per_path_over_deptime/tt_per_path_over_deptime_beta{beta}_read_from_random_{read_from_random}.pdf".to_string()),
-                    output_sd_plot_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/plots/avg_over_rust_seeds/sd_per_path_over_time/sd_per_path_over_time_beta{beta}_read_from_random_{read_from_random}.pdf".to_string()),
-                    input_tt_csv_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/average_route_tts_per_deptime_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.csv".to_string()),
-                    input_sd_csv_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/summed_deps_per_time_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.csv".to_string()),
-                    seeds_to_avg_over: SeedsToAvgOver::RustSeeds,
-                }),
-                Box::new(PlotTtAndSdDeviationToNashBoxplotsOverBeta {
-                    output_tt_plot_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/plots/deviations/tt_avg_deviation_boxplots/tt_avg_deviation_boxplot.pdf".to_string()),
-                    output_sd_plot_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/plots/deviations/sd_avg_deviation_boxplots/sd_avg_deviation_boxplot.pdf".to_string()),
-                    input_tt_csv_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/average_route_tts_per_deptime_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.csv".to_string()),
-                    input_sd_csv_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/summed_deps_per_time_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.csv".to_string()),
-                    seeds_to_avg_over: SeedsToAvgOver::RustSeeds,
-                }),
-                Box::new(PlotTtAndSdDeviationToNashScatterplotsOverBeta {
-                    output_tt_plot_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/plots/deviations/tt_avg_first_deviation_scatterplots/tt_avg_first_deviation_scatterplot.pdf".to_string()),
-                    output_sd_plot_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/plots/deviations/sd_avg_first_deviation_scatterplots/sd_avg_first_deviation_scatterplot.pdf".to_string()),
-                    input_tt_csv_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/average_route_tts_per_deptime_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.csv".to_string()),
-                    input_sd_csv_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/summed_deps_per_time_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.csv".to_string()),
-                    seeds_to_avg_over: SeedsToAvgOver::RustSeeds,
-                }),
-                // plot deviation of original java data
-                Box::new(PlotTtAndSdDeviationToNashBoxplotsOverBeta {
-                    output_tt_plot_path_pattern: Some("{base_output_dir}/{replanning_variant}/temp_recreating_java/analysis/plots/deviations/tt_avg_deviation_boxplots/tt_avg_deviation_boxplot.pdf".to_string()),
-                    output_sd_plot_path_pattern: Some("{base_output_dir}/{replanning_variant}/temp_recreating_java/analysis/plots/deviations/sd_avg_deviation_boxplots/sd_avg_deviation_boxplot.pdf".to_string()),
-                    input_tt_csv_path_pattern: Some("{base_output_dir}/{replanning_variant}/temp_recreating_java/analysis/extracted_data/average_route_tts_per_deptime_beta{beta}_read_from_random_{read_from_random}_reformatted_original_java_data.csv".to_string()),
-                    input_sd_csv_path_pattern: Some("{base_output_dir}/{replanning_variant}/temp_recreating_java/analysis/extracted_data/summed_deps_per_time_beta{beta}_read_from_random_{read_from_random}_reformatted_original_java_data.csv".to_string()),
-                    seeds_to_avg_over: SeedsToAvgOver::JavaSeedIndices,
-                }),
-                Box::new(PlotTtAndSdDeviationToNashScatterplotsOverBeta {
-                    output_tt_plot_path_pattern: Some("{base_output_dir}/{replanning_variant}/temp_recreating_java/analysis/plots/deviations/tt_avg_first_deviation_scatterplots/tt_avg_first_deviation_scatterplot.pdf".to_string()),
-                    output_sd_plot_path_pattern: Some("{base_output_dir}/{replanning_variant}/temp_recreating_java/analysis/plots/deviations/sd_avg_first_deviation_scatterplots/sd_avg_first_deviation_scatterplot.pdf".to_string()),
-                    input_tt_csv_path_pattern: Some("{base_output_dir}/{replanning_variant}/temp_recreating_java/analysis/extracted_data/average_route_tts_per_deptime_beta{beta}_read_from_random_{read_from_random}_reformatted_original_java_data.csv".to_string()),
-                    input_sd_csv_path_pattern: Some("{base_output_dir}/{replanning_variant}/temp_recreating_java/analysis/extracted_data/summed_deps_per_time_beta{beta}_read_from_random_{read_from_random}_reformatted_original_java_data.csv".to_string()),
-                    seeds_to_avg_over: SeedsToAvgOver::JavaSeedIndices,
-                }),
-                // Plot difference of rust data to the original data - per seed
-                Box::new(PlotTtAndSdDiffPerSeed {
-                    output_tt_plot_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/plots/per_seed/tt_per_path_over_deptime_minus_original_java/tt_per_path_over_deptime_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.pdf".to_string()),
-                    output_sd_plot_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/plots/per_seed/sd_per_path_over_time_minus_original_java/sd_per_path_over_time_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.pdf".to_string()),
-                    main_input_tt_csv_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/average_route_tts_per_deptime_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.csv".to_string()),
-                    main_input_sd_csv_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/summed_deps_per_time_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.csv".to_string()),
-                    secondary_input_tt_csv_path_pattern: Some("{base_output_dir}/{replanning_variant}/temp_recreating_java/analysis/extracted_data/average_route_tts_per_deptime_beta{beta}_read_from_random_{read_from_random}_reformatted_original_java_data.csv".to_string()),
-                    secondary_input_sd_csv_path_pattern: Some("{base_output_dir}/{replanning_variant}/temp_recreating_java/analysis/extracted_data/summed_deps_per_time_beta{beta}_read_from_random_{read_from_random}_reformatted_original_java_data.csv".to_string()),
-                }),
-                // Plot difference of rust data to the original data - averaged over seeds
-                Box::new(PlotTtAndSdAvgdOverSeedsDiff {
-                    output_tt_plot_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/plots/avg_over_rust_seeds/tt_per_path_over_deptime_minus_original_java/tt_per_path_over_deptime_beta{beta}_read_from_random_{read_from_random}.pdf".to_string()),
-                    output_sd_plot_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/plots/avg_over_rust_seeds/sd_per_path_over_time_minus_original_java/sd_per_path_over_time_beta{beta}_read_from_random_{read_from_random}.pdf".to_string()),
-                    main_input_tt_csv_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/average_route_tts_per_deptime_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.csv".to_string()),
-                    main_input_sd_csv_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/summed_deps_per_time_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.csv".to_string()),
-                    secondary_input_tt_csv_path_pattern: Some("{base_output_dir}/{replanning_variant}/temp_recreating_java/analysis/extracted_data/average_route_tts_per_deptime_beta{beta}_read_from_random_{read_from_random}_reformatted_original_java_data.csv".to_string()),
-                    secondary_input_sd_csv_path_pattern: Some("{base_output_dir}/{replanning_variant}/temp_recreating_java/analysis/extracted_data/summed_deps_per_time_beta{beta}_read_from_random_{read_from_random}_reformatted_original_java_data.csv".to_string()),
-                    seeds_to_avg_over: SeedsToAvgOver::RustSeeds,
-                }),
-                // Plot difference of rust data to the original data as a boxplot
-                Box::new(PlotTtAndSdDeviationToDiffRunBoxplotsOverBeta {
-                    output_tt_plot_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/plots/deviations/tt_avg_deviation_boxplots_rust_minus_java/tt_avg_deviation_boxplot.pdf".to_string()),
-                    output_sd_plot_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/plots/deviations/sd_avg_deviation_boxplots_rust_minus_java/sd_avg_deviation_boxplot.pdf".to_string()),
-                    main_input_tt_csv_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/average_route_tts_per_deptime_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.csv".to_string()),
-                    main_input_sd_csv_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/summed_deps_per_time_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.csv".to_string()),
-                    secondary_input_tt_csv_path_pattern: Some("{base_output_dir}/{replanning_variant}/temp_recreating_java/analysis/extracted_data/average_route_tts_per_deptime_beta{beta}_read_from_random_{read_from_random}_reformatted_original_java_data.csv".to_string()),
-                    secondary_input_sd_csv_path_pattern: Some("{base_output_dir}/{replanning_variant}/temp_recreating_java/analysis/extracted_data/summed_deps_per_time_beta{beta}_read_from_random_{read_from_random}_reformatted_original_java_data.csv".to_string()),
-                    seeds_to_avg_over: SeedsToAvgOver::RustSeeds,
-                }),
-                // Plot difference of rust data (avgd first) to the original data as a scatterplot
-                Box::new(PlotTtAndSdDeviationToDiffRunScatterplotsOverBeta {
-                    output_tt_plot_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/plots/deviations/tt_avg_first_deviation_scatterplots_rust_minus_java/tt_avg_first_deviation_scatterplot.pdf".to_string()),
-                    output_sd_plot_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/plots/deviations/sd_avg_first_deviation_scatterplots_rust_minus_java/sd_avg_first_deviation_scatterplot.pdf".to_string()),
-                    main_input_tt_csv_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/average_route_tts_per_deptime_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.csv".to_string()),
-                    main_input_sd_csv_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/summed_deps_per_time_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.csv".to_string()),
-                    secondary_input_tt_csv_path_pattern: Some("{base_output_dir}/{replanning_variant}/temp_recreating_java/analysis/extracted_data/average_route_tts_per_deptime_beta{beta}_read_from_random_{read_from_random}_reformatted_original_java_data.csv".to_string()),
-                    secondary_input_sd_csv_path_pattern: Some("{base_output_dir}/{replanning_variant}/temp_recreating_java/analysis/extracted_data/summed_deps_per_time_beta{beta}_read_from_random_{read_from_random}_reformatted_original_java_data.csv".to_string()),
-                    seeds_to_avg_over: SeedsToAvgOver::RustSeeds,
-                }),
-                // Run a last iteration in java based on the original output plans
-                Box::new(RunJavaSingleIterBasedOnJavaOutput {
-                    overwrite_mode: OverwriteFiles::DeleteDirectoryIfExists,
-                    config_file_pattern: Some("{base_dir_to_read_from}/{replanning_variant}/beta{beta}/random{read_from_random}/beta{beta}random{read_from_random}.output_config.xml".to_string()),
-                    base_dir_to_read_from: Some("./../runs-svn/braess/refinement/no_spillback_scenario".to_string()),
-                }
-                )
-            ],
-            global_config: None,
-        };
-
-        // TODO continue here: I need run single java iteration module.
-        //  and then finally: make the config readable
-
-        // TODO the run_all should handle print_failure_summary etc.
-        // TODO also there should be failure kinds for every module. Can this be automatic?
-        config.run_all_modules().expect("Failed to run all modules");
-
-        // TODO is it reasonable that I cannot change the experiment output dir pattern for the java run?
-        //  No, it makes sense that there is a default, but there might be situations where you
-        //  want to do several runs (rust/rust, rust/java, java/java) in one experiment set (e.g.
-        //  when comparing them), and this would require different output dir patterns.
-        //  So I should make this configurable, but with a default.
-        //  QUESTION: How do I handle defaults? somehow in the global file but still.
-
-        // TODO also related: move delete-output-dir-if-existing to run modules, I think.
-        //  generally think about how I can group things by what parameters they need, maybe.
-        let config_java = Config {
-            globals: Some(HashMap::from([
-                (
-                    "experiment_set_name".to_string(),
-                    Value::String("test_set_run_java".to_string()),
-                ),
-                (
-                    "base_output_dir".to_string(),
-                    Value::String("/tmp/output".to_string()),
-                ),
-                (
-                    "experiment_output_dir_pattern".to_string(),
-                    Value::String(
-                        "{base_output_dir}/{replanning_variant}/{experiment_set_name}/beta{beta}/read_from_random_{read_from_random}_use_random_seed_{use_random_seed}".to_string(),
-                    ),
-                ),
-                (
-                    "delete_output_dir_if_existing".to_string(),
-                    Value::Bool(true),
-                ),
-                ("max_parallel_jobs".to_string(), Value::Number(8.into())),
-            ])),
-            param_sweep: HashMap::from([
-                (
-                    "replanning_variants".to_string(),
-                    vec![Value::String("sel-exp10-switch-at80".to_string())],
-                ),
-                ("betas".to_string(), vec![Value::Number(1.into())]),
-                (
-                    "java_seed_indices".to_string(),
-                    vec![Value::Number(1.into()), Value::Number(20.into()), Value::Number(4.into())],
-                ),
-                ("rust_seeds".to_string(), vec![Value::Number(42.into()), Value::Number(43.into())]),
-            ]),
-            modules: vec![
-                // Run a last iteration in java based on the original output plans
-                Box::new(RunJavaSingleIterBasedOnJavaOutput {
-                    overwrite_mode: OverwriteFiles::DeleteDirectoryIfExists,
-                    config_file_pattern: Some("{base_dir_to_read_from}/{replanning_variant}/beta{beta}/random{read_from_random}/beta{beta}random{read_from_random}.output_config.xml".to_string()),
-                    base_dir_to_read_from: Some("./../runs-svn/braess/refinement/no_spillback_scenario".to_string()),
-                }
-                )
-            ],
-            global_config: None,
-        };
-
-        config_java
-            .run_all_modules()
-            .expect("Failed to run all modules");
-    }
+    // TODO think about if I need a test here, for e.g. making sure that nothing panics or smth.
+    //  Also at some point consider to make things more solid, like verifying that the config file
+    //  is valid, and that the modules are valid, etc.
 
     #[test]
     fn test_config_reading() {
         // Test the config reading functionality
 
         let parsed_config: Config = serde_yaml::from_reader(
-            std::fs::File::open(
-                "./../experiments/compare_braess_to_java/experiment_sets/test_config.yaml",
-            )
-            .expect("Failed to open test config file"),
+            File::open("./../experiments/compare_braess_to_java/experiment_sets/test_config.yaml")
+                .expect("Failed to open test config file"),
         )
         .expect("Failed to parse test config file");
 
@@ -1173,16 +1368,6 @@ mod tests {
                     "base_output_dir".to_string(),
                     Value::String("/tmp/output".to_string()),
                 ),
-                (
-                    "experiment_output_dir_pattern".to_string(),
-                    Value::String(
-                        "{base_output_dir}/{replanning_variant}/{experiment_set_name}/beta{beta}/read_from_random_{read_from_random}_use_random_seed_{use_random_seed}".to_string(),
-                    ),
-                ),
-                (
-                    "delete_output_dir_if_existing".to_string(),
-                    Value::Bool(true),
-                ),
                 ("max_parallel_jobs".to_string(), Value::Number(8.into())),
             ])),
             param_sweep: HashMap::from([
@@ -1193,23 +1378,32 @@ mod tests {
                 ("betas".to_string(), vec![Value::Number(1.into())]),
                 (
                     "java_seed_indices".to_string(),
-                    vec![Value::Number(1.into()), Value::Number(20.into()), Value::Number(4.into())],
+                    vec![
+                        Value::Number(1.into()),
+                        Value::Number(20.into()),
+                        Value::Number(4.into()),
+                    ],
                 ),
-                ("rust_seeds".to_string(), vec![Value::Number(42.into()), Value::Number(43.into())]),
+                (
+                    "rust_seeds".to_string(),
+                    vec![Value::Number(42.into()), Value::Number(43.into())],
+                ),
             ]),
             modules: vec![
                 Box::new(RunRustBasedOnJavaOutput {
                     overwrite_mode: OverwriteFiles::DeleteDirectoryIfExists,
+                    overwrites: None,
                 }),
                 Box::new(PlotTtAndSdAvgdOverSeeds {
-                    output_tt_plot_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/plots/avg_over_rust_seeds/tt_per_path_over_deptime/tt_per_path_over_deptime_beta{beta}_read_from_random_{read_from_random}.pdf".to_string()),
-                    output_sd_plot_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/plots/avg_over_rust_seeds/sd_per_path_over_time/sd_per_path_over_time_beta{beta}_read_from_random_{read_from_random}.pdf".to_string()),
-                    input_tt_csv_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/average_route_tts_per_deptime_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.csv".to_string()),
-                    input_sd_csv_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/summed_deps_per_time_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.csv".to_string()),
+                    // output_tt_plot_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/plots/avg_over_rust_seeds/tt_per_path_over_deptime/tt_per_path_over_deptime_beta{beta}_read_from_random_{read_from_random}.pdf".to_string()),
+                    // output_sd_plot_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/plots/avg_over_rust_seeds/sd_per_path_over_time/sd_per_path_over_time_beta{beta}_read_from_random_{read_from_random}.pdf".to_string()),
+                    overwrites: None,
+                    // input_tt_csv_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/average_route_tts_per_deptime_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.csv".to_string()),
+                    // input_sd_csv_path_pattern: Some("{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/summed_deps_per_time_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.csv".to_string()),
                     seeds_to_avg_over: SeedsToAvgOver::RustSeeds,
                 }),
             ],
-            global_config: None,
+            // global_config: None,
         };
         assert_eq!(
             parsed_config.globals, expected_config.globals,
@@ -1228,9 +1422,9 @@ mod tests {
         println!("{:?}", parsed_config.modules);
         println!("{:?}", expected_config.modules);
 
-        assert_eq!(
-            parsed_config.global_config, expected_config.global_config,
-            "Parsed global config does not match expected config global config"
-        );
+        // assert_eq!(
+        //     parsed_config.global_config, expected_config.global_config,
+        //     "Parsed global config does not match expected config global config"
+        // );
     }
 }

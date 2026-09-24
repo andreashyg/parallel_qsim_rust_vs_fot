@@ -1,0 +1,60 @@
+# Setup
+globals:
+  experiment_set_name: recreating_java_analysis
+  base_output_dir: ./../runs-svn/Abschlussarbeiten/2026/andreas-hygrell-rust-vs-fot/compare_braess_to_java_newrunner
+  max_parallel_jobs: 8
+  # For clarity, add the reformatted_original_java_data to the pattern, so it is clear that these are not the extracted
+  # measurements
+  tt_csv_path_pattern: "{common_extracted_data_pattern}/average_route_tts_per_deptime{file_name_end}_reformatted_original_java_data.csv"
+  sd_csv_path_pattern: "{common_extracted_data_pattern}/summed_deps_per_time{file_name_end}_reformatted_original_java_data.csv"
+
+param_sweep:
+  replanning_variants:
+    - sel-exp10-switch-at80
+  betas: [ 1, 2, 4, 8, 16, 32, 64 ]
+  java_seed_indices: [ 1, 2 , 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20 ]
+  rust_seeds: [ None ]
+
+# What to actually run in this experiment set:
+modules:
+
+  # add dummy coordinates to the events files from the original java runs, so they can be read by the rust event mgr.
+  # Note: most of them do not exist, which will generate failures.
+  - add_dummy_coordinates_to_events:
+    type: AddDummyCoordinatesToEvents
+    input_file_pattern: "{original_dir_to_read_from}/2026-05-12-8-42-24_500it_reRouteProba0.1until0.8it_selExpBeta10proba0.9_msaFrom0.8it/beta{beta}/random{read_from_random}/beta{beta}random{read_from_random}.output_events.xml.gz"
+    output_file_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/original_event_files_with_added_coordinates/beta{beta}/random{read_from_random}/beta{beta}random{read_from_random}.output_events.xml.gz"
+
+  # extract measurements from the events files from the original java runs with added dummy coordinates.
+  # Note: most of them do not exist.
+  - extract_measurements_from_events:
+    type: ExtractMeasurementsFromEvents
+    input_file_stem_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/original_event_files_with_added_coordinates/beta{beta}/random{read_from_random}/beta{beta}random{read_from_random}.output_events"
+    input_file_format: xml.gz
+    num_parts: 0
+    # overwrite the default patterns for the output csv files, since we will not use these in the plotting, only for
+    # sanity checks
+    overwrites:
+      tt_csv_path_pattern: "{common_extracted_data_pattern}/average_route_tts_per_deptime{file_name_end}_new_extraction_from_original_java_events.csv"
+      sd_csv_path_pattern: "{common_extracted_data_pattern}/summed_deps_per_time_beta{file_name_end}_new_extraction_from_original_java_events.csv"
+
+  # since the extraction of measurements is not possible for most runs due to missing events files, we reformat
+  # the original java *measurements* to the same format as my extracted measurements
+  - reformat_original_java_measurements:
+    type: ReformatOriginalExtractedMeasurements
+    original_tt_tsv_file_pattern: "{original_dir_to_read_from}/2026-05-12-8-42-24_500it_reRouteProba0.1until0.8it_selExpBeta10proba0.9_msaFrom0.8it/analysis/average_traveltimes/avgRouteTTsPerDeparture_{beta}_{read_from_random}_500.txt"
+    original_sd_tsv_file_pattern: "{original_dir_to_read_from}/2026-05-12-8-42-24_500it_reRouteProba0.1until0.8it_selExpBeta10proba0.9_msaFrom0.8it/analysis/summed_departures/summedDeparturesPerRoute_{beta}_{read_from_random}_500.txt"
+
+  # plot the measurements from the original java runs (specifically, the reformatted measurements)
+  - plot_tt_and_sd_per_seed:
+    type: PlotTtAndSdPerSeed
+  - plot_tt_and_sd_avgd_over_seeds:
+    type: PlotTtAndSdAvgdOverSeeds
+    seeds_to_avg_over: JavaSeedIndices
+  - plot_tt_and_sd_deviation_to_nash_boxplots:
+    type: PlotTtAndSdDeviationToNashBoxplotsOverBeta
+    seeds_to_avg_over: JavaSeedIndices
+  - plot_tt_and_sd_deviation_to_nash_scatterplots:
+    type: PlotTtAndSdDeviationToNashScatterplotsOverBeta
+    seeds_to_avg_over: JavaSeedIndices
+

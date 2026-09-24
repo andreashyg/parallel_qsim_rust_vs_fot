@@ -1,6 +1,8 @@
 use clap::Parser;
 use pre_postprocessing::event_extraction::{LinkToPathMap, TravelTimeAndSumDepPerPathCSVWriter};
-use pre_postprocessing::utils::replace_placeholders_in_path_pattern;
+use pre_postprocessing::utils::{
+    replace_file_name_end_placeholder_in_path_pattern, replace_placeholders_in_path_pattern,
+};
 use rust_qsim::simulation::events::EventsManager;
 use rust_qsim::simulation::events::utils::{read_events, read_partitioned_events};
 use rust_qsim::simulation::id;
@@ -23,8 +25,11 @@ struct InputArgs {
     #[arg(long)]
     pub read_from_random: usize,
     /// rust seed that was used in the random run for which the events are to be read, e.g., 42-61
+    #[arg(long, conflicts_with = "no_random_seed")]
+    pub use_random_seed: Option<usize>,
+    /// if set, there is no use_random_seed value to use
     #[arg(long)]
-    pub use_random_seed: usize,
+    pub no_random_seed: bool,
     /// path and file name of the input file(s). If num_parts=0, should be everything in front of
     /// the file extension (e.g., "events" for `events.xml`)
     /// if num_parts>0, should be everything in front of the part number and file extension (e.g.,
@@ -39,12 +44,12 @@ struct InputArgs {
     #[arg(long)]
     pub input_file_format: String,
     /// complete output path (including extension) for the travel times csv file to be written.
-    /// Note: *can* contain placeholders {base_output_dir}, {experiment_set_name},
+    /// Note: *can* contain placeholders {base_output_dir}, {experiment_set_name}, {file_name_end},
     /// {replanning_variant}, {beta}, {read_from_random}, {use_random_seed} that will be replaced.
     #[arg(long)]
     pub tt_csv_path_pattern: String,
     /// complete output path (including extension) for the summed departures csv file to be written
-    /// Note: *can* contain placeholders {base_output_dir}, {experiment_set_name},
+    /// Note: *can* contain placeholders {base_output_dir}, {experiment_set_name}, {file_name_end},
     /// {replanning_variant}, {beta}, {read_from_random}, {use_random_seed} that will be replaced.
     #[arg(long)]
     pub sd_csv_path_pattern: String,
@@ -73,19 +78,56 @@ fn main() {
     let args = InputArgs::parse();
     let mut event_mgr = EventsManager::new();
 
-    if let Some(id_store_path_pattern) = &args.id_store_path_pattern {
+    let global_config_path =
+        PathBuf::from("./experiments/compare_braess_to_java/experiment_sets/global_config.yaml");
+    let global_config: experiment_machine::config::GlobalConfig =
+        serde_yaml::from_reader(std::fs::File::open(&global_config_path).unwrap())
+            .expect("Failed to read global config");
+
+    info!("Loaded global config from {}", global_config_path.display());
+
+    // New version: if the input file format is binpb, we need to load the id store, which is
+    // required for reading the events from the proto files. The path to the id store is read from
+    // the global config, and can contain placeholders that are replaced with the actual values.
+    if args.input_file_format == "binpb" {
+        info!(
+            "Input file format is binpb, loading id store is required. Reading from global config to get experiment output path pattern."
+        );
+
+        let id_store_path_pattern = PathBuf::from(
+            global_config
+                .global_parameters
+                .get("common_output_from_runs_pattern")
+                .expect("Failed to get common_output_from_runs_pattern from global config")
+                .as_str()
+                .expect("common_output_from_runs_pattern must be a string"),
+        )
+        .join("output_ids.binpb");
         let id_store_path = replace_placeholders_in_path_pattern(
-            id_store_path_pattern,
+            id_store_path_pattern.to_str().unwrap(),
             Some(&args.base_output_dir),
             Some(&args.experiment_set_name),
             Some(&args.replanning_variant),
             args.beta.into(),
             args.read_from_random.into(),
-            args.use_random_seed.into(),
+            args.use_random_seed,
         );
         info!("Loading Id Store from path {}", id_store_path);
         id::load_from_file(&PathBuf::from(id_store_path));
     }
+    // if let Some(id_store_path_pattern) = &args.id_store_path_pattern {
+    //     let id_store_path = replace_placeholders_in_path_pattern(
+    //         id_store_path_pattern,
+    //         Some(&args.base_output_dir),
+    //         Some(&args.experiment_set_name),
+    //         Some(&args.replanning_variant),
+    //         args.beta.into(),
+    //         args.read_from_random.into(),
+    //         args.use_random_seed.into(),
+    //     );
+    //     info!("Loading Id Store from path {}", id_store_path);
+    //     id::load_from_file(&PathBuf::from(id_store_path));
+    // }
 
     let input_path_stem_pattern = &args.input_file_stem_pattern;
 
@@ -100,8 +142,14 @@ fn main() {
     )
     .into();
 
-    let tt_output_file_path: PathBuf = replace_placeholders_in_path_pattern(
+    let tt_output_file_path_with_file_name_end = replace_file_name_end_placeholder_in_path_pattern(
         &args.tt_csv_path_pattern,
+        &global_config,
+        args.use_random_seed,
+    );
+
+    let tt_output_file_path: PathBuf = replace_placeholders_in_path_pattern(
+        &tt_output_file_path_with_file_name_end,
         Some(&args.base_output_dir),
         Some(&args.experiment_set_name),
         Some(&args.replanning_variant),
@@ -112,8 +160,14 @@ fn main() {
     .into();
 
     // let tt_output_file_path = PathBuf::from(&args.tt_csv_path);
-    let sd_output_file_path: PathBuf = replace_placeholders_in_path_pattern(
+
+    let sd_output_file_path_with_file_name_end = replace_file_name_end_placeholder_in_path_pattern(
         &args.sd_csv_path_pattern,
+        &global_config,
+        args.use_random_seed,
+    );
+    let sd_output_file_path: PathBuf = replace_placeholders_in_path_pattern(
+        &sd_output_file_path_with_file_name_end,
         Some(&args.base_output_dir),
         Some(&args.experiment_set_name),
         Some(&args.replanning_variant),

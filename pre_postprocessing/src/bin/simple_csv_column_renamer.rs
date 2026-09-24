@@ -1,6 +1,9 @@
 use clap::Parser;
+use experiment_machine::config::GlobalConfig;
 use pre_postprocessing::csv_column_renaming::rename_csv_columns;
-use pre_postprocessing::utils::replace_placeholders_in_path_pattern;
+use pre_postprocessing::utils::{
+    replace_file_name_end_placeholder_in_path_pattern, replace_placeholders_in_path_pattern,
+};
 use rust_qsim::simulation::logging::init_std_out_logging_thread_local;
 use std::path::PathBuf;
 use tracing::info;
@@ -12,7 +15,8 @@ struct InputArgs {
     #[arg(long)]
     pub input_file_pattern: String,
     /// Path to output CSV file
-    /// This can be a path pattern with placeholders like {base_output_dir}, {experiment_set_name}, {replanning_variant}, {beta} and {read_from_random}.
+    /// This can be a path pattern with placeholders like {base_output_dir}, {experiment_set_name},
+    /// {replanning_variant}, {beta}, {read_from_random} and {file_name_end}.
     #[arg(long)]
     pub output_file_pattern: String,
     /// Base directory for output files.
@@ -49,8 +53,23 @@ fn main() {
         Some(args.read_from_random),
         None,
     );
-    let output_file = replace_placeholders_in_path_pattern(
+
+    let global_config: GlobalConfig = serde_yaml::from_reader(
+        std::fs::File::open(
+            "./experiments/compare_braess_to_java/experiment_sets/global_config.yaml",
+        )
+        .expect("Failed to open global config file"),
+    )
+    .expect("Failed to read global config");
+
+    let output_file_pattern_with_file_name_end = replace_file_name_end_placeholder_in_path_pattern(
         &args.output_file_pattern,
+        &global_config,
+        None,
+    );
+
+    let output_file = replace_placeholders_in_path_pattern(
+        &output_file_pattern_with_file_name_end,
         Some(&args.base_output_dir),
         Some(&args.experiment_set_name),
         Some(&args.replanning_variant),

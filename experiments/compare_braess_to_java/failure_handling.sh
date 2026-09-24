@@ -3,6 +3,7 @@ EXPERIMENT_FAILURES=()
 EXTRACTION_FAILURES=()
 PLOTTING_FAILURES=()
 DUMMY_COORDINATE_ADDING_FAILURES=()
+ACTIVITY_TIME_REPLACEMENT_FAILURES=()
 REFORMATTING_FAILURES=()
 JAVA_EXPERIMENT_FAILURES=()
 
@@ -35,6 +36,9 @@ record_failure() {
       ;;
     dummy_coordinate_adding)
       DUMMY_COORDINATE_ADDING_FAILURES+=("${replanning_variant} beta=${beta} read_from_random=${read_from_random} use_random_seed=${use_random_seed}")
+      ;;
+    activity_time_replacement)
+      ACTIVITY_TIME_REPLACEMENT_FAILURES+=("${replanning_variant} beta=${beta} read_from_random=${read_from_random} use_random_seed=${use_random_seed}")
       ;;
     reformatting)
       REFORMATTING_FAILURES+=("${replanning_variant} beta=${beta} read_from_random=${read_from_random} use_random_seed=${use_random_seed}")
@@ -75,6 +79,9 @@ import_failure_log() {
       dummy_coordinate_adding)
         DUMMY_COORDINATE_ADDING_FAILURES+=("${replanning_variant} beta=${beta} read_from_random=${read_from_random} use_random_seed=${use_random_seed}")
         ;;
+      activity_time_replacement)
+        ACTIVITY_TIME_REPLACEMENT_FAILURES+=("${replanning_variant} beta=${beta} read_from_random=${read_from_random} use_random_seed=${use_random_seed}")
+        ;;
       reformatting)
         REFORMATTING_FAILURES+=("${replanning_variant} beta=${beta} read_from_random=${read_from_random} use_random_seed=${use_random_seed}")
         ;;
@@ -91,7 +98,7 @@ import_failure_log() {
 # function to print a summary of all failures recorded during the batch run. Will print the number of failures and the
 # details of each failure.
 print_failure_summary() {
-  if [ "${#EXPERIMENT_FAILURES[@]}" -eq 0 ] && [ "${#EXTRACTION_FAILURES[@]}" -eq 0 ] && [ "${#PLOTTING_FAILURES[@]}" -eq 0 ] && [ "${#DUMMY_COORDINATE_ADDING_FAILURES[@]}" -eq 0 ] && [ "${#REFORMATTING_FAILURES[@]}" -eq 0 ] && [ "${#JAVA_EXPERIMENT_FAILURES[@]}" -eq 0 ]; then
+  if [ "${#EXPERIMENT_FAILURES[@]}" -eq 0 ] && [ "${#EXTRACTION_FAILURES[@]}" -eq 0 ] && [ "${#PLOTTING_FAILURES[@]}" -eq 0 ] && [ "${#DUMMY_COORDINATE_ADDING_FAILURES[@]}" -eq 0 ] && [ "${#REFORMATTING_FAILURES[@]}" -eq 0 ] && [ "${#JAVA_EXPERIMENT_FAILURES[@]}" -eq 0 ] && [ "${#ACTIVITY_TIME_REPLACEMENT_FAILURES[@]}" -eq 0 ]; then
     echo "No failures recorded."
     return 0
   fi
@@ -136,6 +143,13 @@ print_failure_summary() {
   if [ "${#JAVA_EXPERIMENT_FAILURES[@]}" -gt 0 ]; then
     echo "  Java experiment failures (${#JAVA_EXPERIMENT_FAILURES[@]}):"
     for failure in "${JAVA_EXPERIMENT_FAILURES[@]}"; do
+      echo "    - $failure"
+    done
+  fi
+
+  if [ "${#ACTIVITY_TIME_REPLACEMENT_FAILURES[@]}" -gt 0 ]; then
+    echo "  Activity time replacement failures (${#ACTIVITY_TIME_REPLACEMENT_FAILURES[@]}):"
+    for failure in "${ACTIVITY_TIME_REPLACEMENT_FAILURES[@]}"; do
       echo "    - $failure"
     done
   fi

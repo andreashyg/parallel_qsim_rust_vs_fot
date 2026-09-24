@@ -15,8 +15,8 @@ run_experiment_case() {
   local rust_seed="$4"
   local experiment_set_name="$5"
   local base_output_dir="$6"
-  local experiment_output_dir_pattern="$7"
-  local delete_output_dir_if_existing="$8"
+#  local experiment_output_dir_pattern="$7"
+  local delete_output_dir_if_existing="$7"
 
   echo "Running rust simulation with parameters: replanning_variant=${replanning_variant}, beta=${beta}, java_seed_index=${java_seed_index}, rust_seed=${rust_seed}"
 
@@ -33,8 +33,9 @@ run_experiment_case() {
     --replanning-variant "$replanning_variant" \
     --experiment-set-name "$experiment_set_name" \
     --base-output-dir "$base_output_dir" \
-    --experiment-output-dir-pattern "$experiment_output_dir_pattern" \
     "${delete_output_dir_arg[@]}"
+#    --experiment-output-dir-pattern "$experiment_output_dir_pattern" \
+#    "${delete_output_dir_arg[@]}"
   then
     echo "Experiment failed, continuing with next case." >&2
     # Record the failure with the appropriate parameters. Will append to the failure log file if specified (in the

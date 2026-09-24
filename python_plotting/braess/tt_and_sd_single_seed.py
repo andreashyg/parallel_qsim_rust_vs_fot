@@ -3,14 +3,16 @@ import sys
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from setup import FIG_SIZE
+from setup import FIG_SIZE, COMMON_PLOTS_PATTERN
 from utils import plot_nash_lines, plot_extracted_sd_over_time, plot_extracted_tt_over_time, ExperimentSet
 
-if __name__ == '__main__':
-    _, beta, replanning_variant, read_random, use_random, experiment_set_name, base_output_dir, output_tt_plot_path_pattern, output_sd_plot_path_pattern, input_tt_csv_path_pattern, input_sd_csv_path_pattern = sys.argv
-    # FIXME maybe add proper parsing, so things have the right types
+# This is the pattern for the paths to the plots created by this script.
+plot_type_specific_tt_path_pattern = "{common_plots_pattern}/per_seed/tt_per_path_over_deptime/tt_per_path_over_deptime{file_name_end}.pdf"
+plot_type_specific_sd_path_pattern = "{common_plots_pattern}/per_seed/sd_per_path_over_time/sd_per_path_over_time{file_name_end}.pdf"
 
-    # FIXME must change so that seeds_to_avg_over is no longer "rust" or "java", but rather "recreating_java_results" or "varying_rust_seeds" or "varying_java_seeds"
+if __name__ == '__main__':
+    _, beta, replanning_variant, read_random, use_random, experiment_set_name, base_output_dir, input_tt_csv_path_pattern, input_sd_csv_path_pattern = sys.argv
+    # FIXME maybe add proper parsing, so things have the right types
 
     if use_random.lower() == "none":
         use_random = None
@@ -24,6 +26,12 @@ if __name__ == '__main__':
     # experiment_set = experiment_set_type(base_output_dir, replanning_variant, output_tt_plot_path_pattern,
     #                                      output_sd_plot_path_pattern,
     #                                      input_tt_csv_path_pattern, input_sd_csv_path_pattern)
+
+    # get the plot output paths by replacing the placeholder with the common plots pattern (defined in the global config)
+    output_tt_plot_path_pattern = plot_type_specific_tt_path_pattern.replace("{common_plots_pattern}",
+                                                                             COMMON_PLOTS_PATTERN)
+    output_sd_plot_path_pattern = plot_type_specific_sd_path_pattern.replace("{common_plots_pattern}",
+                                                                             COMMON_PLOTS_PATTERN)
 
     experiment_set = ExperimentSet(base_output_dir,
                                    replanning_variant,
@@ -87,13 +95,6 @@ if __name__ == '__main__':
     #     os.makedirs(output_dir + "/sd_per_path_over_time")
     # except FileExistsError:
     #     pass
-
-    # TODO: CONTINUE HERE
-    #  now per seed plotting, extraction and rust running all seem to work, at least in the standard case.
-    # TODO: now time to make sure that paths and everything (e.g. all things that differ between experiment sets, in
-    # TODO: particular original java vs normal) are correctly read, flexibly (without having to define a new
-    # TODO: class in python). i.e., make sure that the current modules already cover plot_original_java etc.
-    # Only then continue with the next modules, in case I missed something so far.
 
     # if read_original_java:
     #     fig_sd.savefig(

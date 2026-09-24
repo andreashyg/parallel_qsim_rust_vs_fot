@@ -3,23 +3,26 @@ import sys
 import matplotlib.pyplot as plt
 
 import pandas as pd
-from setup import FIG_SIZE
+from setup import FIG_SIZE, COMMON_PLOTS_PATTERN
 from utils import plot_extracted_sd_over_time, plot_extracted_tt_over_time, get_elementwise_avg_df, \
     get_elementwise_difference_df, plot_value_count_table, plot_textbox, ExperimentSet
+
+plot_type_specific_tt_path_pattern = "{common_plots_pattern}/avg_over_seeds/tt_per_path_over_deptime_minus_{minus_what}/tt_per_path_over_deptime_minus_{minus_what}{file_name_end}.pdf"
+plot_type_specific_sd_path_pattern = "{common_plots_pattern}/avg_over_seeds/sd_per_path_over_time_minus_{minus_what}/sd_per_path_over_time_minus_{minus_what}{file_name_end}.pdf"
 
 if __name__ == '__main__':
 
     # _, beta, replanning_variant, fixed_seed, fixed_file_dir, dir_to_avg, output_dir = sys.argv
     (_, beta, replanning_variant, experiment_set_name, read_random, use_random, base_output_dir,
-     output_tt_plot_path_pattern, output_sd_plot_path_pattern, main_input_tt_csv_path_pattern,
-     main_input_sd_csv_path_pattern, secondary_input_tt_csv_path_pattern,
-     secondary_input_sd_csv_path_pattern) = sys.argv[0:13]
+     minus_what, main_input_tt_csv_path_pattern, main_input_sd_csv_path_pattern,
+     secondary_input_tt_csv_path_pattern, secondary_input_sd_csv_path_pattern) = sys.argv[0:12]
 
-    seeds_to_use = [int(s) for s in sys.argv[13:]]
+    seeds_to_use = [int(s) for s in sys.argv[12:]]
 
     beta = int(beta)
     if use_random.lower() == "avg_over_all":
-        use_random = "{seed}"  # placeholder to be formatted later
+        use_random_formatting_term_with_optional_placeholder = "{seed}"  # placeholder to be formatted later
+        # use_random = "{seed}"  # placeholder to be formatted later
     else:
         if read_random.lower() != "avg_over_all":
             raise ValueError("At least one of read_random or use_random must be 'avg_over_all' to average over seeds.")
@@ -27,24 +30,43 @@ if __name__ == '__main__':
             use_random = None
         else:
             use_random = int(use_random)
+        use_random_formatting_term_with_optional_placeholder = use_random  # no placeholder (fixed value)
 
     if read_random.lower() == "avg_over_all":
-        read_random = "{seed}"  # placeholder to be formatted later
+        # read_random = "{seed}"  # placeholder to be formatted later
+        read_random_formatting_term_with_optional_placeholder = "{seed}"  # placeholder to be formatted later
     else:
         read_random = int(read_random)
+        read_random_formatting_term_with_optional_placeholder = read_random  # no placeholder (fixed value)
+
+    # get the plot output paths by replacing the placeholder with the common plots pattern (defined in the global config)
+    output_tt_plot_path_pattern = plot_type_specific_tt_path_pattern.replace("{common_plots_pattern}",
+                                                                             COMMON_PLOTS_PATTERN)
+    # also replace the extra minus_what placeholder
+    output_tt_plot_path_pattern = output_tt_plot_path_pattern.replace("{minus_what}", minus_what)
+    output_sd_plot_path_pattern = plot_type_specific_sd_path_pattern.replace("{common_plots_pattern}",
+                                                                             COMMON_PLOTS_PATTERN)
+    # also replace the extra minus_what placeholder
+    output_sd_plot_path_pattern = output_sd_plot_path_pattern.replace("{minus_what}", minus_what)
 
     experiment_set = ExperimentSet(base_output_dir, replanning_variant, experiment_set_name,
                                    output_tt_plot_path_pattern, output_sd_plot_path_pattern,
                                    main_input_tt_csv_path_pattern, main_input_sd_csv_path_pattern,
                                    secondary_input_tt_csv_path_pattern, secondary_input_sd_csv_path_pattern)
 
-    tt_path_1 = experiment_set.get_path_to_tt_csv_to_read(beta, read_random, use_random, secondary=False)
-    sd_path_1 = experiment_set.get_path_to_sd_csv_to_read(beta, read_random, use_random, secondary=False)
-    tt_path_2 = experiment_set.get_path_to_tt_csv_to_read(beta, read_random, use_random, secondary=True)
-    sd_path_2 = experiment_set.get_path_to_sd_csv_to_read(beta, read_random, use_random, secondary=True)
+    tt_path_1 = experiment_set.get_path_to_tt_csv_to_read(beta, read_random_formatting_term_with_optional_placeholder,
+                                                          use_random_formatting_term_with_optional_placeholder,
+                                                          secondary=False)
+    sd_path_1 = experiment_set.get_path_to_sd_csv_to_read(beta, read_random_formatting_term_with_optional_placeholder,
+                                                          use_random_formatting_term_with_optional_placeholder,
+                                                          secondary=False)
+    tt_path_2 = experiment_set.get_path_to_tt_csv_to_read(beta, read_random_formatting_term_with_optional_placeholder,
+                                                          use_random_formatting_term_with_optional_placeholder,
+                                                          secondary=True)
+    sd_path_2 = experiment_set.get_path_to_sd_csv_to_read(beta, read_random_formatting_term_with_optional_placeholder,
+                                                          use_random_formatting_term_with_optional_placeholder,
+                                                          secondary=True)
 
-    # TODO continue here
-    #
     # if fixed_file_dir == "recreating_java_results":
     #     fixed_file_end = (f"_beta{beta}_"
     #                       + f"read_from_random_{fixed_seed}"

@@ -11,12 +11,10 @@ reformat_original_java_extracted_measurements_case() {
   local _rust_seed="$4"  # unused in this module
   local experiment_set_name="$5"
   local base_output_dir="$6"
-  local _experiment_output_dir_pattern="$7"  # unused in this module
-  local _delete_output_dir_if_existing="$8"  # unused in this module
-  local original_tt_tsv_file_pattern="$9"
-  local original_sd_tsv_file_pattern="${10}"
-  local new_tt_csv_path_pattern="${11}"
-  local new_sd_csv_path_pattern="${12}"
+  local original_tt_tsv_file_pattern="$7"
+  local original_sd_tsv_file_pattern="$8"
+  local new_tt_csv_path_pattern="$9"
+  local new_sd_csv_path_pattern="${10}"
 
   echo "Copying and reformatting extracted original java average travel times and summed departures for parameters: replanning_variant=$replanning_variant, beta=$beta, read_from_random=${java_seed_index}"
   echo "writing into $new_tt_csv_path_pattern and $new_sd_csv_path_pattern"

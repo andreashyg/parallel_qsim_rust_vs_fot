@@ -6,7 +6,8 @@ import pandas as pd
 from matplotlib import pyplot as plt
 
 from setup import NASH_TT_POINTS, NASH_SD_POINTS, COLORS, LABELS, FONT_SIZE, LEGEND_FONT_SIZE, \
-    TOP_COLOUR
+    TOP_COLOUR, FILE_NAME_END_PATTERN_WITH_BETA_RR_UR, FILE_NAME_END_PATTERN_WITH_BETA_RR, \
+    FILE_NAME_END_PATTERN_WITH_BETA
 
 
 def get_interpolated_nash_vals(at_xvals: pd.Index, mode: str, for_path: Optional[int] = None):
@@ -650,8 +651,22 @@ class ExperimentSet:
         self.__make_dir_if_not_exists(self.get_tt_plot_dir_path(beta, read_from_random, use_random))
         self.__make_dir_if_not_exists(self.get_sd_plot_dir_path(beta, read_from_random, use_random))
 
+    @staticmethod
+    def get_file_name_end_pattern(use_random: Optional[int | str]):
+        if use_random is not None:
+            return FILE_NAME_END_PATTERN_WITH_BETA_RR_UR
+        else:
+            return FILE_NAME_END_PATTERN_WITH_BETA_RR
+
     def get_tt_plot_path(self, beta: int | str, read_from_random: int | str, use_random: Optional[int | str]) -> str:
-        formatted_path_str = self.safe_replace_placeholders(self.output_tt_plot_path_pattern,
+        # this depends on whether use_random is None or not, because then the file name ends with _use_random_seed_{use_random} or not
+        # the actual file name end pattern is read from global_config.yaml
+        file_name_end_pattern = self.get_file_name_end_pattern(use_random)
+
+        plot_pattern_with_file_name_end_pattern = self.safe_replace_placeholders(self.output_tt_plot_path_pattern,
+                                                                                 file_name_end=file_name_end_pattern)
+
+        formatted_path_str = self.safe_replace_placeholders(plot_pattern_with_file_name_end_pattern,
                                                             base_output_dir=self.base_output_dir,
                                                             replanning_variant=self.replanning_variant,
                                                             experiment_set_name=self.experiment_set_name, beta=beta,
@@ -662,7 +677,13 @@ class ExperimentSet:
         return formatted_path_str
 
     def get_sd_plot_path(self, beta: int | str, read_from_random: int | str, use_random: Optional[int | str]) -> str:
-        formatted_path_str = self.safe_replace_placeholders(self.output_sd_plot_path_pattern,
+        # this depends on whether use_random is None or not, because then the file name ends with _use_random_seed_{use_random} or not
+        # the actual file name end pattern is read from global_config.yaml
+        file_name_end_pattern = self.get_file_name_end_pattern(use_random)
+        plot_pattern_with_file_name_end_pattern = self.safe_replace_placeholders(self.output_sd_plot_path_pattern,
+                                                                                 file_name_end=file_name_end_pattern)
+
+        formatted_path_str = self.safe_replace_placeholders(plot_pattern_with_file_name_end_pattern,
                                                             base_output_dir=self.base_output_dir,
                                                             replanning_variant=self.replanning_variant,
                                                             experiment_set_name=self.experiment_set_name, beta=beta,
@@ -687,7 +708,12 @@ class ExperimentSet:
         else:
             pattern = self.main_input_tt_csv_path_pattern
 
-        file_name = self.safe_replace_placeholders(pattern,
+        file_name_end_pattern = self.get_file_name_end_pattern(use_random)
+
+        csv_path_pattern_with_file_name_end_pattern = self.safe_replace_placeholders(pattern,
+                                                                                     file_name_end=file_name_end_pattern)
+
+        file_name = self.safe_replace_placeholders(csv_path_pattern_with_file_name_end_pattern,
                                                    base_output_dir=self.base_output_dir,
                                                    replanning_variant=self.replanning_variant,
                                                    experiment_set_name=self.experiment_set_name,
@@ -704,7 +730,11 @@ class ExperimentSet:
         else:
             pattern = self.main_input_sd_csv_path_pattern
 
-        file_name = self.safe_replace_placeholders(pattern,
+        file_name_end_pattern = self.get_file_name_end_pattern(use_random)
+        csv_path_pattern_with_file_name_end_pattern = self.safe_replace_placeholders(pattern,
+                                                                                     file_name_end=file_name_end_pattern)
+
+        file_name = self.safe_replace_placeholders(csv_path_pattern_with_file_name_end_pattern,
                                                    base_output_dir=self.base_output_dir,
                                                    replanning_variant=self.replanning_variant,
                                                    experiment_set_name=self.experiment_set_name,

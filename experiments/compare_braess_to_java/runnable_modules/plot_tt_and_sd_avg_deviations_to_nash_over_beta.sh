@@ -11,14 +11,10 @@ plot_deviation_boxplots_over_beta_case() {
   local rust_seed="$4"
   local experiment_set_name="$5"
   local base_output_dir="$6"
-  local _experiment_output_dir_pattern="$7"  # unused in this module
-  local _delete_output_dir_if_existing="$8"  # unused in this module
-  local output_tt_plot_path_pattern="$9"
-  local output_sd_plot_path_pattern="${10}"
-  local input_tt_csv_path_pattern="${11}"
-  local input_sd_csv_path_pattern="${12}"
-  local seeds_to_use_array_string="${13}"
-  local betas_to_use_array_string="${14}"
+  local input_tt_csv_path_pattern="$7"
+  local input_sd_csv_path_pattern="$8"
+  local seeds_to_use_array_string="${9}"
+  local betas_to_use_array_string="${10}"
 
   read -a seeds_to_use <<< "$seeds_to_use_array_string"
 
@@ -28,7 +24,9 @@ plot_deviation_boxplots_over_beta_case() {
   echo "Plotting average travel times and summed departures  boxplots for parameters: replanning_variant=${replanning_variant}, beta=$beta, java_seed_index=$java_seed_index, rust_seed=$rust_seed with seeds to use = ${seeds_to_use[*]}"
 
   # Plot the average travel times and summed departures once per replanning variant.
-  if ! ~/miniforge3/envs/rust-vs-fot-plots/bin/python3 python_plotting/braess/tt_and_sd_dev_boxplots_over_beta.py "${replanning_variant}" "${experiment_set_name}" "${java_seed_index}" "${rust_seed}" "$base_output_dir" "$output_tt_plot_path_pattern" "$output_sd_plot_path_pattern" "$input_tt_csv_path_pattern" "$input_sd_csv_path_pattern" "$betas_to_use_array_string" "${seeds_to_use[@]}"
+  if ! ~/miniforge3/envs/rust-vs-fot-plots/bin/python3 python_plotting/braess/tt_and_sd_dev_boxplots_to_nash_over_beta.py \
+    "${replanning_variant}" "${experiment_set_name}" "${java_seed_index}" "${rust_seed}" "$base_output_dir" \
+    "$input_tt_csv_path_pattern" "$input_sd_csv_path_pattern" "$betas_to_use_array_string" "${seeds_to_use[@]}"
   then
     echo "Plotting failed, continuing with next case." >&2
     record_failure plotting "$replanning_variant" "all_betas" "$java_seed_index" "$rust_seed"
@@ -45,14 +43,10 @@ plot_deviation_scatterplots_over_beta_case() {
   local rust_seed="$4"
   local experiment_set_name="$5"
   local base_output_dir="$6"
-  local _experiment_output_dir_pattern="$7"  # unused in this module
-  local _delete_output_dir_if_existing="$8"  # unused in this module
-  local output_tt_plot_path_pattern="$9"
-  local output_sd_plot_path_pattern="${10}"
-  local input_tt_csv_path_pattern="${11}"
-  local input_sd_csv_path_pattern="${12}"
-  local seeds_to_use_array_string="${13}"
-  local betas_to_use_array_string="${14}"
+  local input_tt_csv_path_pattern="$7"
+  local input_sd_csv_path_pattern="$8"
+  local seeds_to_use_array_string="${9}"
+  local betas_to_use_array_string="${10}"
 
 
   read -a seeds_to_use <<< "$seeds_to_use_array_string"
@@ -63,7 +57,9 @@ plot_deviation_scatterplots_over_beta_case() {
   echo "Plotting average travel times and summed departures  boxplots for parameters: replanning_variant=${replanning_variant}, beta=$beta, java_seed_index=$java_seed_index, rust_seed=$rust_seed with seeds to use = ${seeds_to_use[*]}"
 
   # Plot the average travel times and summed departures once per replanning variant.
-  if ! ~/miniforge3/envs/rust-vs-fot-plots/bin/python3 python_plotting/braess/tt_and_sd_dev_scatterplots_over_beta.py "${replanning_variant}" "${experiment_set_name}" "${java_seed_index}" "${rust_seed}" "$base_output_dir" "$output_tt_plot_path_pattern" "$output_sd_plot_path_pattern" "$input_tt_csv_path_pattern" "$input_sd_csv_path_pattern" "$betas_to_use_array_string" "${seeds_to_use[@]}"
+  if ! ~/miniforge3/envs/rust-vs-fot-plots/bin/python3 python_plotting/braess/tt_and_sd_dev_scatterplots_to_nash_over_beta.py \
+    "${replanning_variant}" "${experiment_set_name}" "${java_seed_index}" "${rust_seed}" "$base_output_dir" \
+    "$input_tt_csv_path_pattern" "$input_sd_csv_path_pattern" "$betas_to_use_array_string" "${seeds_to_use[@]}"
   then
     echo "Plotting failed, continuing with next case." >&2
     record_failure plotting "$replanning_variant" "all_betas" "$java_seed_index" "$rust_seed"

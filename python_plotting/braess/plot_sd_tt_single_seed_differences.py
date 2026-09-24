@@ -3,22 +3,36 @@ import sys
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from setup import FIG_SIZE
+from setup import FIG_SIZE, COMMON_PLOTS_PATTERN
 from utils import plot_extracted_sd_over_time, plot_extracted_tt_over_time, \
     get_elementwise_difference_df, plot_textbox, plot_value_count_table, ExperimentSet
 
+plot_type_specific_tt_path_pattern = "{common_plots_pattern}/per_seed/tt_per_path_over_deptime_minus_{minus_what}/tt_per_path_over_deptime_minus_{minus_what}{file_name_end}.pdf"
+plot_type_specific_sd_path_pattern = "{common_plots_pattern}/per_seed/sd_per_path_over_time_minus_{minus_what}/sd_per_path_over_time_minus_{minus_what}{file_name_end}.pdf"
+
 if __name__ == '__main__':
     (_, beta, replanning_variant, read_random, use_random, experiment_set_name, base_output_dir,
-     output_tt_plot_path_pattern, output_sd_plot_path_pattern, main_input_tt_csv_path_pattern,
+     minus_what, main_input_tt_csv_path_pattern,
      main_input_sd_csv_path_pattern, secondary_input_tt_csv_path_pattern,
      secondary_input_sd_csv_path_pattern) = sys.argv
 
     beta = int(beta)
     read_random = int(read_random)
+
     if use_random.lower() == "none":
         use_random = None
     else:
         use_random = int(use_random)
+
+    # get the plot output paths by replacing the placeholder with the common plots pattern (defined in the global config)
+    output_tt_plot_path_pattern = plot_type_specific_tt_path_pattern.replace("{common_plots_pattern}",
+                                                                             COMMON_PLOTS_PATTERN)
+    # also replace the extra minus_what placeholder
+    output_tt_plot_path_pattern = output_tt_plot_path_pattern.replace("{minus_what}", minus_what)
+    output_sd_plot_path_pattern = plot_type_specific_sd_path_pattern.replace("{common_plots_pattern}",
+                                                                             COMMON_PLOTS_PATTERN)
+    # also replace the extra minus_what placeholder
+    output_sd_plot_path_pattern = output_sd_plot_path_pattern.replace("{minus_what}", minus_what)
 
     experiment_set = ExperimentSet(base_output_dir, replanning_variant, experiment_set_name,
                                    output_tt_plot_path_pattern, output_sd_plot_path_pattern,

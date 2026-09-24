@@ -15,28 +15,34 @@ extract_travel_time_sum_dep_case() {
   local rust_seed="$4"
   local experiment_set_name="$5"
   local base_output_dir="$6"
-  local experiment_output_dir_pattern="$7"
-  local _delete_output_dir_if_existing="$8"  # unused in this module
-  local input_file_stem_pattern="$9"
-  local input_file_format="${10}"
-  local tt_csv_path_pattern="${11}"
-  local sd_csv_path_pattern="${12}"
-  local num_parts="${13}"
+  local input_file_stem_pattern="$7"
+  local input_file_format="$8"
+  local tt_csv_path_pattern="$9"
+  local sd_csv_path_pattern="${10}"
+  local num_parts="${11}"
 
   echo "Extracting average travel times and summed departures for parameters: replanning_variant=$replanning_variant, beta=$beta, java_seed_index=$java_seed_index, rust_seed=$rust_seed"
   echo "writing into $tt_csv_path_pattern and $sd_csv_path_pattern"
 
-  local id_store_path_pattern_string
-  if [[ $input_file_format == "xml.gz" ]]; then
-    # for xml.gz input files, we don't need to specify an id store path pattern
-    id_store_path_pattern_string=()
-  elif [[ "${input_file_format}" == "binpb" ]]; then
-    # for binpb input files, we need to specify an id store path pattern; the id store is in the experiment output dir
-    id_store_path_pattern_string=(--id-store-path-pattern "${experiment_output_dir_pattern}"/output_ids.binpb)
+  # this has been moved into the event data extractor itself
+#  local id_store_path_pattern_string
+#  if [[ $input_file_format == "xml.gz" ]]; then
+#    # for xml.gz input files, we don't need to specify an id store path pattern
+#    id_store_path_pattern_string=()
+#  elif [[ "${input_file_format}" == "binpb" ]]; then
+#    # for binpb input files, we need to specify an id store path pattern; the id store is in the experiment output dir
+#    id_store_path_pattern_string=(--id-store-path-pattern "${experiment_output_dir_pattern}"/output_ids.binpb)
+#  else
+#    echo "Invalid input file format given: $input_file_format" >&2
+#    record_failure extraction "$replanning_variant" "$beta" "$java_seed_index" "$rust_seed"
+#    return 1
+#  fi
+
+  local rust_seed_string=()
+  if [ "$rust_seed" == None ]; then
+    rust_seed_string=("--no-random-seed")
   else
-    echo "Invalid input file format given: $input_file_format" >&2
-    record_failure extraction "$replanning_variant" "$beta" "$java_seed_index" "$rust_seed"
-    return 1
+    rust_seed_string=("--use-random-seed" "$rust_seed")
   fi
 
   # Extract travel times and summed departures from the events written by the rust simulation.
@@ -45,15 +51,16 @@ extract_travel_time_sum_dep_case() {
     --experiment-set-name "$experiment_set_name" \
     --replanning-variant "$replanning_variant" \
     --read-from-random "$java_seed_index" \
-    --use-random-seed "$rust_seed" \
+    "${rust_seed_string[@]}" \
     --input-file-stem-pattern "$input_file_stem_pattern" \
     --input-file-format "$input_file_format" \
     --tt-csv-path-pattern "$tt_csv_path_pattern" \
     --sd-csv-path-pattern "$sd_csv_path_pattern" \
     --num-parts "$num_parts" \
     --link-to-path-map-name "braess" \
-    "${id_store_path_pattern_string[@]}" \
     --beta "$beta"
+#    "${id_store_path_pattern_string[@]}" \
+#    --beta "$beta"
   then
     echo "Travel-time/summed departures extraction failed, continuing with next case." >&2
     record_failure extraction "$replanning_variant" "$beta" "$java_seed_index" "$rust_seed"

@@ -5,7 +5,8 @@ edition = "2024"
 
 [dependencies]
 clap = { version = "4.0.29", features = ["derive"] }
+experiment_machine = { path = "../experiment_machine" }
 rust_qsim = { path = "../rust_qsim" }
 tracing = "0.1"
 pre_postprocessing = { path = "../pre_postprocessing" }
-
+serde_yaml = "0.9.34+deprecated"

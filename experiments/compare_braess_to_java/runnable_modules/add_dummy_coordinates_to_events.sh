@@ -15,10 +15,8 @@ add_dummy_coordinates_case() {
   local rust_seed="$4"
   local experiment_set_name="$5"
   local base_output_dir="$6"
-  local _experiment_output_dir_pattern="$7"  # unused in this module
-  local _delete_output_dir_if_existing="$8"  # unused in this module
-  local input_file_pattern="$9"
-  local output_file_pattern="${10}"
+  local input_file_pattern="$7"
+  local output_file_pattern="$8"
 
   echo "Adding dummy coordinates to events for parameters: replanning_variant=$replanning_variant, beta=$beta, java_seed_index=$java_seed_index, rust_seed=$rust_seed"
   echo "writing from $input_file_pattern and writing to $output_file_pattern"
@@ -36,6 +34,13 @@ add_dummy_coordinates_case() {
   # travel time and summed departures extraction (Rust doesn't accept event files without coordinates).
   # local new_output_file_stem="${SIM_OUTPUT_BASE_DIR}/../../../../Abschlussarbeiten/2026/andreas-hygrell-rust-vs-fot/compare_braess_to_java/${replanning_variant}/java_event_files_with_added_dummy_coords/beta${beta}/random${read_from_random}/beta${beta}random${read_from_random}.output_events_with_dummy_coords"
 
+  local rust_seed_string=()
+  if [ $rust_seed == None ]; then
+    rust_seed_string=("--no-random-seed")
+  else
+    rust_seed_string=("--use-random-seed" "$rust_seed")
+  fi
+
   # Often, this will fail, since output events of the Java runs are often not available.
   if ! cargo run --release --bin simple_dummy_coordinate_adder -- \
     --input-file-pattern "${input_file_pattern}" \
@@ -44,7 +49,8 @@ add_dummy_coordinates_case() {
     --replanning-variant "${replanning_variant}" \
     --experiment-set-name "${experiment_set_name}" \
     --beta "${beta}" \
-    --read-from-random "${java_seed_index}"
+    --read-from-random "${java_seed_index}" \
+    "${rust_seed_string[@]}"
   then
     echo "Failed to add dummy coordinates to the original Java output events." >&2
     record_failure dummy_coordinate_adding "$replanning_variant" "$beta" "$java_seed_index" "reading_original_java"

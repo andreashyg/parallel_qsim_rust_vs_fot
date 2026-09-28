@@ -80,6 +80,7 @@ where
             .chain(agents_changing_engine)
             .collect::<Vec<_>>();
 
+        // Note that agents who just ended a leg but haven't started the last activity yet are considered stuck.
         self.emit_stuck_events(self.clock.tick_to_time(self.end_tick), &agents);
         agents
     }

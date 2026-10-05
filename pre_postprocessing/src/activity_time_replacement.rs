@@ -1,29 +1,26 @@
+use rust_qsim::simulation::scenario::Coordinate;
 use rust_qsim::simulation::scenario::population::Population;
 
-pub fn replace_activity_times(
+/// Replaces the activity times in a given population with the activity times from another
+/// population. Also adds dummy coordinates to activities that don't have coordinates.
+pub fn replace_activity_times_and_add_dummy_coords_to_acts(
     pop_to_be_changed: &mut Population,
     pop_with_correct_times: Population,
 ) {
-    // let mut new_pop_persons = pop_to_be_changed.persons.clone();
-
     // for every person in the pop to be changed...
     for (person_id, person) in pop_to_be_changed.persons.iter_mut() {
         // ...check if the person exists in the pop with correct times...
-        if let Some(correct_person) = pop_with_correct_times.persons.get(&person_id) {
+        if let Some(correct_person) = pop_with_correct_times.persons.get(person_id) {
             // ...and if so, replace the activity times in the person with the correct times
             for plan in person.plans_mut() {
                 for activity in plan.acts_mut() {
+                    if activity.coord.is_none() {
+                        activity.coord = Some(Coordinate::new_2d(0.0, 0.0)); // set coordinates to (0, 0) to avoid issues with missing coordinates
+                    }
+
                     // there is always one activity with end time (which should be replaced) and one
                     // activity without an end time (where nothing is to be done)
                     if activity.end_time.is_some() {
-                        // println!(
-                        //     "current activity is: {:?}, for person {}",
-                        //     activity, person_id
-                        // );
-                        // println!(
-                        //     "correctly timed activities are: {:?}",
-                        //     correct_person.selected_plan().as_ref().unwrap().acts()
-                        // );
                         activity.end_time = correct_person
                             .selected_plan()
                             .as_ref()
@@ -40,6 +37,7 @@ pub fn replace_activity_times(
     }
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
     use rust_qsim::simulation::scenario::vehicles::Garage;
@@ -58,7 +56,10 @@ mod tests {
             &mut Garage::new(),
         );
 
-        replace_activity_times(&mut pop_to_be_changed, pop_with_correct_times);
+        replace_activity_times_and_add_dummy_coords_to_acts(
+            &mut pop_to_be_changed,
+            pop_with_correct_times,
+        );
 
         for (person_id, person) in pop_to_be_changed.persons {
             for plan in person.plans() {

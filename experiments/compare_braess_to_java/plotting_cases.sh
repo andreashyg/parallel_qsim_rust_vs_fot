@@ -28,7 +28,7 @@ plot_per_seed_case() {
 
 
   # Plot the average travel times and summed departures.
-  if ! python python_plotting/braess/tt_and_sd_single_seed.py "$beta" "${replanning_variant}" "$read_from_random" "$use_random_seed" "$seeds_to_avg_over" "false" "$output_plots_dir"
+  if ! python python_plotting/braess/tt_and_sd_single_seed.py "$beta" "${replanning_variant}" "$read_from_random" "$use_random_seed" "varying_${seeds_to_avg_over}_seeds" "false" "$output_plots_dir"
   then
     echo "Plotting failed, continuing with next case." >&2
     record_failure plotting "$replanning_variant" "$beta" "$read_from_random" "$use_random_seed"
@@ -44,6 +44,8 @@ plot_original_java_data_per_seed_case() {
   local beta="$3"
   local seed_index="$4"
 
+  # FIXME: in the (near) future, we might no longer want to decide between seeds_to_avg_over and so on, but instead
+  # simply have different experiment sets, like "varying_rust_seeds" and "recreating_java_results", and then decide based on that. But for now, we keep it like this.
   if [ "${seeds_to_avg_over}" != "java" ]; then
     echo "plot_original_java_data_per_seed_case is only applicable when seeds_to_avg_over is 'java', but got: $seeds_to_avg_over" >&2
     return 0
@@ -70,7 +72,7 @@ plot_original_java_data_per_seed_case() {
   echo "Plotting average travel times and summed departures per seed for parameters: replanning_variant=${replanning_variant}, beta=$beta, read_from_random=$read_from_random for ORIGINAL JAVA DATA"
 
   # Plot the average travel times and summed departures.
-  if ! python python_plotting/braess/tt_and_sd_single_seed.py "$beta" "${replanning_variant}" "$read_from_random" "None" "$seeds_to_avg_over" "true" "$output_plots_dir"
+  if ! python python_plotting/braess/tt_and_sd_single_seed.py "$beta" "${replanning_variant}" "$read_from_random" "None" "recreating_java_results" "true" "$output_plots_dir"
   then
     echo "Plotting failed, continuing with next case." >&2
     record_failure plotting "$replanning_variant" "$beta" "$read_from_random" "reading_original_java_data"

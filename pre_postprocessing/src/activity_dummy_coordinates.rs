@@ -38,9 +38,12 @@ pub fn add_dummy_coordinates_to_line(line: &str) -> String {
 }
 
 /// Rewrites the XML-like input line by line and returns the number of modified lines.
-pub fn add_dummy_coordinates_to_file(input: &Path, output: &Path) -> std::io::Result<usize> {
-    let reader = open_reader(input)?;
-    let mut writer = open_writer(output)?;
+pub fn add_dummy_coordinates_to_file(
+    input: impl AsRef<Path>,
+    output: impl AsRef<Path>,
+) -> std::io::Result<usize> {
+    let reader = open_reader(input.as_ref())?;
+    let mut writer = open_writer(output.as_ref())?;
     let mut changed_lines = 0usize;
 
     for line in reader.lines() {

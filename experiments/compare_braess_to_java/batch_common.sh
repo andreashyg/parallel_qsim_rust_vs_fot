@@ -43,12 +43,18 @@ read_config_file_entry JAVA_SEED_INDICES_TO_ITERATE_OVER java_seed_indices_to_it
 # Base directory where the simulation output directories will be created.
 read_config_file_entry SIM_OUTPUT_BASE_DIR sim_output_base_dir
 
+# directory with the original java runs
+read_config_file_entry ORIGINAL_DIR_TO_READ_FROM original_dir_to_read_from
+
+read_config_file_entry MAX_PARALLEL_JOBS max_parallel_jobs
+
 # Collect failures so the scripts can finish all experiments/extractions and only report problems at the end.
 EXPERIMENT_FAILURES=()
 EXTRACTION_FAILURES=()
 PLOTTING_FAILURES=()
 DUMMY_COORDINATE_ADDING_FAILURES=()
 REFORMATTING_FAILURES=()
+JAVA_EXPERIMENT_FAILURES=()
 
 # if this command line argument is given, the rust config will use config.overwrite_files = DeleteDirectoryIfExists
 : "${delete_output_dir_if_existing:=false}"
@@ -234,6 +240,7 @@ run_all_seeds_for_replvar_variedseed_beta_combo_parallel() {
   local seeds_to_avg_over="$2"
   local beta="$3"
   local actual_callback="$4"
+
   local batch_common_file="${BASH_SOURCE[0]}"
 
   shift 4
@@ -326,6 +333,9 @@ record_failure() {
     reformatting)
       REFORMATTING_FAILURES+=("${replanning_variant} beta=${beta} read_from_random=${read_from_random} use_random_seed=${use_random_seed}")
       ;;
+    java_experiment)
+      JAVA_EXPERIMENT_FAILURES+=("${replanning_variant} beta=${beta} read_from_random=${read_from_random} use_random_seed=${use_random_seed}")
+      ;;
     *)
       echo "Unknown failure kind: $kind" >&2
       exit 1
@@ -361,6 +371,9 @@ import_failure_log() {
       reformatting)
         REFORMATTING_FAILURES+=("${replanning_variant} beta=${beta} read_from_random=${read_from_random} use_random_seed=${use_random_seed}")
         ;;
+      java_experiment)
+        JAVA_EXPERIMENT_FAILURES+=("${replanning_variant} beta=${beta} read_from_random=${read_from_random} use_random_seed=${use_random_seed}")
+        ;;
       *)
         echo "Unknown failure kind in failure log: $kind" >&2
         ;;
@@ -371,7 +384,7 @@ import_failure_log() {
 # function to print a summary of all failures recorded during the batch run. Will print the number of failures and the
 # details of each failure.
 print_failure_summary() {
-  if [ "${#EXPERIMENT_FAILURES[@]}" -eq 0 ] && [ "${#EXTRACTION_FAILURES[@]}" -eq 0 ] && [ "${#PLOTTING_FAILURES[@]}" -eq 0 ] && [ "${#DUMMY_COORDINATE_ADDING_FAILURES[@]}" -eq 0 ] && [ "${#REFORMATTING_FAILURES[@]}" -eq 0 ]; then
+  if [ "${#EXPERIMENT_FAILURES[@]}" -eq 0 ] && [ "${#EXTRACTION_FAILURES[@]}" -eq 0 ] && [ "${#PLOTTING_FAILURES[@]}" -eq 0 ] && [ "${#DUMMY_COORDINATE_ADDING_FAILURES[@]}" -eq 0 ] && [ "${#REFORMATTING_FAILURES[@]}" -eq 0 ] && [ "${#JAVA_EXPERIMENT_FAILURES[@]}" -eq 0 ]; then
     echo "No failures recorded."
     return 0
   fi
@@ -409,6 +422,13 @@ print_failure_summary() {
   if [ "${#REFORMATTING_FAILURES[@]}" -gt 0 ]; then
     echo "  Reformatting failures (${#REFORMATTING_FAILURES[@]}):"
     for failure in "${REFORMATTING_FAILURES[@]}"; do
+      echo "    - $failure"
+    done
+  fi
+
+  if [ "${#JAVA_EXPERIMENT_FAILURES[@]}" -gt 0 ]; then
+    echo "  Java experiment failures (${#JAVA_EXPERIMENT_FAILURES[@]}):"
+    for failure in "${JAVA_EXPERIMENT_FAILURES[@]}"; do
       echo "    - $failure"
     done
   fi

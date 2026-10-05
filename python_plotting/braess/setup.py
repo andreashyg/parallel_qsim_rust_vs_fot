@@ -4,14 +4,15 @@ import yaml
 CONFIG_FILE_PATH = "experiments/config.yaml"
 
 
-def get_config_file_data() -> dict:
-    with open(CONFIG_FILE_PATH, "r") as f:
+def get_config_file_data(path: str = CONFIG_FILE_PATH) -> dict:
+    with open(path, "r") as f:
         config = yaml.safe_load(f)
     return config
 
 
 FIG_SIZE = (12, 10)
 BOXPLOT_FIG_SIZE = (12, 12)
+SCATTERPLOT_FIG_SIZE = (12, 8)
 FONT_SIZE = 45
 LEGEND_FONT_SIZE = 20
 TOP_COLOUR = "blue"
@@ -20,14 +21,13 @@ BOTTOM_COLOUR = "green"
 COLORS = [TOP_COLOUR, MID_COLOUR, BOTTOM_COLOUR]
 LABELS = ["top", "middle", "bottom"]
 
-# read things from config.yaml
-config_data = get_config_file_data()
-ROOT_DATA_PATH = config_data.get("sim_output_base_dir")
-BETAS = config_data.get("betas")
-RUST_SEED_WHEN_FIXED = config_data.get("rust_seed_when_fixed")
-JAVA_SEED_INDEX_WHEN_FIXED = config_data.get("java_seed_index_when_fixed")
-RUST_SEEDS_TO_ITERATE_OVER = config_data.get("rust_seeds_to_iterate_over")
-JAVA_SEED_INDICES_TO_ITERATE_OVER = config_data.get("java_seed_indices_to_iterate_over")
+# read things from global_config.yaml
+config_data_from_global_config = get_config_file_data(
+    "experiments/compare_braess_to_java/experiment_sets/global_config.yaml").get("global_parameters")
+FILE_NAME_END_PATTERN_WITH_BETA_RR_UR = config_data_from_global_config.get("file_name_end_pattern_with_beta_rr_ur")
+FILE_NAME_END_PATTERN_WITH_BETA_RR = config_data_from_global_config.get("file_name_end_pattern_with_beta_rr")
+FILE_NAME_END_PATTERN_WITH_BETA = config_data_from_global_config.get("file_name_end_pattern_with_beta")
+COMMON_PLOTS_PATTERN = config_data_from_global_config.get("common_plots_pattern")
 
 # from "../../../runs-svn/braess/refinement/no_spillback_scenario/braess_nash_tt.txt"
 NASH_TT_POINTS = np.array([[0, 25], [15, 55], [26.25, 66.25], [82.5, 85], [100, 85]])

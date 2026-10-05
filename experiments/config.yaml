@@ -10,4 +10,10 @@ rust_seed_when_fixed: 42
 java_seed_index_when_fixed: 1
 rust_seeds_to_iterate_over: [ 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61 ]
 java_seed_indices_to_iterate_over: [ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20 ]
+experiment_sets:
+  - varying_rust_seeds
+  - varying_java_seeds
+  - recreating_java_results
 sim_output_base_dir: ./../runs-svn/Abschlussarbeiten/2026/andreas-hygrell-rust-vs-fot/compare_braess_to_java
+original_dir_to_read_from: ../runs-svn/braess/refinement/no_spillback_scenario
+max_parallel_jobs: 8

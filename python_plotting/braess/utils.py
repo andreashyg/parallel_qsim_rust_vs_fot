@@ -1,3 +1,4 @@
+import os
 from typing import Optional, List
 
 import numpy as np
@@ -5,7 +6,7 @@ import pandas as pd
 from matplotlib import pyplot as plt
 
 from setup import NASH_TT_POINTS, NASH_SD_POINTS, COLORS, LABELS, FONT_SIZE, LEGEND_FONT_SIZE, \
-    TOP_COLOUR, BETAS
+    TOP_COLOUR, FILE_NAME_END_PATTERN_WITH_BETA_RR_UR, FILE_NAME_END_PATTERN_WITH_BETA_RR
 
 
 def get_interpolated_nash_vals(at_xvals: pd.Index, mode: str, for_path: Optional[int] = None):
@@ -80,14 +81,6 @@ def plot_extracted_tt_over_time(ax: plt.Axes, tt_df: pd.DataFrame, per_path: boo
             tt_df.plot(x="departure_time", y=f"avg_travel_time_path_{i}", kind="scatter", ax=ax, label=LABELS[i],
                        color=COLORS[i], s=50, alpha=0.5, marker=markers[i])
     else:
-        # tt_df_copy = tt_df.copy()
-        # tt_df_copy["avg_travel_time"] = np.nanmean(
-        #     [tt_df_copy["avg_travel_time_path_0"], tt_df_copy["avg_travel_time_path_1"],
-        #      tt_df_copy["avg_travel_time_path_2"]], axis=0)
-        # tt_df_copy.plot(x="departure_time", y="avg_travel_time", kind="scatter", ax=ax, label="avg. path",
-        #                 color=TOP_COLOUR,
-        #                 s=50, alpha=0.5)
-
         tt_df.plot(x="departure_time", y="avg_travel_time", kind="scatter", ax=ax, label="avg. path", color=TOP_COLOUR,
                    s=50, alpha=0.5)
 
@@ -101,7 +94,7 @@ def plot_extracted_tt_over_time(ax: plt.Axes, tt_df: pd.DataFrame, per_path: boo
     ax.legend(fontsize=LEGEND_FONT_SIZE)
 
 
-def plot_boxplot_over_beta(df: pd.DataFrame, ax: plt.Axes, mode: str):
+def plot_boxplot_over_beta(df: pd.DataFrame, ax: plt.Axes, mode: str, betas: List[int]):
     if mode == "tt":
         ylabel = "avg. travel time deviation [s]"
     elif mode == "sd":
@@ -113,7 +106,7 @@ def plot_boxplot_over_beta(df: pd.DataFrame, ax: plt.Axes, mode: str):
                        patch_artist=True)
     ax.set_xlabel("time step size [s]", fontsize=FONT_SIZE)
     ax.set_ylabel(ylabel, fontsize=FONT_SIZE)
-    ax.xaxis.set_ticks(range(1, len(BETAS) + 1), labels=["$2^{-" + f"{beta}" + "}$" for beta in range(len(BETAS))])
+    ax.xaxis.set_ticks(range(1, len(betas) + 1), labels=["$2^{-" + f"{beta}" + "}$" for beta in range(len(betas))])
     ax.xaxis.set_tick_params(labelsize=FONT_SIZE)
     ax.yaxis.set_tick_params(labelsize=FONT_SIZE)
 
@@ -122,7 +115,7 @@ def plot_boxplot_over_beta(df: pd.DataFrame, ax: plt.Axes, mode: str):
         patch.set_edgecolor('black')
 
 
-def plot_scatter_over_beta(s: pd.Series, ax: plt.Axes, mode: str):
+def plot_scatter_over_beta(s: pd.Series, ax: plt.Axes, mode: str, betas: List[int]):
     if mode == "tt":
         ylabel = "avg. travel time deviation [s]"
     elif mode == "sd":
@@ -130,21 +123,22 @@ def plot_scatter_over_beta(s: pd.Series, ax: plt.Axes, mode: str):
     else:
         raise ValueError("Mode must be either tt or sd")
 
-    ax.scatter(x=range(len(BETAS)), y=s.values, color=TOP_COLOUR)
+    ax.scatter(x=range(len(betas)), y=s.values, color=TOP_COLOUR, s=100)
 
-    ax.xaxis.set_ticks(range(len(BETAS)), labels=["$2^{-" + f"{beta}" + "}$" for beta in range(len(BETAS))],
+    ax.xaxis.set_ticks(range(len(betas)), labels=["$2^{-" + f"{beta}" + "}$" for beta in range(len(betas))],
                        fontsize=FONT_SIZE)
     ax.xaxis.set_tick_params(labelsize=FONT_SIZE)
     ax.yaxis.set_tick_params(labelsize=FONT_SIZE)
     ax.grid(True)
     ax.set_xlabel("time step size [s]", fontsize=FONT_SIZE)
     ax.set_ylabel(ylabel, fontsize=FONT_SIZE)
+    ax.set_ylim(bottom=0)
 
 
 def plot_textbox(ax: plt.Axes, text: str, x: float, y: float, bbox_props: Optional[dict] = None):
     if bbox_props is None:
         bbox_props = dict(boxstyle="round,pad=0.3", facecolor="white", edgecolor="black", alpha=0.5)
-    ax.text(x, y, text, transform=ax.transAxes, fontsize=FONT_SIZE, verticalalignment='top', bbox=bbox_props)
+    ax.text(x, y, text, transform=ax.transAxes, fontsize=0.5 * FONT_SIZE, verticalalignment='top', bbox=bbox_props)
 
 
 def plot_value_count_table(ax: plt.Axes, value_counts: pd.Series, xscale: float = 0.6, yscale: float = 2.7,
@@ -159,17 +153,17 @@ def plot_value_count_table(ax: plt.Axes, value_counts: pd.Series, xscale: float 
     df[percent_col_name] = (df[count_col_name] / df[count_col_name].sum() * 100).round(2)
 
     # Create a table and add it to the axes
-    table = plt.table(ax=ax,
-                      cellText=df.values,
-                      colLabels=df.columns,
-                      cellLoc='center',
-                      loc='upper left',
-                      bbox=None,
-                      cellColours=[["white"] * len(df.columns)] * len(df),
-                      alpha=1.0)
+    table = ax.table(
+        cellText=df.values,
+        colLabels=df.columns,
+        cellLoc='center',
+        loc='upper left',
+        bbox=None,
+        cellColours=[["white"] * len(df.columns)] * len(df),
+        alpha=1.0)
 
     table.auto_set_font_size(False)
-    table.set_fontsize(FONT_SIZE)
+    table.set_fontsize(0.5 * FONT_SIZE)
     table.scale(xscale, yscale)
 
 
@@ -211,7 +205,7 @@ def get_elementwise_difference_df(df_1: pd.DataFrame, df_2: pd.DataFrame, mode: 
     return diff_df
 
 
-def get_elementwise_avg_df(csv_path_template: str, use_random_seeds: List[int], mode: str) -> pd.DataFrame:
+def get_elementwise_avg_df(csv_path_template: str, seeds_to_use: List[int], mode: str) -> pd.DataFrame:
     """
     Read multiple summed_deps_per_time CSVs or travel_time_per_path whose paths are constructed by formatting
     csv_path_template with seed (e.g. csv_path_template.format(seed=42)), and return
@@ -226,7 +220,7 @@ def get_elementwise_avg_df(csv_path_template: str, use_random_seeds: List[int], 
         raise ValueError("Mode must be either 'tt' or 'sd'")
 
     dfs: List[pd.DataFrame] = []
-    for seed in use_random_seeds:
+    for seed in seeds_to_use:
         path = csv_path_template.format(seed=seed)
         try:
             df = pd.read_csv(path)
@@ -288,6 +282,7 @@ def compute_deviation_to_reference_df(csv_path_template: str, betas: List, seeds
     # for all betas and all seeds
     for beta in betas:
         for seed in seeds:
+            print(f"Hello we are computing deviation for seed {seed} and beta {beta}")
             # load the csv
             path = csv_path_template.format(seed=seed, beta=beta)
             try:
@@ -330,7 +325,20 @@ def compute_deviation_to_reference_df(csv_path_template: str, betas: List, seeds
 
                     else:
                         # Read reference values from the specified path
-                        reference_values = pd.read_csv(reference_values_path.format(beta=beta))
+                        if "{seed}" in reference_values_path:
+                            # if there is a seed placeholder in the reference values path, that means that we want to
+                            # compare not to values from one seed, but from the average of multiple seeds.
+                            # NOTE that we will average over the same seeds as we are iterating over.
+                            # This can be used to compare all different seeds to their average in a boxplot, for example
+
+                            # we need all reference values for fixed beta, but with still the placeholder for seeds
+                            reference_values_path_with_inserted_beta = reference_values_path.replace("{beta}",
+                                                                                                     f"{beta}")
+                            reference_values = get_elementwise_avg_df(
+                                reference_values_path_with_inserted_beta, seeds_to_use=seeds, mode=mode)
+                        else:
+                            reference_values = pd.read_csv(reference_values_path.format(beta=beta))
+
                         # Use provided reference values
                         if col_name not in reference_values.columns:
                             raise ValueError(f"Reference values must contain a column for path {col_name}")
@@ -359,8 +367,22 @@ def compute_deviation_to_reference_df(csv_path_template: str, betas: List, seeds
                     # Calculate reference values (from Nash values, between which the function is linear)
                     ref_series = get_interpolated_nash_vals(df.index, mode)
                 else:
-                    # Read reference values from the specified path
-                    reference_values = pd.read_csv(reference_values_path.format(beta=beta))
+                    if "{seed}" in reference_values_path:
+                        # if there is a seed placeholder in the reference values path, that means that we want to
+                        # compare not to values from one seed, but from the average of multiple seeds.
+                        # NOTE that we will average over the same seeds as we are iterating over.
+                        # This can be used to compare all different seeds to their average in a boxplot, for example
+
+                        # we need all reference values for fixed beta, but with still the placeholder for seeds
+                        reference_values_path_with_inserted_beta = reference_values_path.replace("{beta}",
+                                                                                                 f"{beta}")
+                        reference_values = get_elementwise_avg_df(
+                            reference_values_path_with_inserted_beta, seeds_to_use=seeds, mode=mode)
+                    else:
+
+                        # Read reference values from the specified path
+                        reference_values = pd.read_csv(reference_values_path.format(beta=beta))
+
                     # Use provided reference values
                     if data_col not in reference_values.columns:
                         raise ValueError(f"Reference values must contain a column for path {data_col}")
@@ -424,7 +446,6 @@ def compute_deviation_to_reference_series_but_avg_first(csv_path_template: str, 
             raise ValueError(f"'{index_col}' column not found in the averaged dataframe")
 
         averaged_df = averaged_df.set_index(index_col)
-        # print(averaged_df)
 
         if mode == "sd":
             # Compute deviations for all 3 paths
@@ -452,7 +473,21 @@ def compute_deviation_to_reference_series_but_avg_first(csv_path_template: str, 
                     # also remove last time step from data_to_check, since it has no corresponding nash value
                     data_to_check = data_to_check[0:-1]
                 else:
-                    reference_values = pd.read_csv(reference_values_path.format(beta=beta))
+
+                    if "{seed}" in reference_values_path:
+                        # if there is a seed placeholder in the reference values path, that means that we want to
+                        # compare not to values from one seed, but from the average of multiple seeds.
+                        # NOTE that we will average over the same seeds as we are iterating over.
+                        # This can be used to compare all different seeds to their average in a boxplot, for example
+
+                        # we need all reference values for fixed beta, but with still the placeholder for seeds
+                        reference_values_path_with_inserted_beta = reference_values_path.replace("{beta}",
+                                                                                                 f"{beta}")
+                        reference_values = get_elementwise_avg_df(
+                            reference_values_path_with_inserted_beta, seeds_to_use=seeds, mode=mode)
+                    else:
+                        reference_values = pd.read_csv(reference_values_path.format(beta=beta))
+
                     # Use provided reference values
                     if col_name not in reference_values.columns:
                         raise ValueError(f"Reference values must contain a column for path {col_name}")
@@ -472,7 +507,6 @@ def compute_deviation_to_reference_series_but_avg_first(csv_path_template: str, 
                 deviation_over_time_at_path_i = np.abs(data_to_check.values - reference_series)
                 deviations_over_time_per_path.append(deviation_over_time_at_path_i)
 
-            # print(deviations_over_time_per_path)
             # Mean across all paths and time steps
             mean_deviation = np.nanmean(deviations_over_time_per_path)
         else:
@@ -486,7 +520,20 @@ def compute_deviation_to_reference_series_but_avg_first(csv_path_template: str, 
                 # Calculate reference values (from Nash values, between which the function is linear)
                 reference_series = get_interpolated_nash_vals(averaged_df.index, mode)
             else:
-                reference_values = pd.read_csv(reference_values_path.format(beta=beta))
+
+                if "{seed}" in reference_values_path:
+                    # if there is a seed placeholder in the reference values path, that means that we want to
+                    # compare not to values from one seed, but from the average of multiple seeds.
+                    # NOTE that we will average over the same seeds as we are iterating over.
+                    # This can be used to compare all different seeds to their average in a boxplot, for example
+
+                    # we need all reference values for fixed beta, but with still the placeholder for seeds
+                    reference_values_path_with_inserted_beta = reference_values_path.replace("{beta}",
+                                                                                             f"{beta}")
+                    reference_values = get_elementwise_avg_df(
+                        reference_values_path_with_inserted_beta, seeds_to_use=seeds, mode=mode)
+                else:
+                    reference_values = pd.read_csv(reference_values_path.format(beta=beta))
                 # Use provided reference values
                 if col_name not in reference_values.columns:
                     raise ValueError(f"Reference values must contain a column for path {col_name}")
@@ -506,8 +553,6 @@ def compute_deviation_to_reference_series_but_avg_first(csv_path_template: str, 
             deviation_over_time_at_path_i = np.abs(averaged_df[col_name].values - reference_series)
             deviations_over_time_per_path.append(deviation_over_time_at_path_i)
 
-            # print(deviations_over_time_per_path)
-
             deviation_over_time_of_avg_tt = np.abs(averaged_df[col_name].values - reference_series)
             mean_deviation = np.nanmean(deviation_over_time_of_avg_tt)
 
@@ -517,3 +562,145 @@ def compute_deviation_to_reference_series_but_avg_first(csv_path_template: str, 
     result = result.astype(float)
     # print(result)
     return result
+
+
+class ExperimentSet:
+
+    def __init__(self, base_output_dir: str, replanning_variant: str, experiment_set_name: str,
+                 output_tt_plot_path_pattern: str, output_sd_plot_path_pattern: str,
+                 main_input_tt_csv_path_pattern: str,
+                 main_input_sd_csv_path_pattern: str, secondary_input_tt_csv_path_pattern: Optional[str] = None,
+                 secondary_input_sd_csv_path_pattern: Optional[str] = None):
+        self.base_output_dir = base_output_dir
+        self.replanning_variant = replanning_variant
+        self.experiment_set_name = experiment_set_name
+        self.output_tt_plot_path_pattern = output_tt_plot_path_pattern
+        self.output_sd_plot_path_pattern = output_sd_plot_path_pattern
+        self.main_input_tt_csv_path_pattern = main_input_tt_csv_path_pattern
+        self.main_input_sd_csv_path_pattern = main_input_sd_csv_path_pattern
+        self.secondary_input_tt_csv_path_pattern = secondary_input_tt_csv_path_pattern
+        self.secondary_input_sd_csv_path_pattern = secondary_input_sd_csv_path_pattern
+
+    @staticmethod
+    def safe_replace_placeholders(pattern, **kwargs):
+        """
+        Safely replace placeholders in a pattern with provided keyword arguments.
+        If a placeholder is not provided in kwargs, it will remain unchanged.
+        Also, if a placeholder is provided in kwargs but not present in the pattern, it will be ignored.
+        """
+        for key, value in kwargs.items():
+            pattern = pattern.replace(f"{{{key}}}", str(value))
+        return pattern
+
+    def get_tt_plot_dir_path(self, beta: int | str, read_from_random: int | str,
+                             use_random: Optional[int | str]) -> str:
+
+        formatted_path_str = self.get_tt_plot_path(beta, read_from_random, use_random)
+
+        parent_dir = formatted_path_str.split("/")[0:-1]  # get all but the last part of the path
+        return "/".join(parent_dir)
+
+    def get_sd_plot_dir_path(self, beta: int | str, read_from_random: int | str,
+                             use_random: Optional[int | str]) -> str:
+
+        formatted_path_str = self.get_sd_plot_path(beta, read_from_random, use_random)
+
+        parent_dir = formatted_path_str.split("/")[0:-1]  # get all but the last part of the path
+        return "/".join(parent_dir)
+
+    def create_plot_dirs(self, beta: int | str, read_from_random: int | str, use_random: Optional[int | str]):
+        self.__make_dir_if_not_exists(self.get_tt_plot_dir_path(beta, read_from_random, use_random))
+        self.__make_dir_if_not_exists(self.get_sd_plot_dir_path(beta, read_from_random, use_random))
+
+    @staticmethod
+    def get_file_name_end_pattern(use_random: Optional[int | str]):
+        if use_random is not None:
+            return FILE_NAME_END_PATTERN_WITH_BETA_RR_UR
+        else:
+            return FILE_NAME_END_PATTERN_WITH_BETA_RR
+
+    def get_tt_plot_path(self, beta: int | str, read_from_random: int | str, use_random: Optional[int | str]) -> str:
+        # this depends on whether use_random is None or not, because then the file name ends with _use_random_seed_{use_random} or not
+        # the actual file name end pattern is read from global_config.yaml
+        file_name_end_pattern = self.get_file_name_end_pattern(use_random)
+
+        plot_pattern_with_file_name_end_pattern = self.safe_replace_placeholders(self.output_tt_plot_path_pattern,
+                                                                                 file_name_end=file_name_end_pattern)
+
+        formatted_path_str = self.safe_replace_placeholders(plot_pattern_with_file_name_end_pattern,
+                                                            base_output_dir=self.base_output_dir,
+                                                            replanning_variant=self.replanning_variant,
+                                                            experiment_set_name=self.experiment_set_name, beta=beta,
+                                                            read_from_random=read_from_random)
+        if use_random is not None:
+            formatted_path_str = self.safe_replace_placeholders(formatted_path_str, use_random_seed=use_random)
+
+        return formatted_path_str
+
+    def get_sd_plot_path(self, beta: int | str, read_from_random: int | str, use_random: Optional[int | str]) -> str:
+        # this depends on whether use_random is None or not, because then the file name ends with _use_random_seed_{use_random} or not
+        # the actual file name end pattern is read from global_config.yaml
+        file_name_end_pattern = self.get_file_name_end_pattern(use_random)
+        plot_pattern_with_file_name_end_pattern = self.safe_replace_placeholders(self.output_sd_plot_path_pattern,
+                                                                                 file_name_end=file_name_end_pattern)
+
+        formatted_path_str = self.safe_replace_placeholders(plot_pattern_with_file_name_end_pattern,
+                                                            base_output_dir=self.base_output_dir,
+                                                            replanning_variant=self.replanning_variant,
+                                                            experiment_set_name=self.experiment_set_name, beta=beta,
+                                                            read_from_random=read_from_random)
+        if use_random is not None:
+            formatted_path_str = self.safe_replace_placeholders(formatted_path_str, use_random_seed=use_random)
+        return formatted_path_str
+
+    @staticmethod
+    def __make_dir_if_not_exists(path: str):
+        try:
+            os.makedirs(path)
+        except FileExistsError:
+            pass
+
+    def get_path_to_tt_csv_to_read(self, beta: int | str,
+                                   read_from_random: int | str, use_random: Optional[int | str],
+                                   secondary: bool = False) -> str:
+
+        if secondary:
+            pattern = self.secondary_input_tt_csv_path_pattern
+        else:
+            pattern = self.main_input_tt_csv_path_pattern
+
+        file_name_end_pattern = self.get_file_name_end_pattern(use_random)
+
+        csv_path_pattern_with_file_name_end_pattern = self.safe_replace_placeholders(pattern,
+                                                                                     file_name_end=file_name_end_pattern)
+
+        file_name = self.safe_replace_placeholders(csv_path_pattern_with_file_name_end_pattern,
+                                                   base_output_dir=self.base_output_dir,
+                                                   replanning_variant=self.replanning_variant,
+                                                   experiment_set_name=self.experiment_set_name,
+                                                   beta=beta,
+                                                   read_from_random=read_from_random)
+        if use_random is not None:
+            file_name = self.safe_replace_placeholders(file_name, use_random_seed=use_random)
+        return file_name
+
+    def get_path_to_sd_csv_to_read(self, beta: int | str, read_from_random: int | str,
+                                   use_random: Optional[int | str], secondary: bool = False) -> str:
+        if secondary:
+            pattern = self.secondary_input_sd_csv_path_pattern
+        else:
+            pattern = self.main_input_sd_csv_path_pattern
+
+        file_name_end_pattern = self.get_file_name_end_pattern(use_random)
+        csv_path_pattern_with_file_name_end_pattern = self.safe_replace_placeholders(pattern,
+                                                                                     file_name_end=file_name_end_pattern)
+
+        file_name = self.safe_replace_placeholders(csv_path_pattern_with_file_name_end_pattern,
+                                                   base_output_dir=self.base_output_dir,
+                                                   replanning_variant=self.replanning_variant,
+                                                   experiment_set_name=self.experiment_set_name,
+                                                   beta=beta,
+                                                   read_from_random=read_from_random)
+        if use_random is not None:
+            file_name = self.safe_replace_placeholders(file_name, use_random_seed=use_random)
+        return file_name

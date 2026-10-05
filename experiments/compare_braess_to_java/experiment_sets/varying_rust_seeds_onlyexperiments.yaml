@@ -1,0 +1,39 @@
+# Setup
+globals:
+  experiment_set_name: varying_rust_seeds_onlyexperiments
+  base_output_dir: ./../runs-svn/Abschlussarbeiten/2026/andreas-hygrell-rust-vs-fot/compare_braess_to_java_newrunner
+  max_parallel_jobs: 8
+  # the following two patterns are used in multiple modules, so they are defined here to avoid repetition.
+  # they don't need to be overwritten in modules, since I will only read from this in the original experiment set itself,
+  # except for when doing comparisons (but there I specify the secondary path pattern explicitly anyway).
+  # If needed, it is however possible to overwrite by adding it to the optional overwrites fields in the modules.
+  tt_csv_path_pattern: "{common_extracted_data_pattern}/average_route_tts_per_deptime{file_name_end}.csv"
+  sd_csv_path_pattern: "{common_extracted_data_pattern}/summed_deps_per_time{file_name_end}.csv"
+
+param_sweep:
+  replanning_variants:
+    - sel-exp10-switch-at80
+  betas: [ 1 ] # 2, 4, 8, 16 ]
+  read_from_random_seed_indices: [ 1 ]
+  use_random_seeds: [ 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61 ]
+
+
+# What to actually run in this experiment set:
+modules:
+  # Replace activity times in the population with the correct ones, and add access/egress legs
+  - replace_activity_times_and_add_access_egress_legs_in_population:
+    type: PrepareOriginalPopulation
+    overwrites:
+      max_parallel_jobs: 1  # this seems to take a lot of memory, so we don't want to run too many in parallel
+
+  # Run rust experiments based on the output of the original java runs
+  # Note: in this experiment set, we do 20 rust runs (with seeds 42..61), but in turn, only for java seed 1, so 20 runs for each beta.
+  - run_rust_based_on_java_output:
+    type: RunRustBasedOnJavaOutput
+    overwrite_mode: DeleteDirectoryIfExists
+  # Extract measurements from the events files from the rust runs
+  - extract_measurements_from_events:
+    type: ExtractMeasurementsFromEvents
+    input_file_stem_pattern: "{common_output_from_runs_pattern}/events/events"
+    input_file_format: xml.zst
+    num_parts: 1

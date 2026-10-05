@@ -1,33 +1,15 @@
 use clap::Parser;
 use experiment_machine::config::GlobalConfig;
-use pre_postprocessing::activity_time_replacement::replace_activity_times_and_add_dummy_coords_to_acts;
-use pre_postprocessing::csv_column_renaming::rename_csv_columns;
-use pre_postprocessing::utils::{
-    replace_file_name_end_placeholder_in_path_pattern, replace_placeholders_in_path_pattern,
-};
+use pre_postprocessing::access_egress_leg_adding::add_access_egress_legs_if_necessary;
+use pre_postprocessing::utils::replace_placeholders_in_path_pattern;
 use rust_qsim::simulation::logging::init_std_out_logging_thread_local;
 use rust_qsim::simulation::scenario::population::Population;
 use rust_qsim::simulation::scenario::vehicles::Garage;
-use std::path::PathBuf;
 use tracing::info;
 
 #[derive(Parser, Debug)]
 struct InputArgs {
-    // /// Path pattern to the population that should be changed
-    // #[arg(long)]
-    // pub pop_to_be_changed_pattern: String,
-    // /// Population file with correct activity times to be used for replacement
-    // #[arg(long)]
-    // pub pop_with_correct_times_pattern: String,
-    // /// Path pattern to the vehicle file.
-    // #[arg(long)]
-    // pub vehicle_file_pattern: String,
-    // /// Path to output CSV file
-    // /// This can be a path pattern with placeholders like {base_output_dir}, {experiment_set_name},
-    // /// {replanning_variant}, {beta}, {read_from_random} and {file_name_end}.
-    // #[arg(long)]
-    // pub output_file_pattern: String,
-    // /// Base directory for output files.
+    /// Base directory for output files.
     #[arg(long)]
     pub base_output_dir: String,
     /// Replanning variant. The short name used in the experiment. Used in the output file name
@@ -59,9 +41,9 @@ fn main() {
         std::fs::File::open(
             "./experiments/compare_braess_to_java/experiment_sets/global_config.yaml",
         )
-        .expect("Failed to open global config file"),
+            .expect("Failed to open global config file"),
     )
-    .expect("Failed to read global config");
+        .expect("Failed to read global config");
 
     let pop_to_be_changed_pattern = global_config
         .replace_common_pattern(
@@ -76,27 +58,6 @@ fn main() {
 
     let pop_to_be_changed_path = replace_placeholders_in_path_pattern(
         &pop_to_be_changed_pattern,
-        Some(&args.base_output_dir),
-        Some(&args.experiment_set_name),
-        Some(&args.replanning_variant_original),
-        Some(args.beta),
-        Some(args.read_from_random),
-        None,
-    );
-
-    let pop_with_correct_times_pattern = global_config
-        .replace_common_pattern(
-            global_config
-                .global_parameters
-                .get("pop_with_correct_activity_times_pattern")
-                .expect("Failed to get pop_with_correct_activity_times_pattern from global config")
-                .as_str()
-                .expect("pop_with_correct_activity_times_pattern must be a string"),
-        )
-        .expect("Failed to replace common pattern in pop_with_correct_activity_times_pattern");
-
-    let pop_with_correct_times_path = replace_placeholders_in_path_pattern(
-        &pop_with_correct_times_pattern,
         Some(&args.base_output_dir),
         Some(&args.experiment_set_name),
         Some(&args.replanning_variant_original),
@@ -151,17 +112,14 @@ fn main() {
 
     let mut pop_to_be_changed = Population::from_file(&pop_to_be_changed_path, &mut garage);
 
-    let pop_with_correct_times = Population::from_file(&pop_with_correct_times_path, &mut garage);
-
-    replace_activity_times_and_add_dummy_coords_to_acts(
-        &mut pop_to_be_changed,
-        pop_with_correct_times,
-    );
+    // we use hard-coded access egress leg mode "walk" here, since the experiment runner also uses
+    // this
+    add_access_egress_legs_if_necessary(&mut pop_to_be_changed, "walk");
 
     pop_to_be_changed.to_file(output_file.as_ref());
 
     info!(
-        "Successfully wrote population with replaced activity times to {}",
+        "Successfully wrote population with access egress legs added, where necessary, to {}",
         output_file
     );
 }

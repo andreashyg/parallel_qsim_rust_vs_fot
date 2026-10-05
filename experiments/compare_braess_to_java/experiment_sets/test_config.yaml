@@ -8,9 +8,15 @@ param_sweep:
   replanning_variants:
     - sel-exp10-switch-at80
   betas: [ 1 ]
-  java_seed_indices: [ 1, 20, 4 ]
-  rust_seeds: [ 42, 43 ]
+  read_from_random_seed_indices: [ 1, 20, 4 ]
+  use_random_seeds: [ 42, 43 ]
 modules:
+  # Replace activity times in the population with the correct ones, and add access/egress legs
+  - replace_activity_times_and_add_access_egress_legs_in_population:
+    type: PrepareOriginalPopulation
+    overwrites:
+      max_parallel_jobs: 1  # this seems to take a lot of memory, so we don't want to run too many in parallel
+
   - run_rust_based_on_java_output:
     type: RunRustBasedOnJavaOutput
     overwrite_mode: DeleteDirectoryIfExists
@@ -20,4 +26,4 @@ modules:
     #    output_sd_plot_path_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/plots/avg_over_rust_seeds/sd_per_path_over_time/sd_per_path_over_time_beta{beta}_read_from_random_{read_from_random}.pdf"
     #    input_tt_csv_path_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/average_route_tts_per_deptime_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.csv"
     #    input_sd_csv_path_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/summed_deps_per_time_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.csv"
-    seeds_to_avg_over: RustSeeds
+    seeds_to_avg_over: UseRandomSeeds

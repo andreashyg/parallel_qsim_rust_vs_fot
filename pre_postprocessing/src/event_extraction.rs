@@ -20,7 +20,7 @@ use std::collections::hash_map::Entry;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::fs::{File, create_dir_all};
-use std::ops::Div;
+use std::ops::{Div, Sub};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
@@ -149,7 +149,7 @@ impl TravelTimeAndSumDepPerPathCSVWriter {
                 VehicleStatus::IsOnPath(path, dep_time) => {
                     entry.insert(VehicleStatus::HasArrived(
                         *path,
-                        dep_time.clone(),
+                        *dep_time,
                         e.time.saturating_sub(dep_time.as_duration()).as_duration(),
                     ));
                 }
@@ -172,12 +172,12 @@ impl TravelTimeAndSumDepPerPathCSVWriter {
     pub fn on_entered_link(&mut self, e: &LinkEnterEvent) {
         // check if the entered link is one that is mapped to a path index
         // (e.g. center, top, bottom in Braess)
-        match self.link_to_path_lookup.0.get(&e.link.clone()) {
-            Some(index) => match self.vehicle_data_cache.entry(e.vehicle.clone()) {
+        if let Some(index) = self.link_to_path_lookup.0.get(&e.link.clone()) {
+            match self.vehicle_data_cache.entry(e.vehicle.clone()) {
                 Entry::Occupied(mut veh_entry) => match veh_entry.get() {
                     // update the vehicle status to IsOnPath with the path index
                     VehicleStatus::HasDeparted(dep_time) => {
-                        veh_entry.insert(VehicleStatus::IsOnPath(*index, dep_time.clone()));
+                        veh_entry.insert(VehicleStatus::IsOnPath(*index, *dep_time));
                     }
                     VehicleStatus::IsOnPath(path, _dep_time) => {
                         // if vehicle is already on a path, check if the path index matches the one for the entered link
@@ -203,8 +203,7 @@ impl TravelTimeAndSumDepPerPathCSVWriter {
                         e.vehicle, e.link
                     )
                 }
-            },
-            None => {}
+            }
         }
     }
 
@@ -233,6 +232,15 @@ impl TravelTimeAndSumDepPerPathCSVWriter {
             })
             .collect::<IntMap<&Id<InternalVehicle>, &VehicleStatus>>();
 
+        let earliest_departure_time = successful_vehicle_data
+            .values()
+            .map(|status| match status {
+                VehicleStatus::HasArrived(_path, departure_time, _travel_time) => departure_time,
+                _ => panic!("Unexpected vehicle status, only arrived vehicles expected"),
+            })
+            .min()
+            .expect("No successful vehicle data found");
+
         let veh_df: DataFrame = df!(
             "vehicle_id" => successful_vehicle_data
                 .keys()
@@ -242,7 +250,10 @@ impl TravelTimeAndSumDepPerPathCSVWriter {
                 .values()
                 .map(|status| match status {
                     VehicleStatus::HasArrived(_path, departure_time, _travel_time) => {
-                        departure_time.as_duration().as_secs_f64()
+                        departure_time
+                        // subtract the earliest departure time, so that the first departure time is 0.0 (the time before is just the access/egress legs)
+                        .sub(*earliest_departure_time)
+                        .as_duration().as_secs_f64()
                     },
                     _ => panic!("Unexpected vehicle status, only arrived vehicles expected"),
                 })
@@ -266,7 +277,7 @@ impl TravelTimeAndSumDepPerPathCSVWriter {
                 })
                 .collect::<Vec<_>>(),
         )
-        .expect("Failed to create vehicle DataFrame");
+            .expect("Failed to create vehicle DataFrame");
 
         let unique_path_indices = {
             // get all path indices
@@ -341,15 +352,15 @@ impl TravelTimeAndSumDepPerPathCSVWriter {
                     .collect::<Vec<_>>(),
                 true,
             )
-            .unwrap()
-            .alias("sum_departures_total")]);
+                .unwrap()
+                .alias("sum_departures_total")]);
 
         create_dir_all(
             self.tt_output_csv_path
                 .parent()
                 .expect("Failed to get parent directory of output csv path"),
         )
-        .expect("Failed to create output directory");
+            .expect("Failed to create output directory");
         let mut file = File::create(&self.tt_output_csv_path).expect("Failed to create csv file");
         CsvWriter::new(&mut file)
             .finish(&mut tt_df.collect().expect("Failed to collect result"))
@@ -360,7 +371,7 @@ impl TravelTimeAndSumDepPerPathCSVWriter {
                 .parent()
                 .expect("Failed to get parent directory of output csv path"),
         )
-        .expect("Failed to create output directory");
+            .expect("Failed to create output directory");
         let mut file = File::create(&self.sd_output_csv_path).expect("Failed to create csv file");
         CsvWriter::new(&mut file)
             .finish(
@@ -521,7 +532,7 @@ mod test {
             "sum_departures_path_2" => &[0,0,0,0,1,1].to_vec(),
             "sum_departures_total" => &[1,2,3,4,5,6].to_vec(),
         )
-        .expect("Failed to create expected sd result DataFrame");
+            .expect("Failed to create expected sd result DataFrame");
 
         assert_eq!(read_sd_csv, expected_sd_result);
     }

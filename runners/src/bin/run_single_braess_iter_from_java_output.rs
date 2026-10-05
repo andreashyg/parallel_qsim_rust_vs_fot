@@ -1,17 +1,14 @@
 use clap::{Parser, ValueEnum};
 use rust_qsim::simulation::config::{
-    Config, Logging, Network, OverwriteFiles, Population, Vehicles, WriteEvents, parse_key_val,
+    CompressionType, Config, Logging, Network, OverwriteFiles, Population, Vehicles, WriteEvents,
+    parse_key_val,
 };
 use rust_qsim::simulation::controller::controller::ControllerBuilder;
 use rust_qsim::simulation::logging::init_std_out_logging_thread_local;
 use rust_qsim::simulation::scenario::Scenario;
-use rust_qsim::simulation::scenario::population::Population as ScenarioPopulation;
 use std::fmt::Display;
 
-use pre_postprocessing::activity_time_replacement::replace_activity_times_and_add_dummy_coords_to_acts;
-
 use experiment_machine::config::GlobalConfig;
-use serde_yaml;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::info;
@@ -37,6 +34,7 @@ impl Display for ReplanningVariant {
 }
 
 impl ReplanningVariant {
+    #[allow(dead_code)]
     fn get_folder_name(&self) -> &'static str {
         match self {
             Self::SelExp1SwitchAt50 => {
@@ -122,7 +120,6 @@ fn main() {
         .expect("corrected_output_pop_pattern must be a string")
         .to_string();
 
-    // let resource_folder = PathBuf::from("./../runs-svn/braess/refinement/no_spillback_scenario/");
 
     let args = CommandLineArgs::parse();
     info!("Started with args: {:?}", args);
@@ -134,9 +131,7 @@ fn main() {
 
     let seed_rust = args.use_random_seed;
 
-    // let output_dir = args
-    //     .experiment_output_dir_pattern
-    let output_dir = experiment_output_dir_pattern // new variant, read directly from global config
+    let output_dir = experiment_output_dir_pattern
         .replace("{base_output_dir}", &args.base_output_dir)
         .replace("{experiment_set_name}", &args.experiment_set_name)
         .replace("{replanning_variant}", &args.replanning_variant.to_string())
@@ -165,12 +160,6 @@ fn main() {
         path: Some(corrected_times_pop_path),
     });
 
-    // config.set_population(Population {
-    //     path: Some(resource_folder.join(format!(
-    //         "{}/beta{beta}/random{random_java}/beta{beta}random{random_java}.output_plans.xml.gz",
-    //         args.replanning_variant.get_folder_name()
-    //     ))),
-    // });
     config.set_network(Network {
         path: Some(resource_folder.join("no_spillback_network.xml")),
     });
@@ -182,6 +171,10 @@ fn main() {
     config.output_mut().output_dir = output_dir;
     config.output_mut().logging = Logging::Info;
     config.output_mut().write_events = WriteEvents::File;
+    // write xml.zst instead of binbp (is human-readable)
+    config.controller_mut().compression_type = CompressionType::Zst;
+
+    // config.
     if args.delete_output_dir_if_existing {
         config.output_mut().overwrite_files = OverwriteFiles::DeleteDirectoryIfExists;
     }
@@ -193,24 +186,6 @@ fn main() {
 
     // Load and adapt mod
     let scenario = Scenario::load(config);
-    // let mut scenario = Scenario::load(config);
-    //
-    // let mut scenario_garage_clone = scenario.garage.clone();
-    //
-    // // Population with more accurate activity times (decimals) to replace the activity times in the
-    // // population loaded from the java output
-    // let ref_pop_with_correct_times = ScenarioPopulation::from_file(
-    //     PathBuf::from(resource_folder).join(format!(
-    //         "uniteratedPlans_TimeFormatHHMMSSDOTSS/beta{beta}random1.output_plans.xml.gz"
-    //     )),
-    //     &mut scenario_garage_clone,
-    // );
-    //
-    // replace_activity_times_and_add_dummy_coords_to_acts(
-    //     &mut scenario.population,
-    //     ref_pop_with_correct_times,
-    // );
-    //
 
     // Create and run simulation
     let controller = ControllerBuilder::default_with_scenario(scenario)

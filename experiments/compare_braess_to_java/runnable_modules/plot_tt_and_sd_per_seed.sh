@@ -14,9 +14,6 @@ plot_per_seed_case() {
   local input_tt_csv_path_pattern="$7"
   local input_sd_csv_path_pattern="$8"
 
-  # directory where the plots will be written to.
-#  local output_plots_dir_pattern="{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/plots/per_seed"
-
   echo "Plotting average travel times and summed departures per seed for parameters: replanning_variant=${replanning_variant}, beta=$beta, read_from_random=$java_seed_index, use_random_seed=$rust_seed"
 
 

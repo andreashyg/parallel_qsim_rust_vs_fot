@@ -4,17 +4,18 @@ EXTRACTION_FAILURES=()
 PLOTTING_FAILURES=()
 DUMMY_COORDINATE_ADDING_FAILURES=()
 ACTIVITY_TIME_REPLACEMENT_FAILURES=()
+ACCESS_EGRESS_LEG_ADDING_FAILURES=()
 REFORMATTING_FAILURES=()
 JAVA_EXPERIMENT_FAILURES=()
 
 
 # function to called to record a failure in either the experiment run or the extraction or plotting run.
 # Called with the arguments:
-#   kind: either "experiment" or "extraction" or "plotting"
+#   kind: either "experiment" or "extraction" or "plotting" or "dummy_coordinate_adding" or "activity_time_replacement" or "access_egress_leg_adding" or "reformatting" or "java_experiment"
 # and
 #   replanning_variant, beta, read_from_random, output_dir, use_random_seed
 # Will append a string describing the failure to the corresponding array (EXPERIMENT_FAILURES or EXTRACTION_FAILURES
-# or PLOTTING_FAILURES).
+# or PLOTTING_FAILURES or DUMMY_COORDINATE_ADDING_FAILURES or ACTIVITY_TIME_REPLACEMENT_FAILURES or ACCESS_EGRESS_LEG_ADDING_FAILURES or REFORMATTING_FAILURES or JAVA_EXPERIMENT_FAILURES).
 # If a failure log file is specified, will also append the failure details to it. This is used when running experiments
 # in parallel.
 record_failure() {
@@ -39,6 +40,9 @@ record_failure() {
       ;;
     activity_time_replacement)
       ACTIVITY_TIME_REPLACEMENT_FAILURES+=("${replanning_variant} beta=${beta} read_from_random=${read_from_random} use_random_seed=${use_random_seed}")
+      ;;
+    access_egress_leg_adding)
+      ACCESS_EGRESS_LEG_ADDING_FAILURES+=("${replanning_variant} beta=${beta} read_from_random=${read_from_random} use_random_seed=${use_random_seed}")
       ;;
     reformatting)
       REFORMATTING_FAILURES+=("${replanning_variant} beta=${beta} read_from_random=${read_from_random} use_random_seed=${use_random_seed}")
@@ -82,6 +86,9 @@ import_failure_log() {
       activity_time_replacement)
         ACTIVITY_TIME_REPLACEMENT_FAILURES+=("${replanning_variant} beta=${beta} read_from_random=${read_from_random} use_random_seed=${use_random_seed}")
         ;;
+      access_egress_leg_adding)
+        ACCESS_EGRESS_LEG_ADDING_FAILURES+=("${replanning_variant} beta=${beta} read_from_random=${read_from_random} use_random_seed=${use_random_seed}")
+        ;;
       reformatting)
         REFORMATTING_FAILURES+=("${replanning_variant} beta=${beta} read_from_random=${read_from_random} use_random_seed=${use_random_seed}")
         ;;
@@ -98,7 +105,7 @@ import_failure_log() {
 # function to print a summary of all failures recorded during the batch run. Will print the number of failures and the
 # details of each failure.
 print_failure_summary() {
-  if [ "${#EXPERIMENT_FAILURES[@]}" -eq 0 ] && [ "${#EXTRACTION_FAILURES[@]}" -eq 0 ] && [ "${#PLOTTING_FAILURES[@]}" -eq 0 ] && [ "${#DUMMY_COORDINATE_ADDING_FAILURES[@]}" -eq 0 ] && [ "${#REFORMATTING_FAILURES[@]}" -eq 0 ] && [ "${#JAVA_EXPERIMENT_FAILURES[@]}" -eq 0 ] && [ "${#ACTIVITY_TIME_REPLACEMENT_FAILURES[@]}" -eq 0 ]; then
+  if [ "${#EXPERIMENT_FAILURES[@]}" -eq 0 ] && [ "${#EXTRACTION_FAILURES[@]}" -eq 0 ] && [ "${#PLOTTING_FAILURES[@]}" -eq 0 ] && [ "${#DUMMY_COORDINATE_ADDING_FAILURES[@]}" -eq 0 ] && [ "${#REFORMATTING_FAILURES[@]}" -eq 0 ] && [ "${#JAVA_EXPERIMENT_FAILURES[@]}" -eq 0 ] && [ "${#ACTIVITY_TIME_REPLACEMENT_FAILURES[@]}" -eq 0 ] && [ "${#ACCESS_EGRESS_LEG_ADDING_FAILURES[@]}" -eq 0 ]; then
     echo "No failures recorded."
     return 0
   fi
@@ -150,6 +157,13 @@ print_failure_summary() {
   if [ "${#ACTIVITY_TIME_REPLACEMENT_FAILURES[@]}" -gt 0 ]; then
     echo "  Activity time replacement failures (${#ACTIVITY_TIME_REPLACEMENT_FAILURES[@]}):"
     for failure in "${ACTIVITY_TIME_REPLACEMENT_FAILURES[@]}"; do
+      echo "    - $failure"
+    done
+  fi
+
+  if [ "${#ACCESS_EGRESS_LEG_ADDING_FAILURES[@]}" -gt 0 ]; then
+    echo "  Access egress leg adding failures (${#ACCESS_EGRESS_LEG_ADDING_FAILURES[@]}):"
+    for failure in "${ACCESS_EGRESS_LEG_ADDING_FAILURES[@]}"; do
       echo "    - $failure"
     done
   fi

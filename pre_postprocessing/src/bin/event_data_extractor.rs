@@ -91,7 +91,8 @@ fn main() {
     // the global config, and can contain placeholders that are replaced with the actual values.
     if args.input_file_format == "binpb" {
         info!(
-            "Input file format is binpb, loading id store is required. Reading from global config to get experiment output path pattern."
+            "Input file format is binpb, loading id store is required. Reading from global config \
+            to get experiment output path pattern."
         );
 
         let id_store_path_pattern = PathBuf::from(
@@ -102,7 +103,7 @@ fn main() {
                 .as_str()
                 .expect("common_output_from_runs_pattern must be a string"),
         )
-        .join("output_ids.binpb");
+            .join("output_ids.binpb");
         let id_store_path = replace_placeholders_in_path_pattern(
             id_store_path_pattern.to_str().unwrap(),
             Some(&args.base_output_dir),
@@ -115,19 +116,6 @@ fn main() {
         info!("Loading Id Store from path {}", id_store_path);
         id::load_from_file(&PathBuf::from(id_store_path));
     }
-    // if let Some(id_store_path_pattern) = &args.id_store_path_pattern {
-    //     let id_store_path = replace_placeholders_in_path_pattern(
-    //         id_store_path_pattern,
-    //         Some(&args.base_output_dir),
-    //         Some(&args.experiment_set_name),
-    //         Some(&args.replanning_variant),
-    //         args.beta.into(),
-    //         args.read_from_random.into(),
-    //         args.use_random_seed.into(),
-    //     );
-    //     info!("Loading Id Store from path {}", id_store_path);
-    //     id::load_from_file(&PathBuf::from(id_store_path));
-    // }
 
     let input_path_stem_pattern = &args.input_file_stem_pattern;
 
@@ -138,9 +126,9 @@ fn main() {
         Some(&args.replanning_variant),
         args.beta.into(),
         args.read_from_random.into(),
-        args.use_random_seed.into(),
+        args.use_random_seed,
     )
-    .into();
+        .into();
 
     let tt_output_file_path_with_file_name_end = replace_file_name_end_placeholder_in_path_pattern(
         &args.tt_csv_path_pattern,
@@ -155,11 +143,10 @@ fn main() {
         Some(&args.replanning_variant),
         args.beta.into(),
         args.read_from_random.into(),
-        args.use_random_seed.into(),
+        args.use_random_seed,
     )
-    .into();
+        .into();
 
-    // let tt_output_file_path = PathBuf::from(&args.tt_csv_path);
 
     let sd_output_file_path_with_file_name_end = replace_file_name_end_placeholder_in_path_pattern(
         &args.sd_csv_path_pattern,
@@ -173,9 +160,9 @@ fn main() {
         Some(&args.replanning_variant),
         args.beta.into(),
         args.read_from_random.into(),
-        args.use_random_seed.into(),
+        args.use_random_seed,
     )
-    .into();
+        .into();
 
     let link_to_path_map = LinkToPathMap::named(args.link_to_path_map_name.as_str())
         .expect("Failed to load link to path map");
@@ -192,21 +179,21 @@ fn main() {
         0u32 => {
             read_events(
                 &mut event_mgr,
-                &input_path_stem.with_added_extension(args.input_file_format),
+                input_path_stem.with_added_extension(args.input_file_format),
             )
-            .expect("Failed to read events from input file");
+                .expect("Failed to read events from input file");
         }
         n if n > 0u32 => {
             read_partitioned_events(
                 &mut event_mgr,
-                &input_path_stem
+                input_path_stem
                     .parent()
                     .expect("Input path stem contains no parent directory"),
                 input_path_stem.file_name().unwrap().to_str().unwrap(),
                 n,
                 &args.input_file_format,
             )
-            .expect("Failed to read partitioned events from files");
+                .expect("Failed to read partitioned events from files");
         }
         _ => {
             unreachable!()

@@ -6,7 +6,7 @@ source "${SCRIPT_DIR}/../failure_handling.sh"
 
 plot_deviation_boxplots_over_beta_case() {
   local replanning_variant="$1"
-  local beta="$2"
+  local _beta="$2" # unused in this module
   local java_seed_index="$3"
   local rust_seed="$4"
   local experiment_set_name="$5"
@@ -21,7 +21,7 @@ plot_deviation_boxplots_over_beta_case() {
 #  local output_plots_dir="${SIM_OUTPUT_BASE_DIR}/${replanning_variant}/varying_${seeds_to_avg_over}_seeds/analysis/plots/deviations/"
 
 
-  echo "Plotting average travel times and summed departures  boxplots for parameters: replanning_variant=${replanning_variant}, beta=$beta, java_seed_index=$java_seed_index, rust_seed=$rust_seed with seeds to use = ${seeds_to_use[*]}"
+  echo "Plotting average travel times and summed departures  boxplots for parameters: replanning_variant=${replanning_variant}, java_seed_index=$java_seed_index, rust_seed=$rust_seed with seeds to use = ${seeds_to_use[*]}"
 
   # Plot the average travel times and summed departures once per replanning variant.
   if ! ~/miniforge3/envs/rust-vs-fot-plots/bin/python3 python_plotting/braess/tt_and_sd_dev_boxplots_to_nash_over_beta.py \
@@ -38,7 +38,7 @@ plot_deviation_boxplots_over_beta_case() {
 
 plot_deviation_scatterplots_over_beta_case() {
   local replanning_variant="$1"
-  local beta="$2"
+  local _beta="$2" # unused in this module
   local java_seed_index="$3"
   local rust_seed="$4"
   local experiment_set_name="$5"
@@ -51,10 +51,7 @@ plot_deviation_scatterplots_over_beta_case() {
 
   read -a seeds_to_use <<< "$seeds_to_use_array_string"
 
-#  local output_plots_dir="${SIM_OUTPUT_BASE_DIR}/${replanning_variant}/varying_${seeds_to_avg_over}_seeds/analysis/plots/deviations/"
-
-
-  echo "Plotting average travel times and summed departures  boxplots for parameters: replanning_variant=${replanning_variant}, beta=$beta, java_seed_index=$java_seed_index, rust_seed=$rust_seed with seeds to use = ${seeds_to_use[*]}"
+  echo "Plotting average travel times and summed departures  boxplots for parameters: replanning_variant=${replanning_variant}, java_seed_index=$java_seed_index, rust_seed=$rust_seed with seeds to use = ${seeds_to_use[*]}"
 
   # Plot the average travel times and summed departures once per replanning variant.
   if ! ~/miniforge3/envs/rust-vs-fot-plots/bin/python3 python_plotting/braess/tt_and_sd_dev_scatterplots_to_nash_over_beta.py \

@@ -27,16 +27,16 @@ struct InputArgs {
     pub beta: usize,
     #[arg(long)]
     pub read_from_random: usize,
-    #[arg(long, conflicts_with = "no_random_seed")]
+    #[arg(long, conflicts_with = "no_use_random_seed")]
     pub use_random_seed: Option<usize>,
     #[arg(long)]
-    pub no_random_seed: bool,
+    pub no_use_random_seed: bool,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
     let _guard = init_std_out_logging_thread_local();
 
-    println!("Starting simple_dummy_coordinate_adder...");
+    info!("Starting simple_dummy_coordinate_adder...");
     let args = InputArgs::parse();
 
     let input_file: PathBuf = replace_placeholders_in_path_pattern(
@@ -48,9 +48,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         args.read_from_random.into(),
         args.use_random_seed,
     )
-    .into();
+        .into();
 
-    println!("Input file: {}", input_file.display());
+    info!("Input file: {}", input_file.display());
 
     let output_file: PathBuf = replace_placeholders_in_path_pattern(
         &args.output_file_pattern,
@@ -61,9 +61,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         args.read_from_random.into(),
         args.use_random_seed,
     )
-    .into();
+        .into();
 
-    println!("Output file: {}", output_file.display());
+    info!("Output file: {}", output_file.display());
 
     create_dir_all(
         output_file

@@ -1,13 +1,13 @@
-use crate::bash_utils::init_tracing;
 use clap::Parser;
-use rust_qsim::simulation::logging::init_std_out_logging_thread_local;
+use experiment_machine::config;
+use experiment_machine::logging::init_tracing;
 use std::fs::File;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 use tracing::info;
 
-pub mod bash_utils;
-pub mod config;
+// pub mod logging;
+// pub mod bash_utils;
+// pub mod config;
 
 #[derive(Parser, Debug)]
 struct InputArgs {
@@ -20,6 +20,23 @@ struct InputArgs {
         default_value = "./experiments/compare_braess_to_java/experiment_sets/global_config.yaml"
     )]
     pub global_config_file: PathBuf,
+    /// if true, gnu parallel is called with --resume, so that it will resume the run of the experiment set if it was interrupted.
+    #[arg(long, default_value = "false")]
+    pub resume: bool,
+    /// if true, gnu parallel is called with --resume-failed, so that it will resume the run of the experiment set if it was interrupted or for failed jobs.
+    #[arg(long, default_value = "false", conflicts_with = "resume")]
+    pub resume_failed: bool,
+    /// if true, the output logs will be appended instead of overwritten, and the output configs
+    /// will saved with a timestamp instead of overwriting the previous ones.
+    /// This is useful to rerun parts of an experiment set but keep the output logs from the
+    /// untouched parts
+    #[arg(
+        long,
+        default_value = "false",
+        conflicts_with = "resume",
+        conflicts_with = "resume_failed"
+    )]
+    pub overwrite_and_append: bool,
 }
 
 fn main() {
@@ -29,14 +46,14 @@ fn main() {
     let global_config: config::GlobalConfig = serde_yaml::from_reader(
         File::open(&args.global_config_file).expect("Failed to open global config file"),
     )
-    .expect("Failed to parse global config file");
+        .expect("Failed to parse global config file");
 
     //  load experiment set config
     let experiment_set_config: config::Config = serde_yaml::from_reader(
         File::open(&args.experiment_set_config_file)
             .expect("Failed to open experiment set config file"),
     )
-    .expect("Failed to parse experiment set config file");
+        .expect("Failed to parse experiment set config file");
 
     let base_output_dir = experiment_set_config
         .get_expset_config_globals_parameter("base_output_dir")
@@ -55,14 +72,29 @@ fn main() {
             .get_global_config_parameter("global_log_file_pattern")
             .expect("Missing global_log_file_pattern in global config")
             .as_str()
-            .expect("global_log_file must be a string")
+            .expect("global_log_file_pattern must be a string")
             .replace("{base_output_dir}", base_output_dir)
-            .replace("{replanning_variant}", "sel-exp10-switch-at80") // FIXME this is a hack, in the future the replanning variant should be a subfolder of the experiment set
+            .replace("{experiment_set_name}", expset_name_str),
+    );
+
+    let global_error_log_file_path = PathBuf::from(
+        &global_config
+            .get_global_config_parameter("global_error_log_file_pattern")
+            .expect("Missing global_error_log_file_pattern in global config")
+            .as_str()
+            .expect("global_error_log_file_pattern must be a string")
+            .replace("{base_output_dir}", base_output_dir)
             .replace("{experiment_set_name}", expset_name_str),
     );
 
     // initialize logging to the global log file and stdout/stderr
-    let _guard = init_tracing(global_log_file_path);
+    let (_main_guard, _error_guard) = init_tracing(
+        global_log_file_path,
+        global_error_log_file_path,
+        args.resume, // this will decide whether to append to the log files or overwrite them
+        args.resume_failed,
+        args.overwrite_and_append,
+    );
 
     info!(
         "Loaded global config from {}",
@@ -77,61 +109,145 @@ fn main() {
     // run the modules specified in the config
     info!("********** Starting run of experiment set **********");
     experiment_set_config
-        .run_all_modules(&global_config)
+        .run_all_modules(&global_config, args.resume, args.resume_failed)
         .expect("Failed to run experiment set");
 
     info!("********** Finished run of experiment set **********");
 
     // Save a copy of the experiment set config and the global config to the output directory
-    // of each replanning variant.
-    let experiment_set_dir_pattern = "{base_output_dir}/{replanning_variant}/{experiment_set_name}";
 
-    for replvar in experiment_set_config
-        .get_expset_config_param_sweep_parameter("replanning_variants")
-        .expect("Missing replanning_variants in param_sweep")
-    {
-        let replvar_str = replvar
-            .as_str()
-            .expect("replanning_variant must be a string");
+    let output_expset_config_pattern = global_config
+        .get_global_config_parameter("output_expset_config_pattern")
+        .expect("Missing output_expset_config_pattern in global config")
+        .as_str()
+        .expect("output_expset_config_pattern must be a string");
 
-        let experiment_set_dir = PathBuf::from(
-            global_config
-                .replace_common_pattern(
-                    &experiment_set_dir_pattern
-                        .replace("{base_output_dir}", base_output_dir)
-                        .replace("{replanning_variant}", replvar_str)
-                        .replace("{experiment_set_name}", expset_name_str),
-                )
-                .expect("Failed to replace common pattern in experiment_set_dir_pattern"),
-        );
+    let output_experiment_set_config_path = PathBuf::from(
+        global_config
+            .replace_common_pattern(
+                &output_expset_config_pattern
+                    .replace("{base_output_dir}", base_output_dir)
+                    .replace("{experiment_set_name}", expset_name_str),
+            )
+            .expect("Failed to replace common pattern in output_expset_config_pattern"),
+    );
 
-        info!(
-            "Saving copy of experiment set config to {}",
-            experiment_set_dir
-                .join("output_expset_config.yaml")
-                .display()
-        );
+    // when overwrite_and_append is true, we want to save the output config with an index so that
+    // we don't overwrite previous runs.
+    let output_experiment_set_config_path = if args.overwrite_and_append {
+        // get smallest free index for the output config file, so that we don't overwrite previous runs
+        let mut index = 1;
+        while get_output_path_with_index(&output_experiment_set_config_path, index)
+            .exists()
+        {
+            index += 1;
+        }
+        get_output_path_with_index(&output_experiment_set_config_path, index)
+    } else {
+        // if we are not resuming (and not in overwrite_and_append mode), we want to delete any old
+        // config files. The config file with no index is the one that will be overwritten, so we
+        // don't need to delete it.But we need to delete the ones with an index.
+        if !args.resume && !args.resume_failed {
+            for index in 1.. {
+                let path = get_output_path_with_index(&output_experiment_set_config_path, index);
+                if !path.exists() {
+                    break;
+                }
+                std::fs::remove_file(&path).expect("Failed to remove old config file");
+            }
+        }
 
-        serde_yaml::to_writer(
-            File::create(experiment_set_dir.join("output_expset_config.yaml"))
-                .expect("Failed to create output_expset_config.yaml"),
-            &experiment_set_config,
+        output_experiment_set_config_path
+    };
+
+    let output_global_config_pattern = global_config
+        .get_global_config_parameter("output_global_config_pattern")
+        .expect("Missing output_global_config_pattern in global config")
+        .as_str()
+        .expect("output_global_config_pattern must be a string");
+
+    let output_global_config_path = PathBuf::from(
+        global_config
+            .replace_common_pattern(
+                &output_global_config_pattern
+                    .replace("{base_output_dir}", base_output_dir)
+                    .replace("{experiment_set_name}", expset_name_str),
+            )
+            .expect("Failed to replace common pattern in output_global_config_pattern"),
+    );
+    let output_global_config_path = if args.overwrite_and_append {
+        // get smallest free index for the output config file, so that we don't overwrite previous runs
+        let mut index = 1;
+        while get_output_path_with_index(&output_global_config_path, index)
+            .exists()
+        {
+            index += 1;
+        }
+        get_output_path_with_index(&output_global_config_path, index)
+    } else {
+        // if we are not resuming (and not in overwrite_and_append mode), we want to delete any old
+        // config files. The config file with no index is the one that will be overwritten, so we
+        // don't need to delete it.But we need to delete the ones with an index.
+        if !args.resume && !args.resume_failed {
+            for index in 1.. {
+                let path = get_output_path_with_index(&output_experiment_set_config_path, index);
+                if !path.exists() {
+                    break;
+                }
+                std::fs::remove_file(&path).expect("Failed to remove old config file");
+            }
+        }
+
+        // since we are not in append mode, it is fine/desired to overwrite the existing file
+        output_global_config_path
+    };
+
+    info!(
+        "Saving copy of experiment set config to {}",
+        output_experiment_set_config_path.display()
+    );
+
+    serde_yaml::to_writer(
+        File::create(output_experiment_set_config_path)
+            .expect("Failed to create output experiment set config file"),
+        &experiment_set_config,
+    )
+        .expect("Failed to write output_experiment_set_config file");
+
+    info!(
+        "Saving copy of global config to {}",
+        output_global_config_path.display()
+    );
+
+    serde_yaml::to_writer(
+        File::create(output_global_config_path)
+            .expect("Failed to create output global config file"),
+        &global_config,
+    )
+        .expect("Failed to write output global config file");
+}
+
+/// Returns a new PathBuf with the same path as `path`, but with the file stem modified to include
+/// the given index.
+fn get_output_path_with_index(path: &PathBuf, index: i32) -> PathBuf {
+    path
+        .with_file_name(
+            format!(
+                "{}_{}.{}",
+                path
+                    .file_stem()
+                    .expect(&format!("Failed to get file stem of {}", path.display()))
+                    .to_str()
+                    .expect(
+                        &format!("Failed to convert file stem of {} to str", path.display())
+                    ),
+                index,
+                path.extension()
+                    .expect(&format!("Failed to get extension of {}", path.display()))
+                    .to_str()
+                    .expect(
+                        &format!("Failed to convert extension of {} to str", path.display())
+                    )
+            )
         )
-        .expect("Failed to write output_expset_config.yaml");
-
-        info!(
-            "Saving copy of global config to {}",
-            experiment_set_dir
-                .join("output_global_config.yaml")
-                .display()
-        );
-
-        serde_yaml::to_writer(
-            File::create(experiment_set_dir.join("output_global_config.yaml"))
-                .expect("Failed to create output_global_config.yaml"),
-            &global_config,
-        )
-        .map_err(|e| format!("Failed to write output_global_config.yaml: {}", e))
-        .expect("Failed to write output_global_config.yaml");
-    }
 }

@@ -21,9 +21,6 @@ plot_deviation_boxplots_to_diff_run_over_beta_case() {
 
   read -a seeds_to_use <<< "$seeds_to_use_array_string"
 
-#  local output_plots_dir="${SIM_OUTPUT_BASE_DIR}/${replanning_variant}/varying_${seeds_to_avg_over}_seeds/analysis/plots/deviations/"
-
-
   echo "Plotting average travel times and summed departures deviation $which_deviation boxplots for parameters: replanning_variant=${replanning_variant}, beta=$beta, java_seed_index=$java_seed_index, rust_seed=$rust_seed with seeds to use = ${seeds_to_use[*]}"
 
   # Plot the average travel times and summed departures once per replanning variant.
@@ -59,10 +56,6 @@ plot_deviation_scatterplots_to_diff_run_over_beta_case() {
 
 
   read -a seeds_to_use <<< "$seeds_to_use_array_string"
-
-#  local output_plots_dir="${SIM_OUTPUT_BASE_DIR}/${replanning_variant}/varying_${seeds_to_avg_over}_seeds/analysis/plots/deviations/"
-
-
 
   echo "Plotting average travel times and summed departures $which_deviation deviation scatterplots for parameters: replanning_variant=${replanning_variant}, beta=$beta, java_seed_index=$java_seed_index, rust_seed=$rust_seed with seeds to use = ${seeds_to_use[*]}"
 

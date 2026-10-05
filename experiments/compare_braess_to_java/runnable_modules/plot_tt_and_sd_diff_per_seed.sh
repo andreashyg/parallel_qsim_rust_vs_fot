@@ -17,14 +17,6 @@ plot_diff_per_seed_case() {
   local secondary_input_sd_csv_path_pattern="${10}"
   local minus_what="${11}"
 
-#  # directory where the plots will be written to.
-#  local output_plots_dir="${SIM_OUTPUT_BASE_DIR}/${replanning_variant}/varying_${seeds_to_avg_over}_seeds/analysis/plots/per_seed"
-#
-#  if [ -d output_plots_dir ] && [ "${skip_existing_output_dir}" = "true" ]; then
-#    echo "Skipping plotting per seed because output plots directory already exists: $output_plots_dir"
-#    return 0
-#  fi
-
   echo "Plotting differences of average travel times and summed departures per seed for parameters: replanning_variant=${replanning_variant}, beta=$beta, java_seed_index=$java_seed_index, rust_seed=$rust_seed, experiment_set_name=$experiment_set_name"
 
 

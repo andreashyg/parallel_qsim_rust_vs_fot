@@ -14,16 +14,14 @@ param_sweep:
   replanning_variants:
     - sel-exp10-switch-at80
   betas: [ 1, 2, 4, 8, 16, 32, 64 ]
-  java_seed_indices: [ 1 ]
-  rust_seeds: [ 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61 ]
+  read_from_random_seed_indices: [ 1 ]
+  use_random_seeds: [ 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61 ]
 
 
 # TODO:
-#  !!run all experiment sets fully (this should only be the running one last java iter thing remaining now)
+#  !!run all experiment sets fully (this should only be the running one last java iter thing remaining now) BUT FIRST FIX ORDER OF REPLANNING VARIANT AND EXPERIMENT SET PROBABLY
 #  cleanup and commit
 #  look at java-one-last-iteration plots in latex (the code is already there, just the plots don't exist).
-#  then later maybe change the order of experiment set and replanning variant
-#  consider whether it is very stupid to use replanning variant ".."
 #  Then improve logging (aka remove print statements, move them to the right place (since the logging keeps track of
 #  where the message comes from (at least which module, decide whether to do print of log when within a module
 #  (will have duplicate "info:" things otherwise)
@@ -32,34 +30,37 @@ param_sweep:
 
 # What to actually run in this experiment set:
 modules:
-  # Replace activity times in the population with the correct ones, so that we can run based on the original java output plans
-  - replace_activity_times_in_population:
-    type: ReplaceActivityTimesInPopulation
-
-  # Run rust experiments based on the output of the original java runs
-  # Note: in this experiment set, we do 20 rust runs (with seeds 42..61), but in turn, only for java seed 1, so 20 runs for each beta.
-  - run_rust_based_on_java_output:
-    type: RunRustBasedOnJavaOutput
-    overwrite_mode: DeleteDirectoryIfExists
-  # Extract measurements from the events files from the rust runs
-  - extract_measurements_from_events:
-    type: ExtractMeasurementsFromEvents
-    input_file_stem_pattern: "{common_output_from_runs_pattern}/events/events"
-    input_file_format: binpb
-    num_parts: 1
-
-  # Plot the measurements from the runs
-  - plot_tt_and_sd_per_seed:
-    type: PlotTtAndSdPerSeed
-  - plot_tt_and_sd_avgd_over_seeds:
-    type: PlotTtAndSdAvgdOverSeeds
-    seeds_to_avg_over: RustSeeds
-  - plot_tt_and_sd_deviation_to_nash_boxplots:
-    type: PlotTtAndSdDeviationToNashBoxplotsOverBeta
-    seeds_to_avg_over: RustSeeds
-  - plot_tt_and_sd_deviation_to_nash_scatterplots:
-    type: PlotTtAndSdDeviationToNashScatterplotsOverBeta
-    seeds_to_avg_over: RustSeeds
+  #  # Replace activity times in the population with the correct ones, and add access/egress legs
+  #  - replace_activity_times_and_add_access_egress_legs_in_population:
+  #    type: PrepareOriginalPopulation
+  #    overwrites:
+  #      max_parallel_jobs: 1  # this seems to take a lot of memory, so we don't want to run too many in parallel
+  #
+  #  # Run rust experiments based on the output of the original java runs
+  #  # Note: in this experiment set, we do 20 rust runs (with seeds 42..61), but in turn, only for java seed 1, so 20 runs for each beta.
+  #  - run_rust_based_on_java_output:
+  #    type: RunRustBasedOnJavaOutput
+  #    overwrite_mode: DeleteDirectoryIfExists
+  #
+  #  # Extract measurements from the events files from the rust runs
+  #  - extract_measurements_from_events:
+  #    type: ExtractMeasurementsFromEvents
+  #    input_file_stem_pattern: "{common_output_from_runs_pattern}/events/events"
+  #    input_file_format: xml.zst
+  #    num_parts: 1
+  #
+  #  # Plot the measurements from the runs
+  #  - plot_tt_and_sd_per_seed:
+  #    type: PlotTtAndSdPerSeed
+  #  - plot_tt_and_sd_avgd_over_seeds:
+  #    type: PlotTtAndSdAvgdOverSeeds
+  #    seeds_to_avg_over: UseRandomSeeds
+  #  - plot_tt_and_sd_deviation_to_nash_boxplots:
+  #    type: PlotTtAndSdDeviationToNashBoxplotsOverBeta
+  #    seeds_to_avg_over: UseRandomSeeds
+  #  - plot_tt_and_sd_deviation_to_nash_scatterplots:
+  #    type: PlotTtAndSdDeviationToNashScatterplotsOverBeta
+  #    seeds_to_avg_over: UseRandomSeeds
 
   #  Plot the differences to the original java runs
   - plot_tt_and_sd_diff_to_original_java_per_seed:
@@ -67,34 +68,34 @@ modules:
     minus_what: "original_java"
     # Note: cannot use placeholder {file_name_end} here, since the original java runs don't have a use_random_seed,
     # but the automatic replacement would think so, since the experiment set has use_random_seed parameters otherwise.
-    secondary_input_tt_csv_path_pattern: "{base_output_dir}/{replanning_variant}/recreating_java_analysis/analysis/extracted_data/average_route_tts_per_deptime_beta{beta}_read_from_random_{read_from_random}_reformatted_original_java_data.csv"
-    secondary_input_sd_csv_path_pattern: "{base_output_dir}/{replanning_variant}/recreating_java_analysis/analysis/extracted_data/summed_deps_per_time_beta{beta}_read_from_random_{read_from_random}_reformatted_original_java_data.csv"
+    secondary_input_tt_csv_path_pattern: "{base_output_dir}/recreating_java_analysis/analysis/extracted_data/{replanning_variant}/average_route_tts_per_deptime_beta{beta}_read_from_random_{read_from_random}_reformatted_original_java_data.csv"
+    secondary_input_sd_csv_path_pattern: "{base_output_dir}/recreating_java_analysis/analysis/extracted_data/{replanning_variant}/summed_deps_per_time_beta{beta}_read_from_random_{read_from_random}_reformatted_original_java_data.csv"
   - plot_tt_and_sd_avgd_over_seeds_diff_to_original_java:
     type: PlotTtAndSdAvgdOverSeedsDiff
     minus_what: "original_java"
     # Note: cannot use placeholder {file_name_end} here, since the original java runs don't have a use_random_seed,
     # but the automatic replacement would think so, since the experiment set has use_random_seed parameters otherwise.
-    secondary_input_tt_csv_path_pattern: "{base_output_dir}/{replanning_variant}/recreating_java_analysis/analysis/extracted_data/average_route_tts_per_deptime_beta{beta}_read_from_random_{read_from_random}_reformatted_original_java_data.csv"
-    secondary_input_sd_csv_path_pattern: "{base_output_dir}/{replanning_variant}/recreating_java_analysis/analysis/extracted_data/summed_deps_per_time_beta{beta}_read_from_random_{read_from_random}_reformatted_original_java_data.csv"
-    seeds_to_avg_over: RustSeeds
+    secondary_input_tt_csv_path_pattern: "{base_output_dir}/recreating_java_analysis/analysis/extracted_data/{replanning_variant}/average_route_tts_per_deptime_beta{beta}_read_from_random_{read_from_random}_reformatted_original_java_data.csv"
+    secondary_input_sd_csv_path_pattern: "{base_output_dir}/recreating_java_analysis/analysis/extracted_data/{replanning_variant}/summed_deps_per_time_beta{beta}_read_from_random_{read_from_random}_reformatted_original_java_data.csv"
+    seeds_to_avg_over: UseRandomSeeds
 
-  # Plot deviation box- and scatterplots of the rust runs (for different rust seeds) w.r.t. the original java runs
-  # (instead of comparing to the nash flow values)
-  - plot_tt_and_sd_deviation_to_java_boxplots:
-    type: PlotTtAndSdDeviationToDiffRunBoxplotsOverBeta
-    # "which_deviation" is used in the plot path pattern to denote what is being compared (can e.g. be to_original_java or so)
-    which_deviation: "to_original_java"
-    # Note: cannot use placeholder {file_name_end} here, since the original java runs don't have a use_random_seed,
-    # but the automatic replacement would think so, since the experiment set has use_random_seed parameters otherwise.
-    secondary_input_tt_csv_path_pattern: "{base_output_dir}/{replanning_variant}/recreating_java_analysis/analysis/extracted_data/average_route_tts_per_deptime_beta{beta}_read_from_random_{read_from_random}_reformatted_original_java_data.csv"
-    secondary_input_sd_csv_path_pattern: "{base_output_dir}/{replanning_variant}/recreating_java_analysis/analysis/extracted_data/summed_deps_per_time_beta{beta}_read_from_random_{read_from_random}_reformatted_original_java_data.csv"
-    seeds_to_avg_over: RustSeeds
-  - plot_tt_and_sd_deviation_to_java_scatterplots:
-    type: PlotTtAndSdDeviationToDiffRunScatterplotsOverBeta
-    # "which_deviation" is used in the plot path pattern to denote what is being compared (can e.g. be to_original_java or so)
-    which_deviation: "to_original_java"
-    # Note: cannot use placeholder {file_name_end} here, since the original java runs don't have a use_random_seed,
-    # but the automatic replacement would think so, since the experiment set has use_random_seed parameters otherwise.
-    secondary_input_tt_csv_path_pattern: "{base_output_dir}/{replanning_variant}/recreating_java_analysis/analysis/extracted_data/average_route_tts_per_deptime_beta{beta}_read_from_random_{read_from_random}_reformatted_original_java_data.csv"
-    secondary_input_sd_csv_path_pattern: "{base_output_dir}/{replanning_variant}/recreating_java_analysis/analysis/extracted_data/summed_deps_per_time_beta{beta}_read_from_random_{read_from_random}_reformatted_original_java_data.csv"
-    seeds_to_avg_over: RustSeeds
+#  # Plot deviation box- and scatterplots of the rust runs (for different rust seeds) w.r.t. the original java runs
+#  # (instead of comparing to the nash flow values)
+#  - plot_tt_and_sd_deviation_to_java_boxplots:
+#    type: PlotTtAndSdDeviationToDiffRunBoxplotsOverBeta
+#    # "which_deviation" is used in the plot path pattern to denote what is being compared (can e.g. be to_original_java or so)
+#    which_deviation: "to_original_java"
+#    # Note: cannot use placeholder {file_name_end} here, since the original java runs don't have a use_random_seed,
+#    # but the automatic replacement would think so, since the experiment set has use_random_seed parameters otherwise.
+#    secondary_input_tt_csv_path_pattern: "{base_output_dir}/recreating_java_analysis/analysis/extracted_data/{replanning_variant}/average_route_tts_per_deptime_beta{beta}_read_from_random_{read_from_random}_reformatted_original_java_data.csv"
+#    secondary_input_sd_csv_path_pattern: "{base_output_dir}/recreating_java_analysis/analysis/extracted_data/{replanning_variant}/summed_deps_per_time_beta{beta}_read_from_random_{read_from_random}_reformatted_original_java_data.csv"
+#    seeds_to_avg_over: UseRandomSeeds
+#  - plot_tt_and_sd_deviation_to_java_scatterplots:
+#    type: PlotTtAndSdDeviationToDiffRunScatterplotsOverBeta
+#    # "which_deviation" is used in the plot path pattern to denote what is being compared (can e.g. be to_original_java or so)
+#    which_deviation: "to_original_java"
+#    # Note: cannot use placeholder {file_name_end} here, since the original java runs don't have a use_random_seed,
+#    # but the automatic replacement would think so, since the experiment set has use_random_seed parameters otherwise.
+#    secondary_input_tt_csv_path_pattern: "{base_output_dir}/recreating_java_analysis/analysis/extracted_data/{replanning_variant}/average_route_tts_per_deptime_beta{beta}_read_from_random_{read_from_random}_reformatted_original_java_data.csv"
+#    secondary_input_sd_csv_path_pattern: "{base_output_dir}/recreating_java_analysis/analysis/extracted_data/{replanning_variant}/summed_deps_per_time_beta{beta}_read_from_random_{read_from_random}_reformatted_original_java_data.csv"
+#    seeds_to_avg_over: UseRandomSeeds

@@ -19,7 +19,7 @@ get_original_java_replanning_folder_string() {
   fi
 }
 
-replace_activity_times_case() {
+prepare_original_population_case() {
   local replanning_variant="$1"
   local beta="$2"
   local java_seed_index="$3"
@@ -27,12 +27,13 @@ replace_activity_times_case() {
   local experiment_set_name="$5"
   local base_output_dir="$6"
 
-  echo "Replacing activity times with parameters: replanning_variant=$replanning_variant, beta=$beta, java_seed_index=$java_seed_index"
+  echo "Preparing original population with parameters: replanning_variant=$replanning_variant, beta=$beta, java_seed_index=$java_seed_index"
 
   # folder name of the replanning variant in the original java data
   replanning_variant_original=$(get_original_java_replanning_folder_string "$replanning_variant")
 
-  if ! cargo run --release --bin activity_time_replacer -- \
+#  if ! cargo run --release --bin activity_time_replacer -- \
+  if ! ./target/release/original_population_preparer \
     --base-output-dir "${base_output_dir}" \
     --replanning-variant-original "${replanning_variant_original}" \
     --replanning-variant "${replanning_variant}" \
@@ -46,5 +47,5 @@ replace_activity_times_case() {
   fi
 }
 
-export -f replace_activity_times_case
+export -f prepare_original_population_case
 export -f get_original_java_replanning_folder_string

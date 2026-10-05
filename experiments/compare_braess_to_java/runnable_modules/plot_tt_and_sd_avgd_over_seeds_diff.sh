@@ -20,13 +20,10 @@ plot_avgd_over_seeds_diff_case() {
 
   read -a seeds_to_use <<< "$seeds_to_use_array_string"
 
-#  local output_plots_dir="${SIM_OUTPUT_BASE_DIR}/${replanning_variant}/varying_${seeds_to_avg_over}_seeds/analysis/plots/avg_over_${seeds_to_avg_over}_seeds"
-
   echo "Plotting differences of average travel times and summed departures averaged over seeds for parameters: replanning_variant=${replanning_variant}, beta=$beta, java_seed_index=$java_seed_index, rust_seed=$rust_seed, experiment_set_name=$experiment_set_name with seeds to use = ${seeds_to_use[*]}"
 
 
   # Plot the average travel times and summed departures averaged over seeds.
-  # if ! ~/miniforge3/envs/rust-vs-fot-plots/bin/python3 python_plotting/braess/plot_tt_and_sd_avg_over_rust_minus_java.py "$beta" "${replanning_variant}" "$fixed_seed" "recreating_java_results" "varying_rust_seeds" "$output_plots_dir"
   if ! ~/miniforge3/envs/rust-vs-fot-plots/bin/python3 python_plotting/braess/plot_tt_and_sd_avg_over_seeds_differences.py \
     "$beta" "${replanning_variant}" "$experiment_set_name" "$java_seed_index" "$rust_seed" "$base_output_dir" \
     "$minus_what" \

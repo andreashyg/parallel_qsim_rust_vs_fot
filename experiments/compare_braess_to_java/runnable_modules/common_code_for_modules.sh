@@ -5,6 +5,16 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../failure_handling.sh"
 
+# function to read config file entries into a variable.
+# Read the config file at experiments/compare_braess_to_java/experiment_sets/global_config.yaml
+# The first argument is the name of the variable to read into, the second argument is the key in the config file.
+read_config_file_entry() {
+  local -n var_to_change="$1"
+  local key="$2"
+
+  mapfile -t var_to_change < <(yq -r ".global_parameters.${key} | if type == \"array\" then .[] else . end" "$SCRIPT_DIR/../experiment_sets/global_config.yaml")
+}
+
 run_callback_for_parameter_arrays_parallel() {
   local -n replanning_variants_ref="$1"
   local -n betas_ref="$2"
@@ -12,15 +22,27 @@ run_callback_for_parameter_arrays_parallel() {
   local -n rust_seeds_ref="$4"
   local experiment_set_name="$5"
   local base_output_dir="$6"
-#  local experiment_output_dir_pattern="$7"
-#  local delete_output_dir_if_existing="$8"
   local max_parallel_jobs="$7"
-  local actual_callback="$8"
+  local resume="$8"
+  local resume_failed="$9"
+  local script_type="${10}"
+  local actual_callback="${11}"
 
-  # local batch_common_file="${SCRIPT_DIR}/../batch_common.sh"
   local batch_common_file="${SCRIPT_DIR}/common_code_for_modules.sh"
 
-  shift 8
+  shift 11
+
+  local resume_arg=()
+  if [[ "$resume" == "true" ]]; then
+    resume_arg+=("--resume")
+  fi
+  if [[ "$resume_failed" == "true" ]]; then
+    if [[ "$resume" == "true" ]]; then
+      echo "Error: --resume-failed and --resume are mutually exclusive." >&2
+      return 1
+    fi
+    resume_arg+=("--resume-failed")
+  fi
 
   local callback_q experiment_set_name_q base_output_dir_q common_q arg extra_args=""
 
@@ -32,8 +54,6 @@ run_callback_for_parameter_arrays_parallel() {
   printf -v callback_q '%q' "$actual_callback"
   printf -v experiment_set_name_q '%q' "$experiment_set_name"
   printf -v base_output_dir_q '%q' "$base_output_dir"
-#  printf -v experiment_output_dir_pattern_q '%q' "$experiment_output_dir_pattern"
-#  printf -v delete_output_dir_if_existing_q '%q' "$delete_output_dir_if_existing"
   printf -v common_q '%q' "$batch_common_file"
 
   for arg in "$@"; do
@@ -47,9 +67,30 @@ run_callback_for_parameter_arrays_parallel() {
   local module_file="${SCRIPT_DIR}/run_rust_based_on_java_output.sh"
   printf -v module_q '%q' "$module_file"
 
- # TODO at some point, add --memfree *smth* to parallel to avoid running out of memory when running many jobs in parallel.
+  local joblog_path_pattern
+  read_config_file_entry joblog_path_pattern joblog_path_pattern
 
-  parallel --will-cite --eta --bar -j "${max_parallel_jobs}" \
+  joblog_path="${joblog_path_pattern//\{experiment_set_name\}/$experiment_set_name}"
+  joblog_path="${joblog_path//\{base_output_dir\}/$base_output_dir}"
+  joblog_path="${joblog_path//\{callback\}/$callback_q}"
+
+  mkdir -p "$(dirname "$joblog_path")"  # ensure the directory for the joblog exists
+
+  if [[ "$script_type" == "rust" ]]; then
+    echo "Building Rust binaries before running parallel jobs..."
+    cargo build --release --bins
+    echo "Finished building Rust binaries."
+  elif [[ "$script_type" == "java" ]]; then
+    echo "Building Java binaries before running parallel jobs..."
+    JAVA_HOME=/home/andreas/.jdks/ms-25.0.4.1 ./java_matsim/mvnw -f ./java_matsim/pom.xml -DskipTests package
+    echo "Finished building Java binaries."
+  fi
+  echo "Starting parallel execution of callback '$actual_callback' for all parameter combinations..."
+
+  parallel --memsuspend 10G \
+    --will-cite --eta --bar -j "${max_parallel_jobs}" \
+    "${resume_arg[@]}" \
+    --joblog "${joblog_path}" \
     "bash -lc 'source ${common_q}; source ${module_q}; ${callback_q} {1} {2} {3} {4} ${experiment_set_name_q} ${base_output_dir_q} ${extra_args}'" \
     ::: "${replanning_variants_ref[@]}" \
     ::: "${betas_ref[@]}" \

@@ -19,7 +19,7 @@ reformat_original_java_extracted_measurements_case() {
   echo "Copying and reformatting extracted original java average travel times and summed departures for parameters: replanning_variant=$replanning_variant, beta=$beta, read_from_random=${java_seed_index}"
   echo "writing into $new_tt_csv_path_pattern and $new_sd_csv_path_pattern"
 
-  if ! cargo run --release --bin simple_csv_column_renamer -- \
+  if ! ./target/release/simple_csv_column_renamer \
     --input-file-pattern "${original_tt_tsv_file_pattern}" \
     --output-file-pattern "${new_tt_csv_path_pattern}" \
     --base-output-dir "${base_output_dir}" \

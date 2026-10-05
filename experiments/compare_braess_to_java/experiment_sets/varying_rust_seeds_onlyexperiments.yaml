@@ -1,6 +1,6 @@
 # Setup
 globals:
-  experiment_set_name: varying_java_seeds
+  experiment_set_name: varying_rust_seeds_onlyexperiments
   base_output_dir: ./../runs-svn/Abschlussarbeiten/2026/andreas-hygrell-rust-vs-fot/compare_braess_to_java_newrunner
   max_parallel_jobs: 8
   # the following two patterns are used in multiple modules, so they are defined here to avoid repetition.
@@ -13,9 +13,10 @@ globals:
 param_sweep:
   replanning_variants:
     - sel-exp10-switch-at80
-  betas: [ 1, 2, 4, 8, 16, 32, 64 ]
-  read_from_random_seed_indices: [ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20 ]
-  use_random_seeds: [ 42 ]
+  betas: [ 1 ] # 2, 4, 8, 16 ]
+  read_from_random_seed_indices: [ 1 ]
+  use_random_seeds: [ 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61 ]
+
 
 # What to actually run in this experiment set:
 modules:
@@ -26,7 +27,7 @@ modules:
       max_parallel_jobs: 1  # this seems to take a lot of memory, so we don't want to run too many in parallel
 
   # Run rust experiments based on the output of the original java runs
-  # Note: in this experiment set, we do one rust run (with seed 42) for each java seed, so 20 runs for each beta.
+  # Note: in this experiment set, we do 20 rust runs (with seeds 42..61), but in turn, only for java seed 1, so 20 runs for each beta.
   - run_rust_based_on_java_output:
     type: RunRustBasedOnJavaOutput
     overwrite_mode: DeleteDirectoryIfExists
@@ -36,18 +37,3 @@ modules:
     input_file_stem_pattern: "{common_output_from_runs_pattern}/events/events"
     input_file_format: xml.zst
     num_parts: 1
-
-  # Plot the measurements from the runs
-  - plot_tt_and_sd_per_seed:
-    type: PlotTtAndSdPerSeed
-  - plot_tt_and_sd_avgd_over_seeds:
-    type: PlotTtAndSdAvgdOverSeeds
-    seeds_to_avg_over: ReadFromRandomSeedIndices
-  - plot_tt_and_sd_deviation_to_nash_boxplots:
-    type: PlotTtAndSdDeviationToNashBoxplotsOverBeta
-    seeds_to_avg_over: ReadFromRandomSeedIndices
-  - plot_tt_and_sd_deviation_to_nash_scatterplots:
-    type: PlotTtAndSdDeviationToNashScatterplotsOverBeta
-    seeds_to_avg_over: ReadFromRandomSeedIndices
-
-  # (so far) there are no difference plots done when varying java seeds.

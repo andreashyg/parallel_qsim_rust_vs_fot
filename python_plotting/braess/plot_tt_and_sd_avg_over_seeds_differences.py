@@ -10,10 +10,10 @@ from utils import plot_extracted_sd_over_time, plot_extracted_tt_over_time, get_
 plot_type_specific_tt_path_pattern = "{common_plots_pattern}/avgOverSeeds/ttPerPathOverDeptimeMinus{minus_what}/ttPerPathOverDeptimeMinus{minus_what}{file_name_end}.pdf"
 plot_type_specific_sd_path_pattern = "{common_plots_pattern}/avgOverSeeds/sdPerPathOverTimeMinus{minus_what}/sdPerPathOverTimeMinus{minus_what}{file_name_end}.pdf"
 
-tt_diff_sign_count_csv_path = "{common_plots_pattern}/avgOverSeeds/ttPerPathOverDeptimeMinus{minus_what}/ttPerPathOverDeptimeMinus{minus_what}SignCount.csv"
-sd_diff_sign_count_csv_path = "{common_plots_pattern}/avgOverSeeds/sdPerPathOverTimeMinus{minus_what}/sdPerPathOverTimeMinus{minus_what}SignCount.csv"
-tt_total_diff_csv_path = "{common_plots_pattern}/avgOverSeeds/ttPerPathOverDeptimeMinus{minus_what}/ttPerPathOverDeptimeMinus{minus_what}AvgAbsDiff.csv"
-sd_total_diff_csv_path = "{common_plots_pattern}/avgOverSeeds/sdPerPathOverTimeMinus{minus_what}/sdPerPathOverTimeMinus{minus_what}AvgAbsDiff.csv"
+tt_diff_sign_count_csv_path = "{common_plots_pattern}/avgOverSeeds/ttPerPathOverDeptimeMinus{minus_what}/ttPerPathOverDeptimeMinus{minus_what}{file_name_end}SignCount.csv"
+sd_diff_sign_count_csv_path = "{common_plots_pattern}/avgOverSeeds/sdPerPathOverTimeMinus{minus_what}/sdPerPathOverTimeMinus{minus_what}{file_name_end}SignCount.csv"
+tt_total_diff_csv_path = "{common_plots_pattern}/avgOverSeeds/ttPerPathOverDeptimeMinus{minus_what}/ttPerPathOverDeptimeMinus{minus_what}{file_name_end}AvgAbsDiff.csv"
+sd_total_diff_csv_path = "{common_plots_pattern}/avgOverSeeds/sdPerPathOverTimeMinus{minus_what}/sdPerPathOverTimeMinus{minus_what}{file_name_end}AvgAbsDiff.csv"
 
 if __name__ == '__main__':
 

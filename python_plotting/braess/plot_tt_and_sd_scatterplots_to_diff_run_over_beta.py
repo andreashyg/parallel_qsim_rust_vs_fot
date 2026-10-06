@@ -4,8 +4,8 @@ from matplotlib import pyplot as plt
 from setup import FIG_SIZE, COMMON_PLOTS_PATTERN
 from utils import plot_scatter_over_beta, compute_deviation_to_reference_series_but_avg_first, ExperimentSet
 
-plot_type_specific_tt_path_pattern = "{common_plots_pattern}/deviations_{which_deviation}/tt_avg_first_deviation_{which_deviation}_scatterplots/tt_avg_first_deviation_{which_deviation}_scatterplot.pdf"
-plot_type_specific_sd_path_pattern = "{common_plots_pattern}/deviations_{which_deviation}/sd_avg_first_deviation_{which_deviation}_scatterplots/sd_avg_first_deviation_{which_deviation}_scatterplot.pdf"
+plot_type_specific_tt_path_pattern = "{common_plots_pattern}/deviations{which_deviation}/ttAvgFirstDeviation{which_deviation}Scatterplots/ttAvgFirstDeviation{which_deviation}Scatterplot.pdf"
+plot_type_specific_sd_path_pattern = "{common_plots_pattern}/deviations{which_deviation}/sdAvgFirstDeviation{which_deviation}Scatterplots/sdAvgFirstDeviation{which_deviation}Scatterplot.pdf"
 
 if __name__ == '__main__':
     (_, replanning_variant, experiment_set_name, read_random, use_random, base_output_dir,
@@ -16,18 +16,18 @@ if __name__ == '__main__':
 
     betas_to_use = [int(b) for b in betas_to_use_str.split(" ")]
 
-    if use_random.lower() == "avg_over_all":
+    if use_random == "AvgOverAll":
         use_random = "{seed}"  # placeholder to be formatted later
     else:
-        if read_random.lower() != "avg_over_all":
+        if read_random != "AvgOverAll":
             raise ValueError(
-                "At least one of read_random or use_random must be 'avg_over_all' to create scatterplots averaging over all seeds.")
+                "At least one of read_random or use_random must be 'AvgOverAll' to create scatterplots averaging over all seeds.")
         if use_random.lower() == "none":
             use_random = None
         else:
             use_random = int(use_random)
 
-    if read_random.lower() == "avg_over_all":
+    if read_random == "AvgOverAll":
         read_random = "{seed}"  # placeholder to be formatted later
     else:
         read_random = int(read_random)

@@ -157,24 +157,24 @@ impl SeedsToAvgOver {
 
     /// Get an overwrites HashMap to replace the param sweep field for the seeds to avg over/use
     /// with a single value (given as an argument to this function).
-    /// Specifically, it looks like this: {use_random_seeds: use_random_seeds=(avg_over_all)} or
+    /// Specifically, it looks like this: {use_random_seeds: use_random_seeds=(AvgOverAll)} or
     /// similar for read_from_random.
     /// Motivation: The param sweep seeds are passed as an extra argument, for example,
     /// since a module might average over all those seeds itself. Therefore, we overwrite that
-    /// param sweep field with a single value like "avg_over_all" or "use_all", so that the
+    /// param sweep field with a single value like "AvgOverAll" or "UseAll", so that the
     /// module is only called once per cartesian product of the other parameters.
     fn get_param_sweep_overwrites(&self, name_for_param_sweep_overwrite: &str) -> HashMap<String, String> {
         // this is the name of the param sweep values that will be replaced
-        // by a value such as "avg_over_all" or "use_all" in the actual param sweep
+        // by a value such as "AvgOverAll" or "UseAll" in the actual param sweep
         let seeds_to_use_field_name = self.get_seeds_to_use_field_name();
 
         // as the seeds to use are passed as an extra argument (for example, since a
         // module might average over all those seeds itself), that module should only be
         // called once per cartesian product of the other parameters. Therefore, we overwrite
-        // the param_sweep field for those seeds to a single value like "avg_over_all" or
-        // "use_all".
+        // the param_sweep field for those seeds to a single value like "AvgOverAll" or
+        // "UseAll".
         let seeds_to_use_decl_overwrite = format!(
-            "{}=({})",  // overwrite the param sweep field for the seeds that are passed extra with smth like "avg_over_all"
+            "{}=({})",  // overwrite the param sweep field for the seeds that are passed extra with smth like "AvgOverAll"
             seeds_to_use_field_name,
             bash_utils::yaml_value_as_shell_atom(&Value::String(
                 name_for_param_sweep_overwrite.to_string()
@@ -229,7 +229,7 @@ pub trait Module: Debug {
     /// Modules can overwrite param sweep overwrite values. For example, a module that only concerns
     /// the input data might not depend on use_random_seed, or a plotting function will be called
     /// only once but iterate through all use_random_seeds itself. Such modules will then overwrite
-    /// the param sweep value for use_random_seed to be a single value (e.g. None or avg_over_all),
+    /// the param sweep value for use_random_seed to be a single value (e.g. None or AvgOverAll),
     /// so that the bash function is only called once per cartesian product of the other parameters.
     fn get_param_sweep_overwrites(&self) -> Option<HashMap<String, String>> {
         None
@@ -291,11 +291,13 @@ pub struct AddDummyCoordinatesToEvents {
 /// access/egress legs before and after the main leg.
 #[derive(Debug, Deserialize, Serialize)]
 pub struct PrepareOriginalPopulation {
+    pub skip_if_existing: bool,
     pub overwrites: Option<HashMap<String, Value>>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct AddAccessEgressLegsToPopulation {
+    pub skip_if_existing: bool,
     pub overwrites: Option<HashMap<String, Value>>,
 }
 
@@ -537,12 +539,21 @@ impl Module for PrepareOriginalPopulation {
         )
     }
 
+    /// The extra string arguments for this module are:
+    /// 1. `skip_if_existing` (read from module field)
+    fn get_extra_str_args(&self, _config: &Config, _global_config: &GlobalConfig) -> Result<Option<Vec<String>>, String> {
+        match self.skip_if_existing {
+            true => Ok(Some(vec!["true".to_string()])),
+            false => Ok(Some(vec!["false".to_string()])),
+        }
+    }
+
     fn get_param_sweep_overwrites(&self) -> Option<HashMap<String, String>> {
         // this module doesn't use any rust seeds, because it only edits the input population.
-        // So we overwrite the rust_seeds variable to contain only one parameter, so that the bash
+        // So we overwrite the use_random_seeds variable to contain only one parameter, so that the bash
         // function is only called once per cartesian product of the other parameters
-        let rust_seed_decl_overwrite = "rust_seeds=(None)".to_string();
-        Some(HashMap::from_iter([("rust_seeds".to_string(), rust_seed_decl_overwrite.clone())]))
+        let use_random_seed_decl_overwrite = "use_random_seeds=(None)".to_string();
+        Some(HashMap::from_iter([("use_random_seeds".to_string(), use_random_seed_decl_overwrite.clone())]))
     }
 
     fn get_expset_config_overwrites(&self) -> Option<HashMap<String, Value>> {
@@ -559,17 +570,26 @@ impl Module for AddAccessEgressLegsToPopulation {
             "rust",
         )
     }
-    
+
+    /// The extra string arguments for this module are:
+    /// 1. `skip_if_existing` (read from module field)
+    fn get_extra_str_args(&self, _config: &Config, _global_config: &GlobalConfig) -> Result<Option<Vec<String>>, String> {
+        match self.skip_if_existing {
+            true => Ok(Some(vec!["true".to_string()])),
+            false => Ok(Some(vec!["false".to_string()])),
+        }
+    }
+
     /// The param sweep overwrites for this module are:
-    /// 1. `rust_seeds` is overwritten to contain only one parameter, so that the bash function is
+    /// 1. `use_random_seeds` is overwritten to contain only one parameter, so that the bash function is
     ///     only called once per cartesian product of the other parameters.
     fn get_param_sweep_overwrites(&self) -> Option<HashMap<String, String>> {
         // this module doesn't use any rust seeds, because it is only editing the input population.
-        // So we overwrite the rust_seeds variable to contain only one parameter, so that the bash
+        // So we overwrite the use_random_seeds variable to contain only one parameter, so that the bash
         // function is only called once per cartesian product of the other parameters
-        let rust_seed_decl_overwrite = "rust_seeds=(None)".to_string();
+        let use_random_seed_decl_overwrite = "use_random_seeds=(None)".to_string();
         let overwrites =
-            HashMap::from_iter([("rust_seeds".to_string(), rust_seed_decl_overwrite.clone())]);
+            HashMap::from_iter([("use_random_seeds".to_string(), use_random_seed_decl_overwrite.clone())]);
         Some(overwrites)
     }
 
@@ -674,13 +694,13 @@ impl Module for PlotTtAndSdAvgdOverSeeds {
 
     /// The param sweep overwrites for this module are:
     /// 1. Either `use_random_seeds` or `read_from_random_seed_indices` will be overwritten to
-    ///     contain only the value "avg_over_all", since the plotting function will average over
+    ///     contain only the value "AvgOverAll", since the plotting function will average over
     ///     all those seeds itself. The seeds that are overwritten are those that are specified in
     ///     the module's `seeds_to_avg_over` field.
     ///     Note: the get_extra_str_args method provides those seeds as a space-separated string to
     ///     the bash function, so that the plotting fct knows which seeds to average over.s
     fn get_param_sweep_overwrites(&self) -> Option<HashMap<String, String>> {
-        Some(self.seeds_to_avg_over.get_param_sweep_overwrites("avg_over_all"))
+        Some(self.seeds_to_avg_over.get_param_sweep_overwrites("AvgOverAll"))
     }
 
     fn get_expset_config_overwrites(&self) -> Option<HashMap<String, Value>> {
@@ -735,13 +755,13 @@ impl Module for PlotTtAndSdAvgdOverSeedsDiff {
 
     /// The param sweep overwrites for this module are:
     /// 1. Either `use_random_seeds` or `read_from_random_seed_indices` will be overwritten to
-    ///     contain only the value "avg_over_all", since the plotting function will average over
+    ///     contain only the value "AvgOverAll", since the plotting function will average over
     ///     all those seeds itself. The seeds that are overwritten are those that are specified in
     ///     the module's `seeds_to_avg_over` field.
     ///     Note: the get_extra_str_args method provides those seeds as a space-separated string to
     ///     the bash function, so that the plotting fct knows which seeds to average over.
     fn get_param_sweep_overwrites(&self) -> Option<HashMap<String, String>> {
-        Some(self.seeds_to_avg_over.get_param_sweep_overwrites("avg_over_all"))
+        Some(self.seeds_to_avg_over.get_param_sweep_overwrites("AvgOverAll"))
     }
 
     fn get_expset_config_overwrites(&self) -> Option<HashMap<String, Value>> {
@@ -780,18 +800,18 @@ impl Module for PlotTtAndSdDeviationToNashBoxplotsOverBeta {
 
     /// The param sweep overwrites for this module are:
     /// 1. Either `use_random_seeds` or `read_from_random_seed_indices` will be overwritten to
-    ///     contain only the value "use_all", since the plotting function will use all those
+    ///     contain only the value "UseAll", since the plotting function will use all those
     ///     seeds itself. The seeds that are overwritten are those that are specified in the
     ///     module's `seeds_to_avg_over` field.
-    /// 2. The `betas` parameter will be overwritten to contain only the value "use_all", since
+    /// 2. The `betas` parameter will be overwritten to contain only the value "UseAll", since
     ///     the plotting function will use all those betas itself.
     /// Motivation: the plotting function will use all betas and seeds_to_avg_over itself, so the
     /// bash function should only be called once per cartesian product of the other parameters.
     fn get_param_sweep_overwrites(&self) -> Option<HashMap<String, String>> {
-        let mut overwrites = self.seeds_to_avg_over.get_param_sweep_overwrites("use_all");
-        // each plot contains all betas, so replace the beta array by a single value "use_all"
+        let mut overwrites = self.seeds_to_avg_over.get_param_sweep_overwrites("UseAll");
+        // each plot contains all betas, so replace the beta array by a single value "UseAll"
         // (it will never be read, but the important part is that it is only one value)
-        overwrites.insert("betas".to_string(), "betas=(use_all)".to_string());
+        overwrites.insert("betas".to_string(), "betas=(UseAll)".to_string());
         Some(overwrites)
     }
 
@@ -831,18 +851,18 @@ impl Module for PlotTtAndSdDeviationToNashScatterplotsOverBeta {
 
     /// The param sweep overwrites for this module are:
     /// 1. Either `use_random_seeds` or `read_from_random_seed_indices` will be overwritten to
-    ///     contain only the value "avg_over_all", since the plotting function will use all those
+    ///     contain only the value "AvgOverAll", since the plotting function will use all those
     ///     seeds itself. The seeds that are overwritten are those that are specified in the
     ///     module's `seeds_to_avg_over` field.
-    /// 2. The `betas` parameter will be overwritten to contain only the value "use_all", since
+    /// 2. The `betas` parameter will be overwritten to contain only the value "UseAll", since
     ///     the plotting function will use all those betas itself.
     /// Motivation: the plotting function uses all betas and seeds_to_avg_over itself, so the bash
     /// function should only be called once per cartesian product of the other parameters.
     fn get_param_sweep_overwrites(&self) -> Option<HashMap<String, String>> {
-        let mut overwrites = self.seeds_to_avg_over.get_param_sweep_overwrites("avg_over_all");
-        // each plot contains all betas, so replace the beta array by a single value "use_all"
+        let mut overwrites = self.seeds_to_avg_over.get_param_sweep_overwrites("AvgOverAll");
+        // each plot contains all betas, so replace the beta array by a single value "UseAll"
         // (it will never be read, but the important part is that it is only one value)
-        overwrites.insert("betas".to_string(), "betas=(use_all)".to_string());
+        overwrites.insert("betas".to_string(), "betas=(UseAll)".to_string());
         Some(overwrites)
     }
 
@@ -898,18 +918,18 @@ impl Module for PlotTtAndSdDeviationToDiffRunBoxplotsOverBeta {
 
     /// The param sweep overwrites for this module are:
     /// 1. Either `use_random_seeds` or `read_from_random_seed_indices` will be overwritten to
-    ///     contain only the value "use_all", since the plotting function will use all those
+    ///     contain only the value "UseAll", since the plotting function will use all those
     ///     seeds itself. The seeds that are overwritten are those that are specified in the
     ///     module's `seeds_to_avg_over` field.
-    /// 2. The `betas` parameter will be overwritten to contain only the value "use_all", since
+    /// 2. The `betas` parameter will be overwritten to contain only the value "UseAll", since
     ///     the plotting function will use all those betas itself.
     /// Motivation: the plotting function uses all betas and seeds_to_avg_over itself, so the bash
     /// function should only be called once per cartesian product of the other parameters.
     fn get_param_sweep_overwrites(&self) -> Option<HashMap<String, String>> {
-        let mut overwrites = self.seeds_to_avg_over.get_param_sweep_overwrites("use_all");
-        // each plot contains all betas, so replace the beta array by a single value "use_all"
+        let mut overwrites = self.seeds_to_avg_over.get_param_sweep_overwrites("UseAll");
+        // each plot contains all betas, so replace the beta array by a single value "UseAll"
         // (it will never be read, but the important part is that it is only one value)
-        overwrites.insert("betas".to_string(), "betas=(use_all)".to_string());
+        overwrites.insert("betas".to_string(), "betas=(UseAll)".to_string());
         Some(overwrites)
     }
 
@@ -964,18 +984,18 @@ impl Module for PlotTtAndSdDeviationToDiffRunScatterplotsOverBeta {
 
     /// The param sweep overwrites for this module are:
     /// 1. Either `use_random_seeds` or `read_from_random_seed_indices` will be overwritten to
-    ///     contain only the value "avg_over_all", since the plotting function will use all those
+    ///     contain only the value "AvgOverAll", since the plotting function will use all those
     ///     seeds itself. The seeds that are overwritten are those that are specified in the
     ///     module's `seeds_to_avg_over` field.
-    /// 2. The `betas` parameter will be overwritten to contain only the value "use_all", since
+    /// 2. The `betas` parameter will be overwritten to contain only the value "UseAll", since
     ///     the plotting function will use all those betas itself.
     /// Motivation: the plotting function uses all betas and seeds_to_avg_over itself, so the bash
     /// function should only be called once per cartesian product of the other parameters.
     fn get_param_sweep_overwrites(&self) -> Option<HashMap<String, String>> {
-        let mut overwrites = self.seeds_to_avg_over.get_param_sweep_overwrites("avg_over_all");
-        // each plot contains all betas, so replace the beta array by a single value "use_all"
+        let mut overwrites = self.seeds_to_avg_over.get_param_sweep_overwrites("AvgOverAll");
+        // each plot contains all betas, so replace the beta array by a single value "UseAll"
         // (it will never be read, but the important part is that it is only one value)
-        overwrites.insert("betas".to_string(), "betas=(use_all)".to_string());
+        overwrites.insert("betas".to_string(), "betas=(UseAll)".to_string());
         Some(overwrites)
     }
 
@@ -1084,7 +1104,7 @@ mod tests {
                     ],
                 ),
                 (
-                    "rust_seeds".to_string(),
+                    "use_random_seeds".to_string(),
                     vec![Value::Number(42.into()), Value::Number(43.into())],
                 ),
             ]),

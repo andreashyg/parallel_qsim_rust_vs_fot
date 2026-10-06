@@ -4,8 +4,8 @@ from matplotlib import pyplot as plt
 from setup import COMMON_PLOTS_PATTERN, SCATTERPLOT_FIG_SIZE
 from utils import plot_scatter_over_beta, compute_deviation_to_reference_series_but_avg_first, ExperimentSet
 
-plot_type_specific_tt_path_pattern = "{common_plots_pattern}/deviations_to_nash/tt_avg_deviation_to_nash_scatterplots/tt_avg_deviation_to_nash_scatterplot.pdf"
-plot_type_specific_sd_path_pattern = "{common_plots_pattern}/deviations_to_nash/sd_avg_deviation_to_nash_scatterplots/sd_avg_deviation_to_nash_scatterplot.pdf"
+plot_type_specific_tt_path_pattern = "{common_plots_pattern}/deviationsToNash/ttAvgFirstDeviationToNashScatterplots/ttAvgFirstDeviationToNashScatterplot.pdf"
+plot_type_specific_sd_path_pattern = "{common_plots_pattern}/deviationsToNash/sdAvgFirstDeviationToNashScatterplots/sdAvgFirstDeviationToNashScatterplot.pdf"
 
 if __name__ == '__main__':
     (_, replanning_variant, experiment_set_name, read_random, use_random, base_output_dir,
@@ -15,17 +15,17 @@ if __name__ == '__main__':
 
     betas_to_use = [int(b) for b in betas_to_use_str.split(" ")]
 
-    if use_random.lower() == "avg_over_all":
+    if use_random == "AvgOverAll":
         use_random = "{seed}"  # placeholder to be formatted later
     else:
-        if read_random.lower() != "avg_over_all":
-            raise ValueError("At least one of read_random or use_random must be 'avg_over_all' to average over seeds.")
+        if read_random != "AvgOverAll":
+            raise ValueError("At least one of read_random or use_random must be 'AvgOverAll' to average over seeds.")
         if use_random.lower() == "none":
             use_random = None
         else:
             use_random = int(use_random)
 
-    if read_random.lower() == "avg_over_all":
+    if read_random == "AvgOverAll":
         read_random = "{seed}"  # placeholder to be formatted later
     else:
         read_random = int(read_random)
@@ -48,7 +48,7 @@ if __name__ == '__main__':
     # Note: if the plot paths contain placeholders for {beta}, it will be replaced by {beta} again, so no change.
     # While this might be unexpected, it would not make sense to replace {beta} with a specific value here, since the
     # plot shows values for all betas.
-    # The same thing holds for placeholders {use_random_seed} when use_random=avg_over_all, and similarly for read_random=avg_over_all.
+    # The same thing holds for placeholders {use_random_seed} when use_random=AvgOverAll, and similarly for read_random=AvgOverAll.
     experiment_set.create_plot_dirs("{beta}", read_random, use_random)
 
     ### TT

@@ -29,6 +29,8 @@ struct InputArgs {
     /// This is used to replace the {read_from_random} placeholder in the input/output file patterns
     #[arg(long)]
     pub read_from_random: usize,
+    #[arg(long)]
+    pub skip_if_existing: bool,
 }
 
 fn main() {
@@ -129,6 +131,14 @@ fn main() {
         Some(args.read_from_random),
         None,
     );
+
+    if args.skip_if_existing && std::fs::exists(&output_file).expect("Failed to check if output file exists") {
+        info!(
+            "Output file {} already exists, skipping population preparation since --skip-if-existing is specified.",
+            output_file
+        );
+        return;
+    }
 
     let mut garage = Garage::from_file(vehicle_file.as_ref());
 

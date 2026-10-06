@@ -6,8 +6,8 @@ from setup import FIG_SIZE, COMMON_PLOTS_PATTERN
 from utils import plot_nash_lines, plot_extracted_sd_over_time, plot_extracted_tt_over_time, ExperimentSet
 
 # This is the pattern for the paths to the plots created by this script.
-plot_type_specific_tt_path_pattern = "{common_plots_pattern}/per_seed/tt_per_path_over_deptime/tt_per_path_over_deptime{file_name_end}.pdf"
-plot_type_specific_sd_path_pattern = "{common_plots_pattern}/per_seed/sd_per_path_over_time/sd_per_path_over_time{file_name_end}.pdf"
+plot_type_specific_tt_path_pattern = "{common_plots_pattern}/perSeed/ttPerPathOverDeptime/ttPerPathOverDeptime{file_name_end}.pdf"
+plot_type_specific_sd_path_pattern = "{common_plots_pattern}/perSeed/sdPerPathOverTime/sdPerPathOverTime{file_name_end}.pdf"
 
 if __name__ == '__main__':
     _, beta, replanning_variant, read_random, use_random, experiment_set_name, base_output_dir, input_tt_csv_path_pattern, input_sd_csv_path_pattern = sys.argv

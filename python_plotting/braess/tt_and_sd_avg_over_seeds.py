@@ -6,26 +6,26 @@ from utils import plot_nash_lines, plot_extracted_sd_over_time, plot_extracted_t
     ExperimentSet
 
 # This is the pattern for the paths to the plots created by this script.
-plot_type_specific_tt_path_pattern = "{common_plots_pattern}/avg_over_seeds/tt_per_path_over_deptime/tt_per_path_over_deptime{file_name_end}.pdf"
-plot_type_specific_sd_path_pattern = "{common_plots_pattern}/avg_over_seeds/sd_per_path_over_time/sd_per_path_over_time{file_name_end}.pdf"
+plot_type_specific_tt_path_pattern = "{common_plots_pattern}/avgOverSeeds/ttPerPathOverDeptime/ttPerPathOverDeptime{file_name_end}.pdf"
+plot_type_specific_sd_path_pattern = "{common_plots_pattern}/avgOverSeeds/sdPerPathOverTime/sdPerPathOverTime{file_name_end}.pdf"
 
 if __name__ == '__main__':
     _, beta, replanning_variant, experiment_set_name, read_random, use_random, base_output_dir, input_tt_csv_path_pattern, input_sd_csv_path_pattern = sys.argv[
         0:9]
     seeds_to_use = [int(s) for s in sys.argv[9:]]
 
-    if use_random.lower() == "avg_over_all":
+    if use_random == "AvgOverAll":
         use_random_formatting_term_with_optional_placeholder = "{seed}"  # placeholder to be formatted later
     else:
-        if read_random.lower() != "avg_over_all":
-            raise ValueError("At least one of read_random or use_random must be 'avg_over_all' to average over seeds.")
+        if read_random != "AvgOverAll":
+            raise ValueError("At least one of read_random or use_random must be 'AvgOverAll' to average over seeds.")
         if use_random.lower() == "none":
             use_random = None
         else:
             use_random = int(use_random)
         use_random_formatting_term_with_optional_placeholder = use_random
 
-    if read_random.lower() == "avg_over_all":
+    if read_random == "AvgOverAll":
         read_random_formatting_term_with_optional_placeholder = "{seed}"  # placeholder to be formatted later
     else:
         read_random = int(read_random)
@@ -44,23 +44,23 @@ if __name__ == '__main__':
                                    output_sd_plot_path_pattern, input_tt_csv_path_pattern, input_sd_csv_path_pattern)
 
     # note: if use_random is None, nothing is formatted in that respect.
-    # if use_random was given as "avg_over_all", we will get here a string with a placeholder {seed} that will be
+    # if use_random was given as "AvgOverAll", we will get here a string with a placeholder {seed} that will be
     # formatted later with the actual seed values to average over.
-    # same thing if read_random was given as "avg_over_all".
+    # same thing if read_random was given as "AvgOverAll".
     tt_path = experiment_set.get_path_to_tt_csv_to_read(beta, read_random_formatting_term_with_optional_placeholder,
                                                         use_random_formatting_term_with_optional_placeholder)
     sd_path = experiment_set.get_path_to_sd_csv_to_read(beta, read_random_formatting_term_with_optional_placeholder,
                                                         use_random_formatting_term_with_optional_placeholder)
 
     # Note: again, if use_random is None, nothing is formatted in that respect.
-    # if use_random was given as "avg_over_all", if the plot directory pattern contains a placeholder {use_random_seed}, it will be replaced by "{seed}".
+    # if use_random was given as "AvgOverAll", if the plot directory pattern contains a placeholder {use_random_seed}, it will be replaced by "{seed}".
     # If use_random is a specific value, it will be used as the value for the placeholder.
     # Same thing for read_random.
     # This is not necessarily expected, but normally, the plot directory pattern should not contain a placeholder for
     # the seed that is being averaged over.
 
     # Note: here we don't use the formatting terms with placeholders, but the actual values of read_random and use_random,
-    # since we don't want e.g. use_random_seed_{seed}, rather use_random_seed_avg_over_all
+    # since we don't want e.g. use_random_seed_{seed}, rather use_random_seed_AvgOverAll
     experiment_set.create_plot_dirs(beta, read_random, use_random)
 
     ### TT

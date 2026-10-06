@@ -55,6 +55,20 @@ fn main() {
     )
         .expect("Failed to parse experiment set config file");
 
+    // check that the experiment set name in the config file matches the file name of the config
+    // file.
+    // If this is not the case, it is likely that the output will be saved in the wrong directory,
+    // possibly overwriting previous runs. This is a safety check to prevent that from happening.
+    assert_eq!(
+        experiment_set_config.get_expset_config_globals_parameter("experiment_set_name")
+            .expect("Missing experiment_set_name in globals"),
+        args.experiment_set_config_file.file_stem()
+            .expect("Failed to get file stem of experiment set config file cla")
+            .to_str()
+            .expect("Failed to convert file stem of experiment set config to string"),
+        "Experiment set name in config file does not match the file name"
+    );
+
     let base_output_dir = experiment_set_config
         .get_expset_config_globals_parameter("base_output_dir")
         .expect("Missing base_output_dir in global config")

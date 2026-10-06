@@ -4,8 +4,8 @@ from matplotlib import pyplot as plt
 from setup import BOXPLOT_FIG_SIZE, COMMON_PLOTS_PATTERN
 from utils import plot_boxplot_over_beta, compute_deviation_to_reference_df, ExperimentSet
 
-plot_type_specific_tt_path_pattern = "{common_plots_pattern}/deviations_{which_deviation}/tt_avg_deviation_{which_deviation}_boxplots/tt_avg_deviation_{which_deviation}_boxplot.pdf"
-plot_type_specific_sd_path_pattern = "{common_plots_pattern}/deviations_{which_deviation}/sd_avg_deviation_{which_deviation}_boxplots/sd_avg_deviation_{which_deviation}_boxplot.pdf"
+plot_type_specific_tt_path_pattern = "{common_plots_pattern}/deviations{which_deviation}/ttAvgDeviation{which_deviation}Boxplots/ttAvgDeviation{which_deviation}Boxplot.pdf"
+plot_type_specific_sd_path_pattern = "{common_plots_pattern}/deviations{which_deviation}/sdAvgDeviation{which_deviation}Boxplots/sdAvgDeviation{which_deviation}Boxplot.pdf"
 
 if __name__ == '__main__':
     (_, replanning_variant, experiment_set_name, read_random, use_random, base_output_dir,
@@ -16,18 +16,18 @@ if __name__ == '__main__':
 
     betas_to_use = [int(b) for b in betas_to_use_str.split(" ")]
 
-    if use_random.lower() == "use_all":
+    if use_random == "UseAll":
         use_random = "{seed}"  # placeholder to be formatted later
     else:
-        if read_random.lower() != "use_all":
+        if read_random != "UseAll":
             raise ValueError(
-                "At least one of read_random or use_random must be 'use_all' to create boxplots using all seeds.")
+                "At least one of read_random or use_random must be 'UseAll' to create boxplots using all seeds.")
         if use_random.lower() == "none":
             use_random = None
         else:
             use_random = int(use_random)
 
-    if read_random.lower() == "use_all":
+    if read_random == "UseAll":
         read_random = "{seed}"  # placeholder to be formatted later
     else:
         read_random = int(read_random)
@@ -62,7 +62,7 @@ if __name__ == '__main__':
     tt_df = compute_deviation_to_reference_df(tt_path_1, betas=betas_to_use, seeds=seeds_to_use, mode="tt",
                                               reference_values_path=tt_path_2)
 
-    plot_boxplot_over_beta(tt_df, ax_tt, "tt", betas_to_use)
+    plot_boxplot_over_beta(tt_df, ax_tt, "tt", betas_to_use, ytoplim=0.35)
 
     experiment_set.create_plot_dirs("{beta}", read_random, use_random)
 
@@ -74,6 +74,6 @@ if __name__ == '__main__':
     sd_df = compute_deviation_to_reference_df(sd_path_1, betas=betas_to_use, seeds=seeds_to_use, mode="sd",
                                               reference_values_path=sd_path_2)
 
-    plot_boxplot_over_beta(sd_df, ax_sd, "sd", betas_to_use)
+    plot_boxplot_over_beta(sd_df, ax_sd, "sd", betas_to_use, ytoplim=0.05)
 
     fig_sd.savefig(experiment_set.get_sd_plot_path("{beta}", read_random, use_random))

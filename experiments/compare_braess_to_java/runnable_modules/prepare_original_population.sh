@@ -26,6 +26,12 @@ prepare_original_population_case() {
   local _rust_seed="$4"  # unused in this module
   local experiment_set_name="$5"
   local base_output_dir="$6"
+  local skip_if_existing="$7"
+
+  local skip_if_existing_array=()
+  if [[ "$skip_if_existing" == "true" ]]; then
+    skip_if_existing_array+=("--skip-if-existing")
+  fi
 
   echo "Preparing original population with parameters: replanning_variant=$replanning_variant, beta=$beta, java_seed_index=$java_seed_index"
 
@@ -39,7 +45,8 @@ prepare_original_population_case() {
     --replanning-variant "${replanning_variant}" \
     --experiment-set-name "${experiment_set_name}" \
     --beta "${beta}" \
-    --read-from-random "${java_seed_index}"
+    --read-from-random "${java_seed_index}" \
+    "${skip_if_existing_array[@]}"
   then
     echo "Failed to replace activity times." >&2
     record_failure activity_time_replacement "$replanning_variant" "$beta" "$java_seed_index" "None"

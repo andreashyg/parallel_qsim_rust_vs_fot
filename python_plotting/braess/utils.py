@@ -94,7 +94,8 @@ def plot_extracted_tt_over_time(ax: plt.Axes, tt_df: pd.DataFrame, per_path: boo
     ax.legend(fontsize=LEGEND_FONT_SIZE)
 
 
-def plot_boxplot_over_beta(df: pd.DataFrame, ax: plt.Axes, mode: str, betas: List[int]):
+def plot_boxplot_over_beta(df: pd.DataFrame, ax: plt.Axes, mode: str, betas: List[int], ybotlim: Optional[float] = None,
+                           ytoplim: Optional[float] = None):
     if mode == "tt":
         ylabel = "avg. travel time deviation [s]"
     elif mode == "sd":
@@ -109,6 +110,7 @@ def plot_boxplot_over_beta(df: pd.DataFrame, ax: plt.Axes, mode: str, betas: Lis
     ax.xaxis.set_ticks(range(1, len(betas) + 1), labels=["$2^{-" + f"{beta}" + "}$" for beta in range(len(betas))])
     ax.xaxis.set_tick_params(labelsize=FONT_SIZE)
     ax.yaxis.set_tick_params(labelsize=FONT_SIZE)
+    ax.set_ylim(bottom=ybotlim, top=ytoplim)
 
     for patch in bplot['boxes']:
         patch.set_facecolor(TOP_COLOUR)
@@ -141,6 +143,27 @@ def plot_textbox(ax: plt.Axes, text: str, x: float, y: float, bbox_props: Option
     ax.text(x, y, text, transform=ax.transAxes, fontsize=0.5 * FONT_SIZE, verticalalignment='top', bbox=bbox_props)
 
 
+def get_value_count_df_from_series(value_counts_series: pd.Series, val_col_name: str = "Value",
+                                   count_col_name: str = "Count",
+                                   percent_col_name: str = "%") -> pd.DataFrame:
+    """
+    Create a DataFrame from a value counts Series, with columns for the value, count, and percentage.
+    """
+    # Create a DataFrame from the value counts
+    df = pd.DataFrame({val_col_name: value_counts_series.index, count_col_name: value_counts_series.values.round()})
+    df[percent_col_name] = (df[count_col_name] / df[count_col_name].sum() * 100).round(2)
+    return df
+
+
+def save_value_count_table_as_csv(value_counts: pd.Series, output_path: str, val_col_name: str = "Value",
+                                  count_col_name: str = "Count", percent_col_name: str = "%") -> None:
+    """
+    Save a value count table as a CSV file.
+    """
+    df = get_value_count_df_from_series(value_counts, val_col_name, count_col_name, percent_col_name)
+    df.to_csv(output_path, index=False)
+
+
 def plot_value_count_table(ax: plt.Axes, value_counts: pd.Series, xscale: float = 0.6, yscale: float = 2.7,
                            val_col_name: str = "Value", count_col_name: str = "Count",
                            percent_col_name: str = "%") -> None:
@@ -148,9 +171,9 @@ def plot_value_count_table(ax: plt.Axes, value_counts: pd.Series, xscale: float 
     Plot a table of value counts on the given axes.
     """
     # Create a DataFrame from the value counts
-    df = pd.DataFrame({val_col_name: value_counts.index, count_col_name: value_counts.values.round()})
-    df = pd.DataFrame({val_col_name: value_counts.index, count_col_name: value_counts.values.round()})
-    df[percent_col_name] = (df[count_col_name] / df[count_col_name].sum() * 100).round(2)
+    df = get_value_count_df_from_series(value_counts, val_col_name, count_col_name, percent_col_name)
+    # df = pd.DataFrame({val_col_name: value_counts.index, count_col_name: value_counts.values.round()})
+    # df[percent_col_name] = (df[count_col_name] / df[count_col_name].sum() * 100).round(2)
 
     # Create a table and add it to the axes
     table = ax.table(
@@ -282,7 +305,6 @@ def compute_deviation_to_reference_df(csv_path_template: str, betas: List, seeds
     # for all betas and all seeds
     for beta in betas:
         for seed in seeds:
-            print(f"Hello we are computing deviation for seed {seed} and beta {beta}")
             # load the csv
             path = csv_path_template.format(seed=seed, beta=beta)
             try:
@@ -619,12 +641,13 @@ class ExperimentSet:
         else:
             return FILE_NAME_END_PATTERN_WITH_BETA_RR
 
-    def get_tt_plot_path(self, beta: int | str, read_from_random: int | str, use_random: Optional[int | str]) -> str:
+    def replace_placeholders_in_arbitrary_pattern(self, pattern: str, beta: int | str, read_from_random: int | str,
+                                                  use_random: Optional[int | str]) -> str:
         # this depends on whether use_random is None or not, because then the file name ends with _use_random_seed_{use_random} or not
         # the actual file name end pattern is read from global_config.yaml
         file_name_end_pattern = self.get_file_name_end_pattern(use_random)
 
-        plot_pattern_with_file_name_end_pattern = self.safe_replace_placeholders(self.output_tt_plot_path_pattern,
+        plot_pattern_with_file_name_end_pattern = self.safe_replace_placeholders(pattern,
                                                                                  file_name_end=file_name_end_pattern)
 
         formatted_path_str = self.safe_replace_placeholders(plot_pattern_with_file_name_end_pattern,
@@ -636,22 +659,14 @@ class ExperimentSet:
             formatted_path_str = self.safe_replace_placeholders(formatted_path_str, use_random_seed=use_random)
 
         return formatted_path_str
+
+    def get_tt_plot_path(self, beta: int | str, read_from_random: int | str, use_random: Optional[int | str]) -> str:
+        return self.replace_placeholders_in_arbitrary_pattern(self.output_tt_plot_path_pattern, beta, read_from_random,
+                                                              use_random)
 
     def get_sd_plot_path(self, beta: int | str, read_from_random: int | str, use_random: Optional[int | str]) -> str:
-        # this depends on whether use_random is None or not, because then the file name ends with _use_random_seed_{use_random} or not
-        # the actual file name end pattern is read from global_config.yaml
-        file_name_end_pattern = self.get_file_name_end_pattern(use_random)
-        plot_pattern_with_file_name_end_pattern = self.safe_replace_placeholders(self.output_sd_plot_path_pattern,
-                                                                                 file_name_end=file_name_end_pattern)
-
-        formatted_path_str = self.safe_replace_placeholders(plot_pattern_with_file_name_end_pattern,
-                                                            base_output_dir=self.base_output_dir,
-                                                            replanning_variant=self.replanning_variant,
-                                                            experiment_set_name=self.experiment_set_name, beta=beta,
-                                                            read_from_random=read_from_random)
-        if use_random is not None:
-            formatted_path_str = self.safe_replace_placeholders(formatted_path_str, use_random_seed=use_random)
-        return formatted_path_str
+        return self.replace_placeholders_in_arbitrary_pattern(self.output_sd_plot_path_pattern, beta, read_from_random,
+                                                              use_random)
 
     @staticmethod
     def __make_dir_if_not_exists(path: str):

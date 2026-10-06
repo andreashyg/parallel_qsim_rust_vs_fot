@@ -117,7 +117,7 @@ def plot_boxplot_over_beta(df: pd.DataFrame, ax: plt.Axes, mode: str, betas: Lis
         patch.set_edgecolor('black')
 
 
-def plot_scatter_over_beta(s: pd.Series, ax: plt.Axes, mode: str, betas: List[int]):
+def plot_scatter_over_beta(s: pd.Series, ax: plt.Axes, mode: str, betas: List[int], ytoplim: Optional[float] = None):
     if mode == "tt":
         ylabel = "avg. travel time deviation [s]"
     elif mode == "sd":
@@ -134,7 +134,7 @@ def plot_scatter_over_beta(s: pd.Series, ax: plt.Axes, mode: str, betas: List[in
     ax.grid(True)
     ax.set_xlabel("time step size [s]", fontsize=FONT_SIZE)
     ax.set_ylabel(ylabel, fontsize=FONT_SIZE)
-    ax.set_ylim(bottom=0)
+    ax.set_ylim(bottom=0, top=ytoplim)
 
 
 def plot_textbox(ax: plt.Axes, text: str, x: float, y: float, bbox_props: Optional[dict] = None):

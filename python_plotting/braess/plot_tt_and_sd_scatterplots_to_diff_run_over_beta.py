@@ -62,7 +62,7 @@ if __name__ == '__main__':
                                                                         mode="tt",
                                                                         reference_values_path=tt_path_2)
 
-    plot_scatter_over_beta(tt_avg_series, ax_tt_avg, "tt", betas_to_use)
+    plot_scatter_over_beta(tt_avg_series, ax_tt_avg, "tt", betas_to_use, ytoplim=0.19)
 
     experiment_set.create_plot_dirs("{beta}", read_random, use_random)
 
@@ -74,6 +74,6 @@ if __name__ == '__main__':
                                                                         mode="sd",
                                                                         reference_values_path=sd_path_2)
 
-    plot_scatter_over_beta(sd_avg_series, ax_sd_avg, "sd", betas_to_use)
+    plot_scatter_over_beta(sd_avg_series, ax_sd_avg, "sd", betas_to_use, ytoplim=0.055)
 
     fig_sd_avg.savefig(experiment_set.get_sd_plot_path("{beta}", read_random, use_random))

@@ -57,7 +57,7 @@ if __name__ == '__main__':
     tt_avg_series = compute_deviation_to_reference_series_but_avg_first(tt_path, betas=betas_to_use, seeds=seeds_to_use,
                                                                         mode="tt")
 
-    plot_scatter_over_beta(tt_avg_series, ax_tt_avg, "tt", betas_to_use)
+    plot_scatter_over_beta(tt_avg_series, ax_tt_avg, "tt", betas_to_use, ytoplim=1.05)
 
     fig_tt_avg.savefig(experiment_set.get_tt_plot_path("{beta}", read_random, use_random))
 
@@ -67,6 +67,6 @@ if __name__ == '__main__':
     sd_avg_series = compute_deviation_to_reference_series_but_avg_first(sd_path, betas=betas_to_use, seeds=seeds_to_use,
                                                                         mode="sd")
 
-    plot_scatter_over_beta(sd_avg_series, ax_sd_avg, "sd", betas_to_use)
+    plot_scatter_over_beta(sd_avg_series, ax_sd_avg, "sd", betas_to_use, ytoplim=0.45)
 
     fig_sd_avg.savefig(experiment_set.get_sd_plot_path("{beta}", read_random, use_random))

@@ -1196,11 +1196,7 @@ mod tests {
         let register = XmlEventsWriter::register_fn("test_output/test.xml");
         register(&mut env.events_manager_borrow_mut());
 
-        let global_net = Network::from_file(
-            "./assets/3-links/3-links-network.xml",
-            1,
-            &PartitionMethod::Metis(MetisOptions::default()),
-        );
+        let global_net = Network::from_file("./assets/3-links/3-links-network.xml");
         let mut network =
             SimNetworkPartition::from_network_for_test(&global_net, 0, &test_utils::config());
         let agent = test_utils::create_agent(1, vec!["link1", "link2", "link3"]);
@@ -1243,7 +1239,7 @@ mod tests {
     #[deterministic_id_test]
     fn vehicle_reaches_boundary() {
         let mut env = Default::default();
-        let global_net = Network::from_file(
+        let global_net = Network::from_file_with_partitioning(
             "./assets/3-links/3-links-network.xml",
             2,
             &PartitionMethod::None,
@@ -1278,7 +1274,7 @@ mod tests {
     #[deterministic_id_test]
     fn move_nodes_enter_exit_constraint() {
         let mut env = Default::default();
-        let global_net = Network::from_file(
+        let global_net = Network::from_file_with_partitioning(
             "./assets/3-links/3-links-network.xml",
             1,
             &PartitionMethod::Metis(MetisOptions::default()),
@@ -1309,7 +1305,7 @@ mod tests {
     #[deterministic_id_test]
     fn move_nodes_storage_cap_constraint() {
         let mut env = ThreadLocalComputationalEnvironment::default();
-        let mut global_net = Network::from_file(
+        let mut global_net = Network::from_file_with_partitioning(
             "./assets/3-links/3-links-network.xml",
             1,
             &PartitionMethod::Metis(MetisOptions::default()),
@@ -1408,7 +1404,7 @@ mod tests {
     fn move_nodes_stuck_threshold() {
         let mut env = ThreadLocalComputationalEnvironment::default();
         XmlEventsWriter::register_fn("test_output/test.xml")(&mut env.events_manager_borrow_mut());
-        let mut global_net = Network::from_file(
+        let mut global_net = Network::from_file_with_partitioning(
             "./assets/3-links/3-links-network.xml",
             1,
             &PartitionMethod::Metis(MetisOptions::default()),

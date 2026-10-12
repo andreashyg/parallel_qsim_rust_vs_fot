@@ -24,8 +24,17 @@ partition of its `to` node. METIS partitions undirected graphs and requires them
 without duplicate edges. It does not check this, and invalid input makes it access memory out of bounds. Therefore,
 each pair of nodes connected by at least one link becomes one edge. Its weight is the sum of the weights of all links
 between both nodes in either direction (each truncated to an integer), but at least 1. Loop links are ignored.
-`contiguous: true` requires a connected graph, so networks with separate components, e.g. transit stop nodes with only a
-loop link or a transit network that is not connected to the road network, need `contiguous: false`. Before October 2026, the graph was built from the
+`partitioning.non_main_mode_links` controls links that allow none of the `qsim.main_modes`, e.g. the links of a transit
+network whose vehicles are teleported. No vehicle moves on them, but agents perform activities on them, e.g.
+`pt interaction`. With the default `AssignAfterPartitioningToNearest`, METIS only partitions the nodes incident to a
+link that allows a main mode, and only these links become edges and contribute to vertex weights. Afterwards, every
+other node is assigned to the partition of the nearest partitioned node in the x/y plane; ties are broken by the
+smallest external node id. Only if no link allows a main mode, e.g. because `qsim.main_modes` is empty, all nodes and
+links are partitioned. With `Include`, all nodes and links are partitioned regardless of their modes, as before
+October 2026. `Network::from_file_with_partitioning` always partitions all nodes and links. `contiguous: true` requires a connected
+graph, i.e. a connected main-mode network with `AssignAfterPartitioningToNearest`. Networks with separate components,
+e.g. transit stop nodes with only a loop link or a transit network that is not connected to the road network, need
+`contiguous: false` with `Include`. Before October 2026, the graph was built from the
 directed links, with every incoming link turned into a loop. Network files partitioned with that version were computed
 from an invalid graph and should be partitioned again.
 

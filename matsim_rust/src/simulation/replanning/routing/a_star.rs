@@ -543,7 +543,7 @@ mod tests {
     #[deterministic_id_test]
     fn test_mode_alt_routing_same_graphs() {
         // load network
-        let network = Network::from_file(
+        let network = Network::from_file_with_partitioning(
             "./assets/adhoc_routing/no_updates/network.xml",
             1,
             &PartitionMethod::Metis(MetisOptions::default()),
@@ -624,7 +624,7 @@ mod tests {
     #[deterministic_id_test]
     fn test_mode_alt_routing_different_graphs() {
         // load network
-        let network = Network::from_file(
+        let network = Network::from_file_with_partitioning(
             "./assets/routing_tests/network_different_modes.xml",
             1,
             &PartitionMethod::Metis(MetisOptions::default()),
@@ -874,7 +874,7 @@ mod tests {
     /// Test routing with non-existing or disconnected links, should return None
     #[deterministic_id_test]
     fn test_nonexisting_or_disconnected_links() {
-        let network = Network::from_file(
+        let network = Network::from_file_with_partitioning(
             "./assets/adhoc_routing/no_updates/network.xml",
             1,
             &PartitionMethod::Metis(MetisOptions::default()),
@@ -963,7 +963,7 @@ mod tests {
     }
 
     fn load_network(path: &str) -> Arc<Network> {
-        Arc::new(Network::from_file(
+        Arc::new(Network::from_file_with_partitioning(
             path,
             1,
             &PartitionMethod::Metis(MetisOptions::default()),

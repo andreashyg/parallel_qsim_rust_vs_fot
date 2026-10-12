@@ -4,6 +4,7 @@ use matsim_rust::simulation::controller::controller::ControllerBuilder;
 use matsim_rust::simulation::events::utils::compare_event_folder;
 use matsim_rust::simulation::events::{LinkEnterEvent, LinkLeaveEvent, PersonStuckEvent};
 use matsim_rust::simulation::framework_events::WorkerListenerRegisterFunction;
+use matsim_rust::simulation::id::Id;
 use matsim_rust::simulation::scenario::Scenario;
 use matsim_rust::simulation::time::SimTime;
 use std::collections::HashMap;
@@ -65,6 +66,41 @@ fn teleportation_between_disconnected_partitions_panics() {
         .build()
         .unwrap();
     controller.run();
+}
+
+/// Only the road links allow the main mode `car`. The stops are not connected to the road, so
+/// they are assigned to the partition of the nearest road node. The agent walks from link1 to the
+/// stop next to node4, i.e. from one partition to the other.
+#[deterministic_id_test(matsim_rust)]
+fn stops_without_main_mode_are_assigned_to_nearest_partition() {
+    let run = |num_parts: u32| {
+        let mut config = Config::from_args(CommandLineArgs::new_with_path(
+            "./tests/resources/3-links/3-links-config-transit.yml",
+        ));
+        config.partitioning_mut().num_parts = num_parts;
+        let output_dir = PathBuf::from(format!(
+            "./test_output/simulation/execute_3_links_transit_{num_parts}"
+        ));
+        config.output_mut().output_dir = output_dir.clone();
+
+        let scenario = Scenario::load(config);
+        if num_parts == 2 {
+            let partition = |node: &str| scenario.network.get_node(&Id::create(node)).partition;
+            assert_ne!(partition("node1"), partition("node4"));
+            assert_eq!(partition("node1"), partition("stop1"));
+            assert_eq!(partition("node4"), partition("stop4"));
+        }
+
+        let controller = ControllerBuilder::default_with_scenario(scenario)
+            .build()
+            .unwrap();
+        controller.run();
+        output_dir.join("events")
+    };
+
+    let single_part_events = run(1);
+    let two_parts_events = run(2);
+    compare_event_folder(single_part_events, two_parts_events).unwrap();
 }
 
 #[derive(Clone, Default)]

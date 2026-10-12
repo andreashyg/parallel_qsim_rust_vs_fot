@@ -11,6 +11,8 @@ fn test_berlin_1() {
     test_berlin(1);
 }
 
+// The network contains the link `pt_road_connector` without modes. It connects the transit network to
+// the road network, so that METIS does not create a partition that shares no link with the other one.
 #[deterministic_id_test(matsim_rust)]
 fn test_berlin_2() {
     test_berlin(2);

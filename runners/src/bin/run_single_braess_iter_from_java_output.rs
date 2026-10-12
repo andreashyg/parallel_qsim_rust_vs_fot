@@ -1,7 +1,7 @@
 use clap::{Parser, ValueEnum};
 use matsim_rust::simulation::config::{
-    CompressionType, Config, Logging, Network, OverwriteFiles, Population, Vehicles, WriteEvents,
-    parse_key_val,
+    CompressionType, Config, Logging, Network, OverwriteFiles, Population, ScoringMode, Vehicles,
+    WriteEvents, parse_key_val,
 };
 use matsim_rust::simulation::controller::controller::ControllerBuilder;
 use matsim_rust::simulation::logging::init_std_out_logging_thread_local;
@@ -120,7 +120,6 @@ fn main() {
         .expect("corrected_output_pop_pattern must be a string")
         .to_string();
 
-
     let args = CommandLineArgs::parse();
     info!("Started with args: {:?}", args);
 
@@ -174,6 +173,7 @@ fn main() {
     // write xml.zst instead of binbp (is human-readable)
     config.controller_mut().compression_type = CompressionType::Zst;
 
+    config.scoring_mut().mode = ScoringMode::Disabled;
     // config.
     if args.delete_output_dir_if_existing {
         config.output_mut().overwrite_files = OverwriteFiles::DeleteDirectoryIfExists;

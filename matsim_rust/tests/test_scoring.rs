@@ -17,7 +17,7 @@ use std::time::Duration;
 fn backpacking_produces_partition_independent_experienced_plans() {
     let single = run_and_load("./tests/resources/equil/equil-config-1-scoring.yml");
     let partitioned = run_and_load("./tests/resources/equil/equil-config-2-scoring.yml");
-    let network = Network::from_file_as_is(Path::new("./assets/equil/equil-network.xml"));
+    let network = Network::from_file(Path::new("./assets/equil/equil-network.xml"));
 
     assert!(!single.persons.is_empty());
     assert_eq!(single, partitioned);

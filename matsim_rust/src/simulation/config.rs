@@ -305,6 +305,7 @@ impl Config {
                 Box::new(Partitioning {
                     num_parts: 1,
                     method: PartitionMethod::None,
+                    non_main_mode_links: NonMainModeLinks::default(),
                 }),
             );
         }
@@ -615,6 +616,22 @@ register_override!("ids.path", |config, value| {
 pub struct Partitioning {
     pub num_parts: u32,
     pub method: PartitionMethod,
+    #[serde(default)]
+    pub non_main_mode_links: NonMainModeLinks,
+}
+
+/// How a partitioning method treats links that allow none of the `qsim.main_modes`, e.g. links of
+/// a transit network whose vehicles are teleported. No vehicle moves on such links, but agents may
+/// still perform activities on them, e.g. `pt interaction`.
+#[derive(PartialEq, Debug, ValueEnum, Clone, Copy, Serialize, Deserialize, Default)]
+pub enum NonMainModeLinks {
+    /// Only the nodes incident to a link that allows a main mode are partitioned, using only these
+    /// links. Afterwards, every other node is assigned to the partition of the nearest partitioned
+    /// node. If no link allows a main mode, all nodes and links are partitioned.
+    #[default]
+    AssignAfterPartitioningToNearest,
+    /// All nodes and links are partitioned, regardless of their modes.
+    Include,
 }
 
 register_override!("partitioning.num_parts", |config, value| {
@@ -624,6 +641,18 @@ register_override!("partitioning.num_parts", |config, value| {
         let out_dir = format!("{}-{v}", config.output().output_dir.to_str().unwrap());
         config.output_mut().output_dir = out_dir.into();
     }
+});
+
+// Only `none` can be set from the command line. It makes the simulation use the partitions stored
+// in the network file. Metis options have to be configured in the config file.
+register_override!("partitioning.method", |config, value| {
+    config.partitioning_mut().method = match value.to_lowercase().as_str() {
+        "none" => PartitionMethod::None,
+        _ => panic!(
+            "Invalid partitioning method: {}. Only `none` can be overridden, configure Metis in the config file.",
+            value
+        ),
+    };
 });
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -657,6 +686,14 @@ register_override!("output.output_dir", |config, value| {
 
 register_override!("output.overwrite_files", |config, value| {
     config.output_mut().overwrite_files = parse_overwrite_file(value);
+});
+
+register_override!("output.write_events", |config, value| {
+    config.output_mut().write_events = match value.to_lowercase().as_str() {
+        "none" => WriteEvents::None,
+        "file" => WriteEvents::File,
+        _ => panic!("Invalid write_events: {}", value),
+    };
 });
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -1578,9 +1615,9 @@ mod tests {
     use crate::simulation::config::WriteEvents;
     use crate::simulation::config::{
         ActivityParameter, AgentParameter, CommandLineArgs, CompressionType, ComputationalSetup,
-        Config, Controller, EdgeWeight, MetisOptions, ModeParameter, PartitionMethod, Partitioning,
-        QSim, Replanning, Routing, Scoring, ScoringMode, StrategySetting, TeleportedParams,
-        TravelTimeCalculator, VertexWeight, parse_key_val,
+        Config, Controller, EdgeWeight, MetisOptions, ModeParameter, NonMainModeLinks,
+        PartitionMethod, Partitioning, QSim, Replanning, Routing, Scoring, ScoringMode,
+        StrategySetting, TeleportedParams, TravelTimeCalculator, VertexWeight, parse_key_val,
     };
     use crate::simulation::config::{Ids, Network, Population, Transit, Vehicles};
     use crate::simulation::config::{Logging, ModalLinkSelection, RoutingMode};
@@ -1602,6 +1639,7 @@ mod tests {
                 iteration_number: 100,
                 contiguous: true,
             }),
+            non_main_mode_links: NonMainModeLinks::Include,
         };
         let computational_setup = ComputationalSetup {
             global_sync: true,
@@ -1650,6 +1688,10 @@ mod tests {
                 iteration_number: 100,
                 contiguous: true,
             })
+        );
+        assert_eq!(
+            parsed_config.partitioning().non_main_mode_links,
+            NonMainModeLinks::Include
         );
 
         assert!(parsed_config.computational_setup().global_sync);
@@ -1734,6 +1776,40 @@ mod tests {
         let parsed_config: Config = serde_yaml::from_str(yaml).expect("failed to parse config");
         assert_eq!(parsed_config.partitioning().num_parts, 1);
         assert_eq!(parsed_config.partitioning().method, PartitionMethod::None);
+        assert_eq!(
+            parsed_config.partitioning().non_main_mode_links,
+            NonMainModeLinks::AssignAfterPartitioningToNearest
+        );
+    }
+
+    #[test]
+    fn read_non_main_mode_links() {
+        let yaml = |value: &str| {
+            format!(
+                r#"
+        modules:
+          partitioning:
+            type: Partitioning
+            num_parts: 2
+            method: None
+            non_main_mode_links: {value}
+        "#
+            )
+        };
+
+        for (value, expected) in [
+            (
+                "AssignAfterPartitioningToNearest",
+                NonMainModeLinks::AssignAfterPartitioningToNearest,
+            ),
+            ("Include", NonMainModeLinks::Include),
+        ] {
+            let parsed_config: Config =
+                serde_yaml::from_str(&yaml(value)).expect("failed to parse config");
+            assert_eq!(parsed_config.partitioning().non_main_mode_links, expected);
+        }
+
+        assert!(serde_yaml::from_str::<Config>(&yaml("Nearest")).is_err());
     }
 
     #[test]
@@ -2426,6 +2502,7 @@ modules:
         config.set_partitioning(Partitioning {
             num_parts: 1,
             method: PartitionMethod::None,
+            non_main_mode_links: NonMainModeLinks::default(),
         });
         config.set_routing(Routing {
             mode: RoutingMode::UsePlans,
@@ -2519,6 +2596,28 @@ modules:
         config.apply_overrides(&[("scoring.mode".to_string(), "disabled".to_string())]);
 
         assert_eq!(config.scoring().mode, ScoringMode::Disabled);
+    }
+
+    #[test]
+    fn override_write_events() {
+        let mut config = base_config();
+        assert_eq!(config.output().write_events, WriteEvents::None);
+
+        config.apply_overrides(&[("output.write_events".to_string(), "File".to_string())]);
+        assert_eq!(config.output().write_events, WriteEvents::File);
+
+        config.apply_overrides(&[("output.write_events".to_string(), "none".to_string())]);
+        assert_eq!(config.output().write_events, WriteEvents::None);
+    }
+
+    #[test]
+    fn override_partitioning_method() {
+        let mut config = base_config();
+        config.partitioning_mut().method = PartitionMethod::Metis(MetisOptions::default());
+
+        config.apply_overrides(&[("partitioning.method".to_string(), "none".to_string())]);
+
+        assert_eq!(config.partitioning().method, PartitionMethod::None);
     }
 
     #[test]

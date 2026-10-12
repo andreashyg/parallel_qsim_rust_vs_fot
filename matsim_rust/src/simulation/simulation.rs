@@ -6,6 +6,7 @@ use crate::simulation::engines::activity_engine::{ActivityEngine, ActivityEngine
 use crate::simulation::engines::leg_engine::LegEngine;
 use crate::simulation::events::PersonStuckEventBuilder;
 use crate::simulation::framework_events::MobsimEvent;
+use crate::simulation::messaging::messages::InternalSyncMessage;
 use crate::simulation::messaging::sim_communication::SimCommunicator;
 use crate::simulation::messaging::sim_communication::message_broker::NetMessageBroker;
 use crate::simulation::population::agent_source::DynAgentSource;
@@ -125,6 +126,14 @@ where
         let agents_act_to_leg = self.activity_engine.do_step(now, agents);
         let agents_leg_to_act = self.leg_engine.do_step(now, agents_act_to_leg);
         agents_leg_to_act
+    }
+
+    /// Returns the messages this partition received but never processed. Must be called by all partitions after [`Simulation::run`],
+    /// see [`NetMessageBroker::take_unprocessed_messages`]. Internally syncs all partitions to ensure that all messages have been sent and received.
+    pub fn take_unprocessed_messages(&mut self) -> Vec<InternalSyncMessage> {
+        self.leg_engine
+            .net_message_broker_mut()
+            .take_unprocessed_messages()
     }
 
     pub(crate) fn is_local_route(

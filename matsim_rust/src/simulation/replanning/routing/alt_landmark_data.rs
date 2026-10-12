@@ -156,8 +156,9 @@ mod tests {
     use crate::simulation::replanning::routing::graph::tests::{
         get_triangle_test_network, net_to_graph,
     };
+    use macros::deterministic_id_test;
 
-    #[test]
+    #[deterministic_id_test]
     fn test_landmark_choice_and_disutility_calculation() {
         let network = get_triangle_test_network();
         let graph = net_to_graph(&network);

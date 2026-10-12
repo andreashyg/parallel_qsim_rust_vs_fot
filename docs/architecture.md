@@ -29,6 +29,13 @@ loop link or a transit network that is not connected to the road network, need `
 directed links, with every incoming link turned into a loop. Network files partitioned with that version were computed
 from an invalid graph and should be partitioned again.
 
+In every step, a partition waits for messages from its neighbors, i.e. the partitions it shares a link with. Messages
+from other partitions, e.g. teleported agents whose destination link lies in a partition that is not a neighbor, are
+only read if they arrive while the partition is waiting, and never if the partition has no neighbors at all. This
+happens if the network consists of components that are not connected by links and a component forms a partition of
+its own. After each mobsim run, all workers wait for each other once more and return the messages they never
+processed. If there are any, the controller panics, because the agents in them are lost.
+
 Populations are read in parallel, both from XML and from protobuf. A reader thread splits the input into persons,
 which are parsed and converted by the rayon thread pool. The id store must stay independent of the number of threads:
 for protobuf, all ids except missing subpopulations are only looked up, and these are created in file order afterwards.

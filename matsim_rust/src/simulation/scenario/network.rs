@@ -760,8 +760,8 @@ mod tests {
 
         // check partitioning
         // Node i has the internal id i - 1. A balanced split has to cut the nine routes between
-        // nodes 2 and 12 and the ring once. Part 1 contains node 2 and the nodes 4 to 10.
-        let expected_partitions = [0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0];
+        // nodes 2 and 12 and the ring once. Part 1 contains the nodes 3 to 9 and node 12.
+        let expected_partitions = [0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0, 0, 0];
         for node in network.nodes.values() {
             let expected_partition = expected_partitions[node.id.internal() as usize];
             assert_eq!(expected_partition, node.partition);

@@ -9,7 +9,13 @@ use nohash_hasher::{IntMap, IntSet};
 use rstar::RTree;
 use rstar::primitives::GeomWithData;
 use std::collections::BTreeMap;
+use std::sync::{Mutex, PoisonError};
 use tracing::info;
+
+/// Serializes all calls to METIS. METIS is built with GKlib's own random number generator (see
+/// `[patch.crates-io]` in the workspace manifest), whose state is shared by the whole process and
+/// not synchronized. Concurrent calls would race on it and make the partitions irreproducible.
+static METIS_LOCK: Mutex<()> = Mutex::new(());
 
 /// Partitions the nodes of `network` into `num_parts` parts using METIS.
 ///
@@ -63,6 +69,9 @@ pub fn partition_subnetwork(
     };
 
     info!("Calling Metis Partitioning Library");
+    // METIS reseeds the random number generator with the seed below in every call. Holding the
+    // lock until the call returns keeps other calls from drawing numbers in between.
+    let _metis_guard = METIS_LOCK.lock().unwrap_or_else(PoisonError::into_inner);
     let mut graph = Graph::new(
         ncon,
         num_parts as Idx,
@@ -398,6 +407,85 @@ mod tests {
             let graph = full_metis_graph(&network, &options);
             assert_valid_metis_graph(&graph, 2);
         }
+    }
+
+    fn andorra_network() -> Network {
+        Network::from_file_with_partitioning(
+            "./assets/andorra-network.xml.gz",
+            1,
+            &PartitionMethod::None,
+        )
+    }
+
+    fn andorra_options() -> MetisOptions {
+        MetisOptions::default()
+            .set_edge_weight(EdgeWeight::Capacity)
+            .add_vertex_weight(VertexWeight::InLinkCount)
+            .set_contiguous(false)
+    }
+
+    /// The partition of each node by external id, independent of the internal ids.
+    fn partitions_by_name(partitions: &IntMap<Id<Node>, Idx>) -> BTreeMap<String, Idx> {
+        partitions
+            .iter()
+            .map(|(id, partition)| (id.external().to_string(), *partition))
+            .collect()
+    }
+
+    /// METIS draws random numbers. It is built with GKlib's own random number generator and
+    /// without floating-point contraction, so the same seed yields the same partitions on every
+    /// platform. The expected values were computed once and must be reproduced by CI, which runs
+    /// on another platform. A network as large as Andorra is needed, because the partitions of
+    /// small networks hardly depend on the random numbers.
+    #[deterministic_id_test]
+    fn partition_is_platform_independent() {
+        let network = andorra_network();
+        let partitions = partitions_by_name(&partition(&network, 8, &andorra_options()));
+
+        let mut nodes_per_partition = BTreeMap::new();
+        for partition in partitions.values() {
+            *nodes_per_partition.entry(*partition).or_insert(0) += 1;
+        }
+        // FNV-1a hash of all external ids and their partitions, ordered by external id.
+        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+        for (name, partition) in &partitions {
+            let bytes = name.bytes().chain([0]).chain(partition.to_le_bytes());
+            for byte in bytes {
+                hash = (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3);
+            }
+        }
+
+        assert_eq!(
+            BTreeMap::from([
+                (0, 314),
+                (1, 276),
+                (2, 305),
+                (3, 270),
+                (4, 272),
+                (5, 274),
+                (6, 276),
+                (7, 272)
+            ]),
+            nodes_per_partition
+        );
+        assert_eq!(517_327_694_060_400_677, hash);
+    }
+
+    /// METIS calls are serialized, so that concurrent calls do not draw random numbers from each
+    /// other's sequence.
+    #[deterministic_id_test]
+    fn concurrent_partitioning_is_deterministic() {
+        let network = andorra_network();
+        let expected = partitions_by_name(&partition(&network, 8, &andorra_options()));
+
+        std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..4)
+                .map(|_| scope.spawn(|| partition(&network, 8, &andorra_options())))
+                .collect();
+            for handle in handles {
+                assert_eq!(expected, partitions_by_name(&handle.join().unwrap()));
+            }
+        });
     }
 
     /// Only nodes `a` to `c` are connected by `car` links. The `bike` link `ca` connects two of

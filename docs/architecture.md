@@ -38,6 +38,12 @@ e.g. transit stop nodes with only a loop link or a transit network that is not c
 directed links, with every incoming link turned into a loop. Network files partitioned with that version were computed
 from an invalid graph and should be partitioned again.
 
+METIS draws random numbers from a fixed seed. The workspace takes `metis-sys` from a fork (see `[patch.crates-io]` in
+`Cargo.toml`), which builds the bundled METIS with GKlib's own random number generator (`USE_GKRAND`) instead of the C
+library's `rand()`, and without floating-point contraction (`-ffp-contract=off`). Hence, METIS yields the same partitions
+on every platform. Changing the fork, the seed or the METIS version changes the partitions. The state of the random
+number generator is shared by the whole process, so all calls to METIS are serialized.
+
 In every step, a partition waits for messages from its neighbors, i.e. the partitions it shares a link with. Messages
 from other partitions, e.g. teleported agents whose destination link lies in a partition that is not a neighbor, are
 only read if they arrive while the partition is waiting, and never if the partition has no neighbors at all. This

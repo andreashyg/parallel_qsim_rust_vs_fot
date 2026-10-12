@@ -14,6 +14,7 @@ modules:
   # Replace activity times in the population with the correct ones, and add access/egress legs
   - replace_activity_times_and_add_access_egress_legs_in_population:
     type: PrepareOriginalPopulation
+    skip_if_existing: false
     overwrites:
       max_parallel_jobs: 1  # this seems to take a lot of memory, so we don't want to run too many in parallel
 

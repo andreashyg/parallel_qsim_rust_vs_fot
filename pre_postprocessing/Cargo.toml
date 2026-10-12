@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 experiment_machine = { path = "../experiment_machine" }
-rust_qsim = { path = "../rust_qsim" }
+matsim-rust = { path = "../matsim_rust" }
 nohash-hasher = "0.2.0"
 tracing = "0.1"
 clap = { version = "4.0.29", features = ["derive"] }

@@ -1,10 +1,10 @@
 use clap::Parser;
 use experiment_machine::config::GlobalConfig;
+use matsim_rust::simulation::logging::init_std_out_logging_thread_local;
 use pre_postprocessing::csv_column_renaming::rename_csv_columns;
 use pre_postprocessing::utils::{
     replace_file_name_end_placeholder_in_path_pattern, replace_placeholders_in_path_pattern,
 };
-use rust_qsim::simulation::logging::init_std_out_logging_thread_local;
 use std::path::PathBuf;
 use tracing::info;
 
@@ -58,9 +58,9 @@ fn main() {
         std::fs::File::open(
             "./experiments/compare_braess_to_java/experiment_sets/global_config.yaml",
         )
-        .expect("Failed to open global config file"),
+            .expect("Failed to open global config file"),
     )
-    .expect("Failed to read global config");
+        .expect("Failed to read global config");
 
     let output_file_pattern_with_file_name_end = replace_file_name_end_placeholder_in_path_pattern(
         &args.output_file_pattern,
@@ -83,7 +83,7 @@ fn main() {
         &PathBuf::from(output_file),
         &args.column_names,
     )
-    .expect("Failed to rename CSV columns");
+        .expect("Failed to rename CSV columns");
 
     info!("Successfully wrote renamed CSV file");
 }

@@ -1,4 +1,3 @@
-use crate::simulation::config::PartitionMethod;
 use crate::simulation::id::Id;
 use crate::simulation::scenario::facilities::ActivityFacilities;
 use crate::simulation::scenario::network::{Link, Network};

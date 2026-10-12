@@ -1196,7 +1196,11 @@ mod tests {
         let register = XmlEventsWriter::register_fn("test_output/test.xml");
         register(&mut env.events_manager_borrow_mut());
 
-        let global_net = Network::from_file("./assets/3-links/3-links-network.xml");
+        let global_net = Network::from_file_with_partitioning(
+            "./assets/3-links/3-links-network.xml",
+            1,
+            &PartitionMethod::Metis(MetisOptions::default()),
+        );
         let mut network =
             SimNetworkPartition::from_network_for_test(&global_net, 0, &test_utils::config());
         let agent = test_utils::create_agent(1, vec!["link1", "link2", "link3"]);

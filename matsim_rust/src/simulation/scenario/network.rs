@@ -1,6 +1,6 @@
 use crate::simulation::InternalAttributes;
 use crate::simulation::config::{
-    MetisOptions, ModalLinkSelection, NonMainModeLinks, PartitionMethod, Partitioning,
+    ModalLinkSelection, NonMainModeLinks, PartitionMethod, Partitioning,
 };
 use crate::simulation::id::Id;
 use crate::simulation::io::proto::proto_network::{
@@ -14,10 +14,7 @@ use crate::simulation::io::xml::network::{
 use crate::simulation::network::metis_partitioning;
 use crate::simulation::scenario::Coordinate;
 use itertools::Itertools;
-use metis::Idx;
 use nohash_hasher::{IntMap, IntSet};
-use rstar::RTree;
-use rstar::primitives::GeomWithData;
 use spatial_index::{LazySpatialIndex, NetworkSpatialIndex};
 use std::collections::HashSet;
 use std::path::Path;

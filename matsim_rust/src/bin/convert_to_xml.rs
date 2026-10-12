@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use clap::Parser;
 use tracing::info;
 
-use matsim_rust::simulation::config::PartitionMethod;
 use matsim_rust::simulation::scenario::facilities::ActivityFacilities;
 use matsim_rust::simulation::scenario::network::Network;
 use matsim_rust::simulation::scenario::population::Population;

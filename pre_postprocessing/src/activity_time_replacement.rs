@@ -1,5 +1,5 @@
-use rust_qsim::simulation::scenario::Coordinate;
-use rust_qsim::simulation::scenario::population::Population;
+use matsim_rust::simulation::scenario::Coordinate;
+use matsim_rust::simulation::scenario::population::Population;
 
 /// Replaces the activity times in a given population with the activity times from another
 /// population. Also adds dummy coordinates to activities that don't have coordinates.
@@ -40,8 +40,8 @@ pub fn replace_activity_times_and_add_dummy_coords_to_acts(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rust_qsim::simulation::scenario::vehicles::Garage;
-    use rust_qsim::simulation::time::SimTime;
+    use matsim_rust::simulation::scenario::vehicles::Garage;
+    use matsim_rust::simulation::time::SimTime;
 
     #[test]
     fn test_replace_activity_times() {

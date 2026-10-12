@@ -8,7 +8,7 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_yaml = "0.9.34"
 typetag = "0.2.18"
 
-rust_qsim = { path = "../rust_qsim" }
+matsim-rust = { path = "../matsim_rust" }
 clap = { version = "4.6.7", features = ["derive"] }
 tracing = "0.1"
 tracing-appender = "0.2"

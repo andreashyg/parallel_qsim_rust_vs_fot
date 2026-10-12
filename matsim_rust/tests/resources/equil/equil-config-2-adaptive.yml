@@ -1,0 +1,39 @@
+modules:
+  scoring:
+    type: Scoring
+    activity_params:
+      - activity_type: h
+        typical_duration_s: 43200.0
+      - activity_type: w
+        typical_duration_s: 28800.0
+  network:
+    type: Network
+    path: ./test_output/simulation/equil_with_channels-adaptive/equil-network.binpb
+  population:
+    type: Population
+    path: ./test_output/simulation/equil_with_channels-adaptive/equil-1-plan.binpb
+  vehicles:
+    type: Vehicles
+    path: ./test_output/simulation/equil_with_channels-adaptive/equil-vehicles.binpb
+  ids:
+    type: Ids
+    path: ./test_output/simulation/equil_with_channels-adaptive/ids.binpb
+  partitioning:
+    type: Partitioning
+    num_parts: 2
+    method: !Metis
+      vertex_weight:
+        - Constant
+  output:
+    type: Output
+    overwrite_files: DeleteDirectoryIfExists
+    output_dir: ./test_output/simulation/equil_with_channels-adaptive
+    write_events: File
+  routing:
+    type: Routing
+    mode: AdHoc
+    network_modes: [ "car" ]
+  simulation:
+    type: Simulation
+    last_iteration: 0
+    main_modes: [ "car" ]

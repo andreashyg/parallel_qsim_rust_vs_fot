@@ -3,9 +3,9 @@ use std::fs::create_dir_all;
 use std::path::PathBuf;
 
 use clap::Parser;
+use matsim_rust::simulation::logging::init_std_out_logging_thread_local;
 use pre_postprocessing::activity_dummy_coordinates::add_dummy_coordinates_to_file;
 use pre_postprocessing::utils::replace_placeholders_in_path_pattern;
-use rust_qsim::simulation::logging::init_std_out_logging_thread_local;
 use tracing::info;
 
 #[derive(Parser, Debug)]

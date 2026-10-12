@@ -1,11 +1,11 @@
-use rust_qsim::simulation::InternalAttributes;
-use rust_qsim::simulation::id::Id;
-use rust_qsim::simulation::scenario::Coordinate;
-use rust_qsim::simulation::scenario::population::{
+use matsim_rust::simulation::InternalAttributes;
+use matsim_rust::simulation::id::Id;
+use matsim_rust::simulation::scenario::Coordinate;
+use matsim_rust::simulation::scenario::population::{
     InternalActivity, InternalGenericRoute, InternalLeg, InternalPlanElement, InternalRoute,
     Population,
 };
-use rust_qsim::simulation::time::SimTime;
+use matsim_rust::simulation::time::SimTime;
 use std::ops::Add;
 use std::time::Duration;
 
@@ -187,7 +187,7 @@ pub fn add_access_egress_legs_if_necessary(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rust_qsim::simulation::scenario::vehicles::Garage;
+    use matsim_rust::simulation::scenario::vehicles::Garage;
     #[test]
     fn test_add_access_egress_legs() {
         // shortened version of braess/refinement/no_spillback_scenario/2026-05-12-8-42-24_500it_reRouteProba0.1until0.8it_selExpBeta10proba0.9_msaFrom0.8it/beta2/random1/beta2random1.output_plans.xml.gz

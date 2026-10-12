@@ -1,11 +1,11 @@
 use clap::{Parser, ValueEnum};
-use rust_qsim::simulation::config::{
+use matsim_rust::simulation::config::{
     CompressionType, Config, Logging, Network, OverwriteFiles, Population, Vehicles, WriteEvents,
     parse_key_val,
 };
-use rust_qsim::simulation::controller::controller::ControllerBuilder;
-use rust_qsim::simulation::logging::init_std_out_logging_thread_local;
-use rust_qsim::simulation::scenario::Scenario;
+use matsim_rust::simulation::controller::controller::ControllerBuilder;
+use matsim_rust::simulation::logging::init_std_out_logging_thread_local;
+use matsim_rust::simulation::scenario::Scenario;
 use std::fmt::Display;
 
 use experiment_machine::config::GlobalConfig;

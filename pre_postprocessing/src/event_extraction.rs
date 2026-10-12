@@ -1,4 +1,12 @@
 #![allow(ambiguous_glob_imports)]
+use matsim_rust::simulation::events::{
+    EventHandlerRegisterFn, EventsManager, LinkEnterEvent, VehicleEntersTrafficEvent,
+    VehicleLeavesTrafficEvent,
+};
+use matsim_rust::simulation::id::Id;
+use matsim_rust::simulation::scenario::network::Link;
+use matsim_rust::simulation::scenario::vehicles::InternalVehicle;
+use matsim_rust::simulation::time::SimTime;
 use nohash_hasher::IntMap;
 use polars::df;
 use polars::prelude::*;
@@ -7,14 +15,6 @@ use polars::prelude::*;
 // Unclear if it is even fixed in the newest polars version.as
 // So we import the one we want explicitly here, with a custom name.
 use polars_lazy::prelude::sum_horizontal as polars_lazy_sum_horizontal;
-use rust_qsim::simulation::events::{
-    EventHandlerRegisterFn, EventsManager, LinkEnterEvent, VehicleEntersTrafficEvent,
-    VehicleLeavesTrafficEvent,
-};
-use rust_qsim::simulation::id::Id;
-use rust_qsim::simulation::scenario::network::Link;
-use rust_qsim::simulation::scenario::vehicles::InternalVehicle;
-use rust_qsim::simulation::time::SimTime;
 use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::error::Error;
@@ -423,9 +423,9 @@ impl TravelTimeAndSumDepPerPathCSVWriter {
 #[cfg(test)]
 mod test {
     use crate::event_extraction::{LinkToPathMap, TravelTimeAndSumDepPerPathCSVWriter};
+    use matsim_rust::simulation::events::EventsManager;
+    use matsim_rust::simulation::events::utils::read_events;
     use polars::prelude::*;
-    use rust_qsim::simulation::events::EventsManager;
-    use rust_qsim::simulation::events::utils::read_events;
     use std::fs::create_dir_all;
     use std::path::PathBuf;
 

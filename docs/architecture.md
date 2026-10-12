@@ -3,7 +3,7 @@
 This document provides an overview of the architecture of the project, detailing its main components, their
 interactions, and the overall design principles.
 
-## `rust_qsim`
+## `matsim-rust`
 
 The core implementation of the Rust QSim is oriented towards [MATSim Java](https://github.com/matsim-org/matsim-libs).
 In particular, we tried to minimize the differences between the physics of both simulations, including link dynamics
@@ -15,9 +15,29 @@ Starting the simulation mostly works as in MATSim Java. All XML input files need
 faster reading. These files need to be referenced in a configuration file. Based on the config, a scenario is built,
 based on that the controller -- pretty much like in MATSim Java.
 
+Network links must list their allowed modes explicitly: a link without modes allows no mode. Unlike MATSim, which
+assumes `car` for links without a `modes` attribute, nothing is implied. Loading a network with such links logs a
+warning.
+
+Populations are read in parallel, both from XML and from protobuf. A reader thread splits the input into persons,
+which are parsed and converted by the rayon thread pool. The id store must stay independent of the number of threads:
+for protobuf, all ids except missing subpopulations are only looked up, and these are created in file order afterwards.
+For XML, all ids are created sequentially before the persons are converted, in the order in which converting the
+persons sorted by id one after another would create them (see `for_each_id_of_io_person`). Internal ids are the
+creation index of an id and never depend on hashing.
+
 Scenario ownership is split into three lifecycles. `Scenario` owns the input data while files are read.
 The controller turns it into `ControllerScenario`, which keeps immutable data in a shared `ScenarioCore`
-(`Arc<Network>`, `Arc<Garage>`, `Arc<Config>`) and owns the mutable `Population`.
+(`Arc<Network>`, `Arc<Garage>`, `Arc<TransitSchedule>`, `Arc<ActivityFacilities>`, `Arc<Config>`) and owns the
+mutable `Population`.
+
+Input data is converted into internal types without deriving missing values. Fields that can be derived stay `Option`
+after the conversion and are resolved during preparation; code running afterward uses accessors such as
+`InternalActivity::link_id` instead of unwrapping. Preparation is split into two steps in `scenario::prepare`:
+
+- `prepare_for_sim` runs once on the loaded `Scenario`, before the controller shares it, e.g. with the routing modules.
+  It connects the facilities to the network and resolves the activity locations. Both run in parallel.
+- `prepare_for_mobsim` runs before every mobsim iteration. It validates and repairs plans, e.g. by routing trips.
 
 For mobsim, the controller splits the population into `MobsimInput`s. Each input contains a `MobsimPartition` with the
 shared scenario data and a fresh partition network runtime, plus a `PopulationShard`. Persistent QSim workers receive
@@ -30,9 +50,33 @@ worker result. A thread-local completion listener consolidates the collector's o
 shared travel-time calculator. The last submission atomically publishes the complete, immutable snapshot. The controller
 only waits for worker results, so publication has finished before `AfterMobsim`.
 The shared router reads the snapshot without taking the submission lock; unobserved links use freespeed.
-`prepare_for_sim` uses the previous iteration's snapshot, or an empty snapshot for the first iteration. The workers'
+`prepare_for_mobsim` uses the previous iteration's snapshot, or an empty snapshot for the first iteration. The workers'
 iteration-reset hooks clear the collectors before the next Mobsim. No event-file output is required for travel-time
 collection.
+
+Worker extensions can observe state moving between partitions through a fourth, thread-local
+`PartitionChangeExtensionsManager` bus alongside the simulation-event, Mobsim-lifecycle, and partition-event buses.
+When a vehicle or teleporting agent leaves a partition, the bus moves one typed attachment slot per registered
+extension into the normal network message. The receiving worker installs all attachments before it emits partition
+enter events and hands the entity to its local engine. The network message broker only transports these opaque slots;
+it does not inspect or clone their contents.
+
+Experienced-plan collection uses this migration bus. Each worker creates one `BackpackingEngine` in an
+`Rc<RefCell<_>>`; its backpacks move with vehicles and teleporting agents and keep both their partial plans and any
+future scoring events. At `BeforeCleanup`, every worker converts the backpacks currently on that partition into one
+partial population and sends it to the controller over a dedicated backchannel before publishing its normal worker
+result. Consequently, all partial populations are available when the controller emits `AfterMobsim`. The scoring
+module verifies iteration and rank and merges the populations deterministically by person ID. The controller then
+scores each reconstructed experienced plan and copies the result to exactly the selected original plan. Experienced
+plans receive the same score and are written only when `scoring.write_experienced_plans` and the configured plan
+writing interval allow it. Collection and scoring always run, even when experienced-plan output is disabled, so
+replanning can consume the updated selected-plan scores. The only exception is `scoring.mode: Disabled`: the controller
+then registers no backpacking engines, collects no experienced plans, and sets the score of each selected plan to
+`None`. Backpacks do not return to an initial or "home" partition.
+Scoring uses the public `PlanScorer` trait and reads only the experienced plan. The controller builder accepts a
+`Box<dyn PlanScorer>`; without one, it creates `CharyparNagelScoringFunction`. The alternative
+`OnlyTravelTimeDependentScoring` assigns the negative elapsed seconds of completed trips, including transfer waits.
+An empty experienced plan receives zero points from either built-in scorer.
 
 ### External Services
 

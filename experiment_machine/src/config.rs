@@ -1,6 +1,6 @@
 use crate::bash_utils;
 use crate::bash_utils::BashFunction;
-use rust_qsim::simulation::config::OverwriteFiles;
+use matsim_rust::simulation::config::OverwriteFiles;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 use std::collections::HashMap;
@@ -1096,7 +1096,7 @@ mod tests {
                 ),
                 ("betas".to_string(), vec![Value::Number(1.into())]),
                 (
-                    "java_seed_indices".to_string(),
+                    "read_from_random_seed_indices".to_string(),
                     vec![
                         Value::Number(1.into()),
                         Value::Number(20.into()),
@@ -1109,6 +1109,13 @@ mod tests {
                 ),
             ]),
             modules: vec![
+                Box::new(PrepareOriginalPopulation {
+                    skip_if_existing: false,
+                    overwrites: Some(HashMap::from_iter([(
+                        "max_parallel_jobs".to_string(),
+                        Value::String("1".to_string()),
+                    )]))
+                }),
                 Box::new(RunRustBasedOnJavaOutput {
                     overwrite_mode: OverwriteFiles::DeleteDirectoryIfExists,
                     overwrites: None,

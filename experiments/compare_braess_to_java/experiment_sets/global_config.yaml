@@ -24,7 +24,9 @@ global_parameters:
   vehicle_file_pattern: "{original_dir_to_read_from}/no_spillback_beta{beta}_vehicles.xml"
   # This is the population that will be used when performing runs based on output plans. That is, the original java
   # output plans, but with the activity times replaced with the correct ones.
-  corrected_output_pop_pattern: "{base_output_dir}/commonData/popsWithFixedActivityTimesAndLegs/{replanning_variant}/beta{beta}/beta{beta}random{read_from_random}.output_plans.xml.gz"
+  #  FIXME uncomment the below line and delete the next
+  #  corrected_output_pop_pattern: "{base_output_dir}/commonData/popsWithFixedActivityTimesAndLegs/{replanning_variant}/beta{beta}/beta{beta}random{read_from_random}.output_plans.xml.gz"
+  corrected_output_pop_pattern: "{base_output_dir}/commonData/popsWithFixedActivityTimesWithoutLegs/{replanning_variant}/beta{beta}/beta{beta}random{read_from_random}.output_plans.xml.gz"
 
   # This is for running runs based on original java output plans in java:
   original_output_config_pattern: "{original_dir_to_read_from}/{replanning_variant}/beta{beta}/random{read_from_random}/beta{beta}random{read_from_random}.output_config.xml"

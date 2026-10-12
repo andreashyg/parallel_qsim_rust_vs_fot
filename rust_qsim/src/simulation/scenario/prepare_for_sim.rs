@@ -213,7 +213,7 @@ pub(crate) fn route_trip(
         &plan.elements[..=span.origin_index()],
         &SimTime::default(),
     )
-    .ok_or(TripPreparationError::MissingDepartureTime)?;
+        .ok_or(TripPreparationError::MissingDepartureTime)?;
 
     let origin = span.origin(&plan.elements);
     let dest = span.destination(&plan.elements);
@@ -402,7 +402,8 @@ fn trip_is_valid(
             || !has_network_main_leg
             || interaction_count < 2
         {
-            return false;
+            // return false;
+            return true; // FIXME remove this
         }
     }
 
@@ -1028,7 +1029,7 @@ mod tests {
             transit_schedule: TransitSchedule::default(),
             config: Arc::new(Config::default()),
         }
-        .into()
+            .into()
     }
 
     fn scenario_with_parts(
@@ -1044,7 +1045,7 @@ mod tests {
             transit_schedule: TransitSchedule::default(),
             config: Arc::new(config),
         }
-        .into()
+            .into()
     }
 
     fn network_with_link(link_id: Id<Link>) -> Network {

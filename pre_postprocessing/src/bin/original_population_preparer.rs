@@ -1,6 +1,5 @@
 use clap::Parser;
 use experiment_machine::config::GlobalConfig;
-use pre_postprocessing::access_egress_leg_adding::add_access_egress_legs_if_necessary;
 use pre_postprocessing::activity_time_replacement::replace_activity_times_and_add_dummy_coords_to_acts;
 use pre_postprocessing::utils::replace_placeholders_in_path_pattern;
 use rust_qsim::simulation::logging::init_std_out_logging_thread_local;
@@ -153,7 +152,8 @@ fn main() {
 
     // we use hard-coded access egress leg mode "walk" here, since the experiment runner also uses
     // this
-    add_access_egress_legs_if_necessary(&mut pop_to_be_changed, "walk");
+    // FIXME uncomment this
+    // add_access_egress_legs_if_necessary(&mut pop_to_be_changed, "walk");
     pop_to_be_changed.to_file(output_file.as_ref());
 
     info!(

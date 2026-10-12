@@ -1,0 +1,37 @@
+modules:
+  scoring:
+    type: Scoring
+    activity_params:
+      - activity_type: h
+        typical_duration_s: 43200.0
+      - activity_type: w
+        typical_duration_s: 28800.0
+  network:
+    type: Network
+    path: ./assets/equil/equil-network.xml
+  population:
+    type: Population
+    path: ./tests/resources/equil/equil-1-plan-generic.xml
+  vehicles:
+    type: Vehicles
+    path: ./assets/equil/equil-vehicles.xml
+  partitioning:
+    type: Partitioning
+    num_parts: 1
+    method: !Metis
+  output:
+    type: Output
+    overwrite_files: DeleteDirectoryIfExists
+    output_dir: ./test_output/simulation/output-teleport-generic-route
+    write_events: XmlGz
+  routing:
+    type: Routing
+    mode: UsePlans
+  simulation:
+    type: Simulation
+    last_iteration: 0
+    start_time: 0
+    end_time: 86400
+    sample_size: 1.0
+    stuck_threshold: 1000
+    main_modes:

@@ -1,0 +1,33 @@
+modules:
+  network:
+    type: Network
+    path: ./assets/3-links/3-links-network.xml
+  population:
+    type: Population
+    path: ./assets/3-links/1-agent-full-leg.xml
+  vehicles:
+    type: Vehicles
+    path: ./assets/3-links/vehicles.xml
+  partitioning:
+    type: Partitioning
+    num_parts: 1
+    method: !Metis
+      vertex_weight:
+        - Constant
+  simulation:
+    type: Simulation
+    last_iteration: 0
+    main_modes: [ "car" ]
+  output:
+    type: Output
+    overwrite_files: DeleteDirectoryIfExists
+    output_dir: ./test_output/simulation/execute_3_links_single_part
+    write_events: File
+  routing:
+    type: Routing
+    mode: UsePlans
+    network_modes: [ "car", "bike" ]
+  controller:
+    type: Controller
+    compression_type: Zst
+    last_iteration: 0

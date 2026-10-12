@@ -626,6 +626,18 @@ register_override!("partitioning.num_parts", |config, value| {
     }
 });
 
+// Only `none` can be set from the command line. It makes the simulation use the partitions stored
+// in the network file. Metis options have to be configured in the config file.
+register_override!("partitioning.method", |config, value| {
+    config.partitioning_mut().method = match value.to_lowercase().as_str() {
+        "none" => PartitionMethod::None,
+        _ => panic!(
+            "Invalid partitioning method: {}. Only `none` can be overridden, configure Metis in the config file.",
+            value
+        ),
+    };
+});
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Output {
     pub output_dir: PathBuf,
@@ -657,6 +669,14 @@ register_override!("output.output_dir", |config, value| {
 
 register_override!("output.overwrite_files", |config, value| {
     config.output_mut().overwrite_files = parse_overwrite_file(value);
+});
+
+register_override!("output.write_events", |config, value| {
+    config.output_mut().write_events = match value.to_lowercase().as_str() {
+        "none" => WriteEvents::None,
+        "file" => WriteEvents::File,
+        _ => panic!("Invalid write_events: {}", value),
+    };
 });
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -2519,6 +2539,28 @@ modules:
         config.apply_overrides(&[("scoring.mode".to_string(), "disabled".to_string())]);
 
         assert_eq!(config.scoring().mode, ScoringMode::Disabled);
+    }
+
+    #[test]
+    fn override_write_events() {
+        let mut config = base_config();
+        assert_eq!(config.output().write_events, WriteEvents::None);
+
+        config.apply_overrides(&[("output.write_events".to_string(), "File".to_string())]);
+        assert_eq!(config.output().write_events, WriteEvents::File);
+
+        config.apply_overrides(&[("output.write_events".to_string(), "none".to_string())]);
+        assert_eq!(config.output().write_events, WriteEvents::None);
+    }
+
+    #[test]
+    fn override_partitioning_method() {
+        let mut config = base_config();
+        config.partitioning_mut().method = PartitionMethod::Metis(MetisOptions::default());
+
+        config.apply_overrides(&[("partitioning.method".to_string(), "none".to_string())]);
+
+        assert_eq!(config.partitioning().method, PartitionMethod::None);
     }
 
     #[test]

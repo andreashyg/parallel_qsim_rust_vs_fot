@@ -727,17 +727,18 @@ mod tests {
     }
 
     #[deterministic_id_test]
-    #[ignore] // ingore this test, because it keeps not working, due to non determined ordering of metis
     fn from_file() {
         let network = Network::from_file(
             "./assets/equil/equil-network.xml",
             2,
-            //I don't know, why "edge_weight = true" sets 1 as partition for all nodes.
+            // Constant edge weights, so that the partitions only depend on the network structure.
             &PartitionMethod::Metis(MetisOptions::default().set_edge_weight(EdgeWeight::Constant)),
         );
 
         // check partitioning
-        let expected_partitions = [0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0, 0, 0];
+        // Node i has the internal id i - 1. A balanced split has to cut the nine routes between
+        // nodes 2 and 12 and the ring once. Part 1 contains node 2 and the nodes 4 to 10.
+        let expected_partitions = [0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0];
         for node in network.nodes.values() {
             let expected_partition = expected_partitions[node.id.internal() as usize];
             assert_eq!(expected_partition, node.partition);

@@ -19,6 +19,16 @@ Network links must list their allowed modes explicitly: a link without modes all
 assumes `car` for links without a `modes` attribute, nothing is implied. Loading a network with such links logs a
 warning.
 
+With `PartitionMethod::Metis`, the nodes of the network are partitioned with METIS, and every link belongs to the
+partition of its `to` node. METIS partitions undirected graphs and requires them to be symmetric, without loops and
+without duplicate edges. It does not check this, and invalid input makes it access memory out of bounds. Therefore,
+each pair of nodes connected by at least one link becomes one edge. Its weight is the sum of the weights of all links
+between both nodes in either direction (each truncated to an integer), but at least 1. Loop links are ignored.
+`contiguous: true` requires a connected graph, so networks with separate components, e.g. transit stop nodes with only a
+loop link or a transit network that is not connected to the road network, need `contiguous: false`. Before October 2026, the graph was built from the
+directed links, with every incoming link turned into a loop. Network files partitioned with that version were computed
+from an invalid graph and should be partitioned again.
+
 Populations are read in parallel, both from XML and from protobuf. A reader thread splits the input into persons,
 which are parsed and converted by the rayon thread pool. The id store must stay independent of the number of threads:
 for protobuf, all ids except missing subpopulations are only looked up, and these are created in file order afterwards.

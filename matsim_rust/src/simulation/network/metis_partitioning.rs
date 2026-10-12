@@ -1,12 +1,19 @@
 use ahash::HashMapExt;
 use metis::{Graph, Idx};
 use nohash_hasher::IntMap;
+use std::collections::BTreeMap;
 use tracing::info;
 
 use crate::simulation::config::{EdgeWeight, MetisOptions, VertexWeight};
 use crate::simulation::id::Id;
 use crate::simulation::scenario::network::{Link, Network, Node};
 
+/// Partitions the nodes of `network` into `num_parts` parts using METIS.
+///
+/// METIS partitions undirected graphs. Each node becomes a vertex. Each pair of nodes connected
+/// by at least one link becomes one edge, whose weight is the sum of the weights of all links
+/// between both nodes in either direction (see [`EdgeWeight`]), but at least 1. Loop links, whose
+/// `from` and `to` node are the same, are ignored.
 pub fn partition(
     network: &Network,
     num_parts: u32,
@@ -20,11 +27,6 @@ pub fn partition(
         return result;
     }
 
-    //stores start positions of each node in the adjacency list
-    let mut xadj: Vec<Idx> = Vec::from([0]);
-    let mut adjncy: Vec<Idx> = Vec::new();
-    let mut adjwgt: Vec<Idx> = Vec::new();
-    let mut vwgt: Vec<Idx> = Vec::new();
     let mut metis_result: Vec<Idx> = vec![0x00; network.nodes().len()];
 
     let mut pos_by_node_id = IntMap::default();
@@ -35,29 +37,7 @@ pub fn partition(
     }
 
     info!("Converting network into Metis format");
-    for node in network.nodes() {
-        let num_out_links = node.out_links.len() as Idx;
-        let num_in_links = node.in_links.len() as Idx;
-        let next_adjacency_index = xadj.last().unwrap() + num_out_links + num_in_links;
-        xadj.push(next_adjacency_index);
-
-        // Add vertex weights
-        add_vwgt(network, options, &mut vwgt, node);
-
-        for id in &node.out_links {
-            let link = &network.get_link(id);
-            let node_pos = pos_by_node_id.get(&link.to.internal()).unwrap();
-            adjncy.push(*node_pos as Idx);
-            adjwgt.push(get_adjwgt(options, link) as Idx);
-        }
-
-        for id in &node.in_links {
-            let link = &network.get_link(id);
-            let node_pos = pos_by_node_id.get(&link.to.internal()).unwrap();
-            adjncy.push(*node_pos as Idx);
-            adjwgt.push(get_adjwgt(options, link) as Idx);
-        }
-    }
+    let metis_graph = to_metis_graph(network, options, &pos_by_node_id);
 
     let ncon = if options.vertex_weight.is_empty() {
         1
@@ -66,15 +46,20 @@ pub fn partition(
     };
 
     info!("Calling Metis Partitioning Library");
-    let mut graph = Graph::new(ncon, num_parts as Idx, &xadj, &adjncy)
-        .expect("Failed to create graph")
-        .set_option(metis::option::UFactor(options.ufactor() as Idx))
-        .set_option(metis::option::Seed(4711))
-        .set_option(metis::option::Contig(options.contiguous))
-        .set_adjwgt(&adjwgt);
+    let mut graph = Graph::new(
+        ncon,
+        num_parts as Idx,
+        &metis_graph.xadj,
+        &metis_graph.adjncy,
+    )
+    .expect("Failed to create graph")
+    .set_option(metis::option::UFactor(options.ufactor() as Idx))
+    .set_option(metis::option::Seed(4711))
+    .set_option(metis::option::Contig(options.contiguous))
+    .set_adjwgt(&metis_graph.adjwgt);
 
-    if !vwgt.is_empty() {
-        graph = graph.set_vwgt(&vwgt);
+    if !metis_graph.vwgt.is_empty() {
+        graph = graph.set_vwgt(&metis_graph.vwgt);
     }
 
     graph.part_kway(&mut metis_result).unwrap();
@@ -89,6 +74,71 @@ pub fn partition(
     }
 
     result
+}
+
+/// The network in the CSR format expected by METIS. Vertex `i` is the node at position `i` in
+/// `pos_by_node_id`.
+struct MetisGraph {
+    //stores start positions of each node in the adjacency list
+    xadj: Vec<Idx>,
+    adjncy: Vec<Idx>,
+    adjwgt: Vec<Idx>,
+    vwgt: Vec<Idx>,
+}
+
+fn to_metis_graph(
+    network: &Network,
+    options: &MetisOptions,
+    pos_by_node_id: &IntMap<u64, usize>,
+) -> MetisGraph {
+    let mut xadj: Vec<Idx> = Vec::from([0]);
+    let mut adjncy: Vec<Idx> = Vec::new();
+    let mut adjwgt: Vec<Idx> = Vec::new();
+    let mut vwgt: Vec<Idx> = Vec::new();
+
+    for node in network.nodes() {
+        // Add vertex weights
+        add_vwgt(network, options, &mut vwgt, node);
+
+        // METIS expects an undirected graph without loops and without duplicate edges, in which
+        // every edge u-v is also stored as v-u with the same weight. It does not check this, and
+        // invalid input makes it access memory out of bounds. Links are directed, so all links
+        // between two nodes, in either direction, are merged into one edge. The weight of each
+        // link is truncated to an integer before summing, so the sum is the same from both ends.
+        // Loop links do not connect two nodes and are dropped. The BTreeMap orders the neighbors
+        // by position, which keeps the input to METIS reproducible.
+        let own_pos = pos_by_node_id[&node.id.internal()];
+        let mut neighbors: BTreeMap<usize, Idx> = BTreeMap::new();
+        let out_neighbors = node.out_links.iter().map(|id| {
+            let link = network.get_link(id);
+            (&link.to, link)
+        });
+        let in_neighbors = node.in_links.iter().map(|id| {
+            let link = network.get_link(id);
+            (&link.from, link)
+        });
+        for (neighbor_id, link) in out_neighbors.chain(in_neighbors) {
+            let neighbor_pos = pos_by_node_id[&neighbor_id.internal()];
+            if neighbor_pos != own_pos {
+                let weight = neighbors.entry(neighbor_pos).or_insert(0);
+                *weight = weight.saturating_add(get_adjwgt(options, link) as Idx);
+            }
+        }
+
+        for (neighbor_pos, weight) in neighbors {
+            adjncy.push(neighbor_pos as Idx);
+            // METIS requires positive edge weights, but links with a capacity below 1 yield 0.
+            adjwgt.push(weight.max(1));
+        }
+        xadj.push(adjncy.len() as Idx);
+    }
+
+    MetisGraph {
+        xadj,
+        adjncy,
+        adjwgt,
+        vwgt,
+    }
 }
 
 fn add_vwgt(network: &Network, options: &MetisOptions, vwgt: &mut Vec<Idx>, node: &Node) {
@@ -124,12 +174,14 @@ fn get_adjwgt(options: &MetisOptions, link: &Link) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use crate::simulation::config::{MetisOptions, PartitionMethod, VertexWeight};
+    use crate::simulation::config::{EdgeWeight, MetisOptions, PartitionMethod, VertexWeight};
     use crate::simulation::id::Id;
-    use crate::simulation::network::metis_partitioning::partition;
+    use crate::simulation::network::metis_partitioning::{MetisGraph, partition, to_metis_graph};
     use crate::simulation::scenario::Coordinate;
     use crate::simulation::scenario::network::{Link, Network, Node};
     use macros::deterministic_id_test;
+    use metis::Idx;
+    use nohash_hasher::IntMap;
     use std::collections::BTreeMap;
 
     #[deterministic_id_test]
@@ -147,7 +199,146 @@ mod tests {
         ));
 
         for _n in 0..100 {
-            let _partition_result = partition(&net, 2, &MetisOptions::default());
+            let partition_result = partition(&net, 2, &MetisOptions::default());
+            assert_ne!(partition_result[&from_id], partition_result[&to_id]);
+        }
+    }
+
+    /// Covers all cases in which links do not map one-to-one to METIS edges: a one-way link, a
+    /// pair of opposite links, parallel links, a loop link, an isolated node and capacities
+    /// below 1.
+    #[deterministic_id_test]
+    fn metis_graph_merges_links_into_undirected_edges() {
+        let mut net = Network::new();
+        for (i, name) in ["a", "b", "c", "d", "e"].into_iter().enumerate() {
+            let coord = Coordinate::new_2d(i as f64 * 100., 0.);
+            net.add_node(Node::new(Id::create(name), coord, 0, 1));
+        }
+        for (name, from, to, capacity) in [
+            ("ab", "a", "b", 100.),
+            ("ad", "a", "d", 0.5),
+            ("bc", "b", "c", 300.),
+            ("cb", "c", "b", 200.),
+            ("cd-1", "c", "d", 50.),
+            ("cd-2", "c", "d", 0.4),
+            ("dd", "d", "d", 10.),
+        ] {
+            let mut link = Link::new_with_default(
+                Id::create(name),
+                net.get_node(&Id::get_from_ext(from)),
+                net.get_node(&Id::get_from_ext(to)),
+            );
+            link.capacity = capacity;
+            net.add_link(link);
+        }
+
+        let capacity = MetisOptions::default()
+            .set_edge_weight(EdgeWeight::Capacity)
+            .add_vertex_weight(VertexWeight::InLinkCount);
+        let graph = to_metis_graph(&net, &capacity, &positions(&net));
+        assert_valid_metis_graph(&graph, 1);
+        // Capacities are truncated per link before they are summed: 0.5 becomes 0 and is raised
+        // to the minimum weight 1, 0.4 becomes 0 and adds nothing to the 50 of the parallel link.
+        assert_eq!(
+            BTreeMap::from([
+                ("a", vec![("b", 100), ("d", 1)]),
+                ("b", vec![("a", 100), ("c", 500)]),
+                ("c", vec![("b", 500), ("d", 50)]),
+                ("d", vec![("a", 1), ("c", 50)]),
+                ("e", vec![]),
+            ]),
+            adjacency_by_name(&net, &graph)
+        );
+
+        let constant = MetisOptions::default().set_edge_weight(EdgeWeight::Constant);
+        let graph = to_metis_graph(&net, &constant, &positions(&net));
+        assert_valid_metis_graph(&graph, 0);
+        assert_eq!(
+            BTreeMap::from([
+                ("a", vec![("b", 1), ("d", 1)]),
+                ("b", vec![("a", 1), ("c", 2)]),
+                ("c", vec![("b", 2), ("d", 2)]),
+                ("d", vec![("a", 1), ("c", 2)]),
+                ("e", vec![]),
+            ]),
+            adjacency_by_name(&net, &graph)
+        );
+    }
+
+    #[deterministic_id_test]
+    fn metis_graph_of_andorra_is_valid() {
+        let network =
+            Network::from_file("./assets/andorra-network.xml.gz", 1, &PartitionMethod::None);
+        for edge_weight in [EdgeWeight::Capacity, EdgeWeight::Constant] {
+            let options = MetisOptions::default()
+                .set_edge_weight(edge_weight)
+                .add_vertex_weight(VertexWeight::InLinkCapacity)
+                .add_vertex_weight(VertexWeight::InLinkCount);
+            let graph = to_metis_graph(&network, &options, &positions(&network));
+            assert_valid_metis_graph(&graph, 2);
+        }
+    }
+
+    /// Node positions in the same order as in [`partition`].
+    fn positions(network: &Network) -> IntMap<u64, usize> {
+        network
+            .nodes()
+            .iter()
+            .enumerate()
+            .map(|(i, node)| (node.id.internal(), i))
+            .collect()
+    }
+
+    /// Neighbors and edge weights of each node by external id, independent of node positions.
+    fn adjacency_by_name<'a>(
+        network: &'a Network,
+        graph: &MetisGraph,
+    ) -> BTreeMap<&'a str, Vec<(&'a str, Idx)>> {
+        let nodes = network.nodes();
+        let name = |pos: usize| nodes[pos].id.external();
+        (0..nodes.len())
+            .map(|u| {
+                let edges = graph.xadj[u] as usize..graph.xadj[u + 1] as usize;
+                let mut neighbors: Vec<_> = edges
+                    .map(|e| (name(graph.adjncy[e] as usize), graph.adjwgt[e]))
+                    .collect();
+                neighbors.sort();
+                (name(u), neighbors)
+            })
+            .collect()
+    }
+
+    /// Checks the input requirements of METIS, similar to its `graphchk` program: an undirected
+    /// graph without loops and without duplicate edges, in which every edge is stored in both
+    /// directions with the same positive weight.
+    fn assert_valid_metis_graph(graph: &MetisGraph, num_vertex_weights: usize) {
+        let num_vertices = graph.xadj.len() - 1;
+        assert_eq!(0, graph.xadj[0]);
+        assert!(graph.xadj.windows(2).all(|w| w[0] <= w[1]));
+        assert_eq!(graph.adjncy.len(), *graph.xadj.last().unwrap() as usize);
+        assert_eq!(graph.adjncy.len(), graph.adjwgt.len());
+        assert_eq!(num_vertex_weights * num_vertices, graph.vwgt.len());
+
+        let mut edges = BTreeMap::new();
+        for u in 0..num_vertices {
+            for e in graph.xadj[u] as usize..graph.xadj[u + 1] as usize {
+                let v = graph.adjncy[e] as usize;
+                let weight = graph.adjwgt[e];
+                assert!(v < num_vertices, "vertex {u} has neighbor {v} out of range");
+                assert_ne!(u, v, "vertex {u} has a loop");
+                assert!(weight > 0, "edge {u}-{v} has weight {weight}");
+                assert!(
+                    edges.insert((u, v), weight).is_none(),
+                    "edge {u}-{v} is duplicated"
+                );
+            }
+        }
+        for (&(u, v), weight) in &edges {
+            assert_eq!(
+                Some(weight),
+                edges.get(&(v, u)),
+                "edge {u}-{v} has no reverse edge with the same weight"
+            );
         }
     }
 

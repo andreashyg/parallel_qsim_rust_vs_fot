@@ -1,7 +1,8 @@
+import sys
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import sys
 
 from setup import FIG_SIZE, COMMON_PLOTS_PATTERN
 from utils import plot_extracted_sd_over_time, plot_extracted_tt_over_time, get_elementwise_avg_df, \
@@ -12,8 +13,10 @@ plot_type_specific_sd_path_pattern = "{common_plots_pattern}/avgOverSeeds/sdPerP
 
 tt_diff_sign_count_csv_path = "{common_plots_pattern}/avgOverSeeds/ttPerPathOverDeptimeMinus{minus_what}/ttPerPathOverDeptimeMinus{minus_what}{file_name_end}SignCount.csv"
 sd_diff_sign_count_csv_path = "{common_plots_pattern}/avgOverSeeds/sdPerPathOverTimeMinus{minus_what}/sdPerPathOverTimeMinus{minus_what}{file_name_end}SignCount.csv"
-tt_total_diff_csv_path = "{common_plots_pattern}/avgOverSeeds/ttPerPathOverDeptimeMinus{minus_what}/ttPerPathOverDeptimeMinus{minus_what}{file_name_end}AvgAbsDiff.csv"
-sd_total_diff_csv_path = "{common_plots_pattern}/avgOverSeeds/sdPerPathOverTimeMinus{minus_what}/sdPerPathOverTimeMinus{minus_what}{file_name_end}AvgAbsDiff.csv"
+tt_avg_diff_csv_path = "{common_plots_pattern}/avgOverSeeds/ttPerPathOverDeptimeMinus{minus_what}/ttPerPathOverDeptimeMinus{minus_what}{file_name_end}AvgDiff.csv"
+tt_avg_abs_diff_csv_path = "{common_plots_pattern}/avgOverSeeds/ttPerPathOverDeptimeMinus{minus_what}/ttPerPathOverDeptimeMinus{minus_what}{file_name_end}AvgAbsDiff.csv"
+sd_avg_diff_csv_path = "{common_plots_pattern}/avgOverSeeds/sdPerPathOverTimeMinus{minus_what}/sdPerPathOverTimeMinus{minus_what}{file_name_end}AvgDiff.csv"
+sd_avg_abs_diff_csv_path = "{common_plots_pattern}/avgOverSeeds/sdPerPathOverTimeMinus{minus_what}/sdPerPathOverTimeMinus{minus_what}{file_name_end}AvgAbsDiff.csv"
 
 if __name__ == '__main__':
 
@@ -57,10 +60,15 @@ if __name__ == '__main__':
     sd_diff_sign_count_csv_path = sd_diff_sign_count_csv_path.replace("{common_plots_pattern}",
                                                                       COMMON_PLOTS_PATTERN)
     sd_diff_sign_count_csv_path = sd_diff_sign_count_csv_path.replace("{minus_what}", minus_what)
-    tt_total_diff_csv_path = tt_total_diff_csv_path.replace("{common_plots_pattern}", COMMON_PLOTS_PATTERN)
-    tt_total_diff_csv_path = tt_total_diff_csv_path.replace("{minus_what}", minus_what)
-    sd_total_diff_csv_path = sd_total_diff_csv_path.replace("{common_plots_pattern}", COMMON_PLOTS_PATTERN)
-    sd_total_diff_csv_path = sd_total_diff_csv_path.replace("{minus_what}", minus_what)
+    tt_avg_abs_diff_csv_path = tt_avg_abs_diff_csv_path.replace("{common_plots_pattern}", COMMON_PLOTS_PATTERN)
+    tt_avg_abs_diff_csv_path = tt_avg_abs_diff_csv_path.replace("{minus_what}", minus_what)
+    sd_avg_abs_diff_csv_path = sd_avg_abs_diff_csv_path.replace("{common_plots_pattern}", COMMON_PLOTS_PATTERN)
+    sd_avg_abs_diff_csv_path = sd_avg_abs_diff_csv_path.replace("{minus_what}", minus_what)
+
+    tt_avg_diff_csv_path = tt_avg_diff_csv_path.replace("{common_plots_pattern}", COMMON_PLOTS_PATTERN)
+    tt_avg_diff_csv_path = tt_avg_diff_csv_path.replace("{minus_what}", minus_what)
+    sd_avg_diff_csv_path = sd_avg_diff_csv_path.replace("{common_plots_pattern}", COMMON_PLOTS_PATTERN)
+    sd_avg_diff_csv_path = sd_avg_diff_csv_path.replace("{minus_what}", minus_what)
 
     experiment_set = ExperimentSet(base_output_dir, replanning_variant, experiment_set_name,
                                    output_tt_plot_path_pattern, output_sd_plot_path_pattern,
@@ -86,10 +94,15 @@ if __name__ == '__main__':
         tt_diff_sign_count_csv_path, beta, read_random, use_random)
     sd_diff_sign_count_csv_path = experiment_set.replace_placeholders_in_arbitrary_pattern(
         sd_diff_sign_count_csv_path, beta, read_random, use_random)
-    tt_total_diff_csv_path = experiment_set.replace_placeholders_in_arbitrary_pattern(
-        tt_total_diff_csv_path, beta, read_random, use_random)
-    sd_total_diff_csv_path = experiment_set.replace_placeholders_in_arbitrary_pattern(
-        sd_total_diff_csv_path, beta, read_random, use_random)
+    tt_avg_abs_diff_csv_path = experiment_set.replace_placeholders_in_arbitrary_pattern(
+        tt_avg_abs_diff_csv_path, beta, read_random, use_random)
+    sd_avg_abs_diff_csv_path = experiment_set.replace_placeholders_in_arbitrary_pattern(
+        sd_avg_abs_diff_csv_path, beta, read_random, use_random)
+
+    tt_avg_diff_csv_path = experiment_set.replace_placeholders_in_arbitrary_pattern(
+        tt_avg_diff_csv_path, beta, read_random, use_random)
+    sd_avg_diff_csv_path = experiment_set.replace_placeholders_in_arbitrary_pattern(
+        sd_avg_diff_csv_path, beta, read_random, use_random)
 
     experiment_set.create_plot_dirs(beta, read_random, use_random)
 
@@ -121,10 +134,14 @@ if __name__ == '__main__':
     # include this as a table in the plot, with the difference in the first column, the count in the second column, and the percentage in the third column
     plot_value_count_table(ax_tt, tt_diff_counts, val_col_name="Sign")
 
-    tt_total_diff = tt_df["avg_travel_time"].abs().sum() / tt_df["avg_travel_time"].count()
-    np.savetxt(tt_total_diff_csv_path, [tt_total_diff], fmt="%.5f")
+    tt_avg_diff = tt_df["avg_travel_time"].sum() / tt_df["avg_travel_time"].count()
+    np.savetxt(tt_avg_diff_csv_path, [tt_avg_diff], )
 
-    plot_textbox(ax_tt, f"Average absolute difference: {tt_total_diff:.4f}", x=0.01, y=0.1)
+    tt_avg_abs_diff = tt_df["avg_travel_time"].abs().sum() / tt_df["avg_travel_time"].count()
+    np.savetxt(tt_avg_abs_diff_csv_path, [tt_avg_abs_diff], )
+
+    plot_textbox(ax_tt, f"Average difference: {tt_avg_diff:.4f}\nAverage absolute difference: {tt_avg_abs_diff:.4f}",
+                 x=0.01, y=0.11)
 
     fig_tt.savefig(experiment_set.get_tt_plot_path(beta, read_random, use_random))
 
@@ -151,8 +168,13 @@ if __name__ == '__main__':
     save_value_count_table_as_csv(sd_diff_counts, sd_diff_sign_count_csv_path, val_col_name="Sign",
                                   percent_col_name="Percentage")
 
-    sd_total_diff = sd_df["sum_departures_total"].abs().sum() / sd_df["sum_departures_total"].count()
-    np.savetxt(sd_total_diff_csv_path, [sd_total_diff], fmt="%.5f")
+    sd_avg_diff = sd_df["sum_departures_total"].sum() / sd_df["sum_departures_total"].count()
+    np.savetxt(sd_avg_diff_csv_path, [sd_avg_diff], )
+    sd_avg_abs_diff = sd_df["sum_departures_total"].abs().sum() / sd_df["sum_departures_total"].count()
+    np.savetxt(sd_avg_abs_diff_csv_path, [sd_avg_abs_diff], )
+
+    plot_textbox(ax_sd, f"Average difference: {sd_avg_diff:.4f}\nAverage absolute difference: {sd_avg_abs_diff:.4f}",
+                 x=0.01, y=0.11)
 
     # include this as a table in the plot, with the difference in the first column, the count in the second column, and the percentage in the third column
     plot_value_count_table(ax_sd, sd_diff_counts)

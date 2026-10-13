@@ -406,6 +406,7 @@ impl Controller {
         info!("=========== End Iteration {} ===========", iteration);
     }
 
+    #[tracing::instrument(level = "info", skip_all, fields(iteration = iteration))]
     fn run_mobsim_phase(
         &mut self,
         iteration: u32,

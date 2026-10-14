@@ -1,7 +1,7 @@
 # Setup
 globals:
   experiment_set_name: varying-rust-seeds-onlyexperiments
-  base_output_dir: ./../runs-svn/Abschlussarbeiten/2026/andreas-hygrell-rust-vs-fot/compare-braess-to-java-newrunner
+  base_output_dir: ./../../runs-svn/Abschlussarbeiten/2026/andreas-hygrell-rust-vs-fot/compare-braess-to-java-newrunner
   max_parallel_jobs: 8
   # the following two patterns are used in multiple modules, so they are defined here to avoid repetition.
   # they don't need to be overwritten in modules, since I will only read from this in the original experiment set itself,

@@ -1,7 +1,7 @@
 # Setup
 globals:
   experiment_set_name: recreating-java-analysis
-  base_output_dir: ./../runs-svn/Abschlussarbeiten/2026/andreas-hygrell-rust-vs-fot/compare-braess-to-java-newrunner
+  base_output_dir: ./../../runs-svn/Abschlussarbeiten/2026/andreas-hygrell-rust-vs-fot/compare-braess-to-java-newrunner
   max_parallel_jobs: 8
   # For clarity, add the reformatted_original_java_data to the pattern, so it is clear that these are not the extracted
   # measurements

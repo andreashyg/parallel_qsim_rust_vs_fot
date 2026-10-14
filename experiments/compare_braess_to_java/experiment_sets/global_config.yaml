@@ -9,7 +9,7 @@ global_parameters:
   joblog_path_pattern: "{base_output_dir}/{experiment_set_name}/joblogs/{callback}_parallel_job.log"
   individual_output_from_parallel_runs_pattern: "{base_output_dir_q}/${experiment_set_name_q}/individual_output/{1}_beta{2}_read_from_random{3}_use_random{4}/${callback_q}/"
 
-  original_dir_to_read_from: "./../runs-svn/braess/refinement/no_spillback_scenario"
+  original_dir_to_read_from: "./../../runs-svn/braess/refinement/no_spillback_scenario"
   file_name_end_pattern_with_beta_rr_ur: "Beta{beta}ReadFromRandom{read_from_random}UseRandomSeed{use_random_seed}"
   file_name_end_pattern_with_beta_rr: "Beta{beta}ReadFromRandom{read_from_random}"
   file_name_end_pattern_with_beta: "Beta{beta}"

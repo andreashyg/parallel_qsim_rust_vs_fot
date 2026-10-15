@@ -135,6 +135,14 @@ Until October 2026, the capacity was consumed when a vehicle left the buffer. A 
 remaining capacity exceeded the PCE of the vehicles in the buffer, and the node only took it if the remaining capacity
 exceeded `1e-10`. Both formulations are equivalent, but floating-point rounding can change single decisions.
 
+A link whose waiting list and buffer are empty, whose flow capacity is full and whose first vehicle is not due yet
+sleeps until that vehicle is due (`LocalLink::fall_asleep`): moving it would change nothing, because a full capacity
+stays exactly full. A departure wakes it up earlier; a vehicle entering the queue does not. Because the set of active
+links therefore changes more often, the vehicles that end their leg are sorted by link id before they are handed to
+the activity engine, so that the order of the agents does not depend on the order of the active links. The order of
+events within a time step still depends on it. It is deterministic for a single partition; with several partitions,
+the order in which messages from other partitions arrive already varies between runs.
+
 The link dynamics deviate from QSim in the following points:
 
 - QSim accumulates capacity only when it checks whether a vehicle may enter the buffer, and resets its update time to

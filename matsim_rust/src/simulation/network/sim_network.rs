@@ -15,7 +15,7 @@ use nohash_hasher::{IntMap, IntSet};
 use rand::RngExt;
 use rand_xoshiro::Xoshiro256PlusPlus;
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::rc::Rc;
 use tracing::warn;
 
@@ -85,6 +85,9 @@ pub struct SimNetworkPartition {
     pub links: IntMap<Id<Link>, SimLink>,
     active_nodes: ActiveCache<Node>,
     active_links: ActiveCache<Link>,
+    // Links which hold vehicles but are not moved until the given tick, see `LocalLink::fall_asleep`.
+    // Entries of links that were woken up earlier are outdated and skipped.
+    sleeping_links: BTreeMap<Tick, Vec<Id<Link>>>,
     // Reused by every node update, so that collecting candidates does not allocate.
     candidates: Vec<Candidate>,
     veh_counter: usize,
@@ -226,6 +229,7 @@ impl SimNetworkPartition {
             links,
             active_links: ActiveCache::<Link>::default(),
             active_nodes: ActiveCache::<Node>::default(),
+            sleeping_links: BTreeMap::new(),
             candidates: Vec::new(),
             veh_counter: 0,
             partition,
@@ -333,7 +337,10 @@ impl SimNetworkPartition {
 
         self.veh_counter += 1;
 
-        self.active_links.activate(link.id().clone());
+        // A vehicle at the end of the queue does not change when a sleeping link has to be moved.
+        if !link.is_sleeping() {
+            self.active_links.activate(link.id().clone());
+        }
     }
 
     pub fn apply_storage_cap_updates(&mut self, storage_caps: Vec<StorageUpdate>) {
@@ -352,6 +359,8 @@ impl SimNetworkPartition {
         now: impl Into<Tick>,
     ) -> MoveAllLinksResult {
         let now = now.into();
+        self.wake_up_links(now);
+
         let mut storage_cap_updates: Vec<_> = Vec::new();
         let mut vehicles_exit_partition: Vec<_> = Vec::new();
         let mut deactivate: IntSet<_> = IntSet::default();
@@ -373,7 +382,13 @@ impl SimNetworkPartition {
                 SimLink::Out(ol) => Self::move_out_link(ol, &mut vehicles_exit_partition),
             };
 
-            if !res.is_active {
+            if let Some(wake_up) = res.sleeps_until {
+                self.sleeping_links
+                    .entry(wake_up)
+                    .or_default()
+                    .push(link.id().clone());
+            }
+            if !res.is_active || res.sleeps_until.is_some() {
                 deactivate.insert(link.id().clone());
             }
 
@@ -384,6 +399,9 @@ impl SimNetworkPartition {
         for id in deactivate {
             self.active_links.deactivate(&id);
         }
+        // The agents reach the activity engine in this order, so it must not depend on the order
+        // of the active links. The sort is stable and keeps the order of the vehicles of one link.
+        vehicles_end_leg.sort_by_key(|vehicle| vehicle.curr_link_id().unwrap().internal());
         // vehicles leaving this partition are no longer part of the veh count
         self.veh_counter -= vehicles_exit_partition.len();
         self.veh_counter -= vehicles_end_leg.len();
@@ -392,6 +410,20 @@ impl SimNetworkPartition {
             vehicles_exit_partition,
             vehicles_end_leg,
             storage_cap_updates,
+        }
+    }
+
+    /// Activates the sleeping links which have to be moved from `now` on.
+    fn wake_up_links(&mut self, now: Tick) {
+        while let Some(entry) = self.sleeping_links.first_entry()
+            && *entry.key() <= now
+        {
+            let wake_up = *entry.key();
+            for id in entry.remove() {
+                if self.links.get_mut(&id).unwrap().wake_up(wake_up) {
+                    self.active_links.activate(id);
+                }
+            }
         }
     }
 
@@ -408,10 +440,12 @@ impl SimNetworkPartition {
 
         // indicate whether link is active. The link is active if it has vehicles on it.
         let is_active = link.is_active();
+        let sleeps_until = link.fall_asleep(now);
 
         MoveSingleLinkResult {
             vehicles_end_leg,
             is_active,
+            sleeps_until,
         }
     }
 
@@ -698,8 +732,11 @@ impl SimNetworkPartition {
         // that case, the vehicle has just been pushed onto the old link, so it stays active.
         let old_link_stays_active = old_link_active || new_link_id == *old_link_id;
 
-        // activate new link
-        active_links.activate(new_link_id);
+        // activate new link, unless it sleeps. A vehicle at the end of the queue does not change
+        // when a sleeping link has to be moved.
+        if !new_link.is_sleeping() {
+            active_links.activate(new_link_id);
+        }
 
         // deactivate old link if it is not active anymore
         if !old_link_stays_active {
@@ -718,6 +755,8 @@ pub struct MoveAllLinksResult {
 struct MoveSingleLinkResult {
     vehicles_end_leg: Vec<SimulationVehicle>,
     is_active: bool,
+    // the link is not moved until this tick
+    sleeps_until: Option<Tick>,
 }
 
 #[cfg(test)]
@@ -851,6 +890,48 @@ mod tests {
         }
     }
 
+    fn sleeping_link_count(network: &SimNetworkPartition) -> usize {
+        network
+            .links
+            .values()
+            .filter(|link| link.is_sleeping())
+            .count()
+    }
+
+    fn is_sleeping(network: &SimNetworkPartition, link: &str) -> bool {
+        network.links.get(&Id::create(link)).unwrap().is_sleeping()
+    }
+
+    fn is_active(network: &SimNetworkPartition, link: &str) -> bool {
+        network.active_links.contains(&Id::create(link))
+    }
+
+    /// A takes one tick and X takes ten ticks, both with a flow capacity of 1 veh per tick.
+    fn network_with_slow_link() -> SimNetworkPartition {
+        let mut global_network = Network::new();
+        add_test_nodes(&mut global_network, &["S", "K", "T"]);
+        add_test_link(&mut global_network, "A", "S", "K", 10.0, 3600.0, 10.0);
+        add_test_link(&mut global_network, "X", "K", "T", 100.0, 3600.0, 10.0);
+        SimNetworkPartition::from_network_for_test(&global_network, 0, &test_utils::config())
+    }
+
+    /// Moves the network for the given ticks and returns the vehicles that end their leg, with
+    /// the tick.
+    fn move_network(
+        network: &mut SimNetworkPartition,
+        env: &mut ThreadLocalComputationalEnvironment,
+        ticks: std::ops::RangeInclusive<u64>,
+    ) -> Vec<(u64, String)> {
+        let mut ended = vec![];
+        for now in ticks {
+            network.move_nodes(env, now);
+            for vehicle in network.move_links(env, now).vehicles_end_leg {
+                ended.push((now, vehicle.id().external().to_owned()));
+            }
+        }
+        ended
+    }
+
     fn set_node_rng(network: &mut SimNetworkPartition, node: &str, seed: u64) {
         network.nodes.get_mut(&Id::create(node)).unwrap().rng =
             Xoshiro256PlusPlus::seed_from_u64(seed);
@@ -895,6 +976,94 @@ mod tests {
         assert_eq!(vec!["21", "22", "11"], events.leaving_vehicles());
     }
 
+    /// Setting: Vehicle 1 enters the slow link X at tick 1 and is due at tick 11. Vehicle 2
+    /// enters X at tick 3 and is due at tick 13.
+    /// Execution: The network is moved tick by tick.
+    /// Expectation: X sleeps until its first vehicle is due and is not woken up by vehicle 2
+    /// entering it. Both vehicles end their leg when they are due, as if X was moved every tick.
+    #[deterministic_id_test]
+    fn idle_link_sleeps_until_first_vehicle_is_due() {
+        let mut network = network_with_slow_link();
+        let mut env = ThreadLocalComputationalEnvironment::default();
+        network.send_veh_en_route(test_vehicle(1, vec!["A", "X"]), None, 0);
+
+        assert!(move_network(&mut network, &mut env, 0..=1).is_empty());
+        assert!(is_sleeping(&network, "X"));
+        assert!(!is_active(&network, "X"));
+
+        network.send_veh_en_route(test_vehicle(2, vec!["A", "X"]), None, 2);
+        assert!(move_network(&mut network, &mut env, 2..=2).is_empty());
+        // node K moves vehicle 2 onto X
+        network.move_nodes(&mut env, 3);
+        assert_eq!(2, local_vehicle_count(&network, "X"));
+        assert!(is_sleeping(&network, "X"));
+        assert!(!is_active(&network, "X"));
+        assert!(network.move_links(&mut env, 3).vehicles_end_leg.is_empty());
+
+        let ended = move_network(&mut network, &mut env, 4..=20);
+        assert_eq!(vec![(11, "1".to_owned()), (13, "2".to_owned())], ended);
+        assert_eq!(0, sleeping_link_count(&network));
+        assert_eq!(0, network.active_links());
+        assert_eq!(0, network.veh_on_net());
+    }
+
+    /// Setting: X sleeps until tick 11. At tick 5, a vehicle departs on X and ends its leg there.
+    /// Execution: The network is moved tick by tick.
+    /// Expectation: The departure wakes X up, so that the departing vehicle ends its leg at tick
+    /// 5. Afterwards, X sleeps again until its first vehicle is due at tick 11.
+    #[deterministic_id_test]
+    fn departure_wakes_sleeping_link() {
+        let mut network = network_with_slow_link();
+        let mut env = ThreadLocalComputationalEnvironment::default();
+        network.send_veh_en_route(test_vehicle(1, vec!["A", "X"]), None, 0);
+        assert!(move_network(&mut network, &mut env, 0..=4).is_empty());
+        assert!(is_sleeping(&network, "X"));
+
+        network.send_veh_en_route(test_vehicle(2, vec!["X"]), None, 5);
+        assert!(!is_sleeping(&network, "X"));
+        assert!(is_active(&network, "X"));
+
+        let ended = move_network(&mut network, &mut env, 5..=5);
+        assert_eq!(vec![(5, "2".to_owned())], ended);
+        assert!(is_sleeping(&network, "X"));
+
+        let ended = move_network(&mut network, &mut env, 6..=20);
+        assert_eq!(vec![(11, "1".to_owned())], ended);
+    }
+
+    /// Setting: L3 and L4 are the fourth and fifth link, so that a set of these two link ids
+    /// iterates L4 before L3. A vehicle departs and ends its leg on each of them at tick 0.
+    /// Execution: One link update.
+    /// Expectation: The vehicles that end their leg are ordered by link id, not by the order of
+    /// the active links.
+    #[deterministic_id_test]
+    fn vehicles_that_end_leg_are_ordered_by_link() {
+        let mut global_network = Network::new();
+        add_test_nodes(&mut global_network, &["S", "T"]);
+        for link in ["L0", "L1", "L2", "L3", "L4"] {
+            add_test_link(&mut global_network, link, "S", "T", 100.0, 3600.0, 10.0);
+        }
+        let mut network =
+            SimNetworkPartition::from_network_for_test(&global_network, 0, &test_utils::config());
+        network.send_veh_en_route(test_vehicle(4, vec!["L4"]), None, 0);
+        network.send_veh_en_route(test_vehicle(3, vec!["L3"]), None, 0);
+        let active: Vec<_> = network
+            .active_links
+            .into_iter()
+            .map(|id| id.external().to_owned())
+            .collect();
+        assert_eq!(vec!["L4", "L3"], active, "precondition of this test");
+
+        let ended: Vec<_> = network
+            .move_links(&mut ThreadLocalComputationalEnvironment::default(), 0)
+            .vehicles_end_leg
+            .iter()
+            .map(|vehicle| vehicle.curr_link_id().unwrap().external().to_owned())
+            .collect();
+
+        assert_eq!(vec!["L3", "L4"], ended);
+    }
+
     /// Setting: L is a self-loop at node K, and the vehicle's route passes L twice before leaving via X.
     /// Execution: The node moves the vehicle from L onto L again, which empties and refills the same link within one node update.
     /// Expectation: L is active exactly while it holds the vehicle, the vehicle leaves L twice, and its leg ends on X.
@@ -916,9 +1085,11 @@ mod tests {
             network.move_nodes(&mut env, now);
             let mut result = network.move_links(&mut env, now);
             vehicles_end_leg.append(&mut result.vehicles_end_leg);
+            let link_is_moved = network.active_links.contains(&link_l)
+                || network.links.get(&link_l).unwrap().is_sleeping();
             assert_eq!(
                 local_vehicle_count(&network, "L") > 0,
-                network.active_links.contains(&link_l),
+                link_is_moved,
                 "tick {now}"
             );
         }
@@ -1294,8 +1465,8 @@ mod tests {
             } else {
                 // the vehicle should not leave the network until the 112th timestep
                 assert_eq!(0, result.vehicles_end_leg.len());
-                // we should always have one active link which has the vehicle
-                assert_eq!(1, network.active_links());
+                // we should always have one link which has the vehicle, either active or sleeping
+                assert_eq!(1, network.active_links() + sleeping_link_count(&network));
                 // we expect one vehicle
                 assert_eq!(1, network.veh_on_net());
             }

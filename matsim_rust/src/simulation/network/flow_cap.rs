@@ -48,6 +48,12 @@ impl Flowcap {
         self.accumulated > ROUNDING_MARGIN
     }
 
+    /// Tests whether the capacity is at its maximum for an empty buffer. It stays there exactly,
+    /// however many ticks pass until the next update.
+    pub(super) fn is_full(&self) -> bool {
+        self.accumulated >= self.capacity_per_tick
+    }
+
     pub(super) fn consume(&mut self, by: f64) {
         self.accumulated -= by;
     }

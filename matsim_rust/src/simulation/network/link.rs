@@ -106,6 +106,22 @@ impl SimLink {
         }
     }
 
+    pub(super) fn is_sleeping(&self) -> bool {
+        match self {
+            SimLink::Local(ll) => ll.is_sleeping(),
+            SimLink::In(il) => il.local_link.is_sleeping(),
+            SimLink::Out(_) => false,
+        }
+    }
+
+    pub(super) fn wake_up(&mut self, at: Tick) -> bool {
+        match self {
+            SimLink::Local(ll) => ll.wake_up(at),
+            SimLink::In(il) => il.local_link.wake_up(at),
+            SimLink::Out(o) => panic!("Out link {} never sleeps.", o.id),
+        }
+    }
+
     pub(super) fn is_active(&self) -> bool {
         match self {
             SimLink::Local(ll) => ll.is_active(),
@@ -188,6 +204,8 @@ pub struct LocalLink {
     flow_cap: Flowcap,
     stuck_timer: StuckTimer,
     clock: SimClock,
+    // The link does not need to be moved before this tick, see `fall_asleep`.
+    sleeping_until: Option<Tick>,
     pub from: Id<Node>,
     pub to: Id<Node>,
 }
@@ -277,6 +295,7 @@ impl LocalLink {
             flow_cap: Flowcap::new(capacity_per_tick),
             stuck_timer: StuckTimer::new(clock.secs_to_tick(config.stuck_threshold as u64)),
             clock,
+            sleeping_until: None,
             from,
             to,
         }
@@ -313,8 +332,9 @@ impl LocalLink {
         });
     }
 
-    /// Push a vehicle into the waiting list.
+    /// Push a vehicle into the waiting list. The departure wakes up a sleeping link.
     pub fn push_veh_to_waiting_list(&mut self, vehicle: SimulationVehicle) {
+        self.sleeping_until = None;
         self.waiting_list.push_back(vehicle);
     }
 
@@ -555,6 +575,36 @@ impl LocalLink {
         // the node will only look at the vehicle at the at the top of the queue in the next timestep
         // therefore, peek whether vehicles are available for the next timestep.
         self.offers_veh().is_some()
+    }
+
+    /// Lets the link sleep until its first vehicle is due, if moving it until then would change
+    /// nothing: no vehicle waits for departure, the buffer is empty and the flow capacity is full.
+    /// Returns the tick from which on the link has to be moved again.
+    pub(super) fn fall_asleep(&mut self, now: Tick) -> Option<Tick> {
+        if !self.waiting_list.is_empty() || !self.buffer.is_empty() || !self.flow_cap.is_full() {
+            return None;
+        }
+        let wake_up = self.q.front()?.earliest_exit_time;
+        if wake_up <= now {
+            return None;
+        }
+        self.sleeping_until = Some(wake_up);
+        Some(wake_up)
+    }
+
+    /// Wakes the link up, if it still sleeps until `at`. Returns false, if the link was woken up
+    /// earlier.
+    pub(super) fn wake_up(&mut self, at: Tick) -> bool {
+        if self.sleeping_until == Some(at) {
+            self.sleeping_until = None;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub(super) fn is_sleeping(&self) -> bool {
+        self.sleeping_until.is_some()
     }
 }
 

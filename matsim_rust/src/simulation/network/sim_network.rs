@@ -58,6 +58,11 @@ impl<C: StableTypeId + 'static> ActiveCache<C> {
         self.active.len()
     }
 
+    /// Visits the active ids in iteration order and deactivates those for which `f` returns false.
+    fn retain(&mut self, f: impl FnMut(&Id<C>) -> bool) {
+        self.active.retain(f)
+    }
+
     #[cfg(test)]
     fn contains(&self, id: &Id<C>) -> bool {
         self.active.contains(id)
@@ -78,9 +83,10 @@ pub struct SimNetworkPartition {
     pub nodes: IntMap<Id<Node>, SimNode>,
     // use int map as hash map variant with stable order
     pub links: IntMap<Id<Link>, SimLink>,
-    rng: IntMap<Id<Node>, Xoshiro256PlusPlus>,
     active_nodes: ActiveCache<Node>,
     active_links: ActiveCache<Link>,
+    // Reused by every node update, so that collecting candidates does not allocate.
+    candidates: Vec<Candidate>,
     veh_counter: usize,
     partition: u32,
     clock: SimClock,
@@ -91,11 +97,14 @@ pub struct SimNetworkPartition {
 pub struct SimNode {
     id: Id<Node>,
     in_links: Vec<Id<Link>>,
+    // The random number sequence used in intersection updates only depends on the node.
+    rng: Xoshiro256PlusPlus,
 }
 
 #[derive(Debug)]
-struct Candidate<'a> {
-    id: &'a Id<Link>,
+struct Candidate {
+    // index into the in links of the node
+    in_link: usize,
     weight: f64,
 }
 
@@ -146,18 +155,13 @@ impl SimNetworkPartition {
             })
             .collect();
 
+        let base_seed = config.computational_setup().random_seed;
         let sim_nodes: IntMap<_, SimNode> = nodes
             .iter()
-            .map(|n| (n.id.clone(), Self::create_sim_node(n)))
+            .map(|n| (n.id.clone(), Self::create_sim_node(n, base_seed)))
             .collect();
 
-        SimNetworkPartition::build(
-            sim_nodes,
-            sim_links,
-            partition,
-            config.computational_setup().random_seed,
-            clock,
-        )
+        SimNetworkPartition::build(sim_nodes, sim_links, partition, clock)
     }
 
     #[cfg(test)]
@@ -178,13 +182,15 @@ impl SimNetworkPartition {
             .collect()
     }
 
-    fn create_sim_node(node: &Node) -> SimNode {
+    fn create_sim_node(node: &Node, base_seed: u64) -> SimNode {
         let mut in_links: Vec<_> = node.in_links.to_vec();
         in_links.sort_unstable_by(|a, b| a.external().cmp(b.external()));
 
         SimNode {
             id: node.id.clone(),
             in_links,
+            // Initialize RNG with a seed based on the base seed and node id
+            rng: random::get_rng(base_seed, "network.node", node.id.external().as_ref()),
         }
     }
 
@@ -213,26 +219,14 @@ impl SimNetworkPartition {
         nodes: IntMap<Id<Node>, SimNode>,
         links: IntMap<Id<Link>, SimLink>,
         partition: u32,
-        base_seed: u64,
         clock: SimClock,
     ) -> Self {
-        // Initialize RNG with a seed based on the base seed and node id
-        let rng = nodes
-            .keys()
-            .map(|n| {
-                (
-                    n.clone(),
-                    random::get_rng(base_seed, "network.node", n.external().as_ref()),
-                )
-            })
-            .collect();
-
         Self {
             nodes,
             links,
-            rng,
             active_links: ActiveCache::<Link>::default(),
             active_nodes: ActiveCache::<Node>::default(),
+            candidates: Vec::new(),
             veh_counter: 0,
             partition,
             clock,
@@ -468,36 +462,48 @@ impl SimNetworkPartition {
         now: impl Into<Tick>,
     ) {
         let now = now.into();
-        let mut deactivate = vec![];
-        let active_node_ids: Vec<_> = self.active_nodes.active.iter().cloned().collect();
+        // Borrow the fields separately, so that the active nodes can be updated in place without
+        // copying their ids.
+        let Self {
+            nodes,
+            links,
+            active_nodes,
+            active_links,
+            candidates,
+            clock,
+            ..
+        } = self;
 
-        for node_id in &active_node_ids {
-            let node_id_copy = node_id.clone();
-            let active = self.move_node_capacity_priority(&node_id_copy, comp_env, now);
-            if !active {
-                deactivate.push(node_id.clone());
-            }
-        }
-
-        for n in deactivate {
-            self.active_nodes.deactivate(&n);
-        }
+        // `retain` visits the active nodes in iteration order and deactivates them in that order.
+        // Moving a node never changes the set of active nodes.
+        active_nodes.retain(|node_id| {
+            let node = nodes.get_mut(node_id).unwrap();
+            Self::move_node_capacity_priority(
+                node,
+                links,
+                active_links,
+                candidates,
+                comp_env,
+                *clock,
+                now,
+            )
+        });
     }
 
     fn move_node_capacity_priority(
-        &mut self,
-        node_id: &Id<Node>,
+        node: &mut SimNode,
+        links: &mut IntMap<Id<Link>, SimLink>,
+        active_links: &mut ActiveCache<Link>,
+        candidates: &mut Vec<Candidate>,
         comp_env: &mut ThreadLocalComputationalEnvironment,
+        clock: SimClock,
         now: Tick,
     ) -> bool {
-        let node = self.nodes.get(node_id).unwrap();
-        let (mut candidates, mut total_capacity) =
-            Self::get_candidates(&node.in_links, &self.links);
-        let rng = self.rng.get_mut(node_id).unwrap();
+        let mut total_capacity = Self::get_candidates(&node.in_links, links, candidates);
 
         while !candidates.is_empty() && total_capacity > 1e-10 {
-            let rnd_num = rng.random::<f64>() * total_capacity;
-            let selected_index = Self::weighted_index(&candidates, rnd_num);
+            let rnd_num = node.rng.random::<f64>() * total_capacity;
+            let selected_index = Self::weighted_index(candidates, rnd_num);
 
             // We are using swap remove here on purpose. It has O(1) instead of O(n). Results are still deterministic, but the ordering is not preserved.
             // This doesn't have any effects on the probabilities, thus it is fine here. paul, jul'26.
@@ -505,36 +511,39 @@ impl SimNetworkPartition {
             total_capacity -= selected.weight;
 
             Self::drain_selected_inlink(
-                selected.id,
-                &mut self.links,
-                &mut self.active_links,
+                &node.in_links[selected.in_link],
+                links,
+                active_links,
                 comp_env,
-                self.clock,
+                clock,
                 now,
             );
         }
 
         // check whether any link is offering next timestep. Otherwise, the node can be de-activated
-        Self::any_link_offers(&node.in_links, &self.links)
+        Self::any_link_offers(&node.in_links, links)
     }
 
-    fn get_candidates<'a>(
-        in_links: &'a [Id<Link>],
+    /// Replaces the content of `candidates` with the offering in links in the order of `in_links`
+    /// and returns their total capacity.
+    fn get_candidates(
+        in_links: &[Id<Link>],
         links: &IntMap<Id<Link>, SimLink>,
-    ) -> (Vec<Candidate<'a>>, f64) {
-        let mut candidates = Vec::with_capacity(in_links.len());
+        candidates: &mut Vec<Candidate>,
+    ) -> f64 {
+        candidates.clear();
         let mut total_capacity = 0.;
 
-        for id in in_links {
+        for (in_link, id) in in_links.iter().enumerate() {
             let link = links.get(id).unwrap();
             if link.offers_veh().is_some() {
                 let weight = link.flow_cap();
-                candidates.push(Candidate { id, weight });
+                candidates.push(Candidate { in_link, weight });
                 total_capacity += weight;
             }
         }
 
-        (candidates, total_capacity)
+        total_capacity
     }
 
     fn weighted_index(candidates: &[Candidate], weighted_rnd_capacity: f64) -> usize {
@@ -615,30 +624,48 @@ impl SimNetworkPartition {
                     let vehicle = in_link
                         .pop_veh_and_restart_stuck_timer(now)
                         .expect("No vehicle on selected link");
-                    Self::move_vehicle(vehicle, links, active_links, comp_env, clock, now);
+                    let in_link_active = in_link.is_active();
+                    Self::move_vehicle(
+                        vehicle,
+                        in_link_id,
+                        in_link_active,
+                        links,
+                        active_links,
+                        comp_env,
+                        clock,
+                        now,
+                    );
                 }
                 FrontDecision::Abort => {
                     panic!("Invalid turn from in-link {}", in_link_id.external());
                 }
+                // The in link offered a vehicle when it was selected, and only this node removes
+                // vehicles from its buffer. Thus, the in link is still active if no vehicle was
+                // moved. Otherwise, `move_vehicle` has already deactivated it if necessary.
                 FrontDecision::Wait | FrontDecision::NoVehicle => break,
             }
-        }
-
-        if !links.get(in_link_id).unwrap().is_active() {
-            active_links.deactivate(in_link_id);
         }
     }
 
     /// Moves the vehicle from the current link to the next link.
+    ///
+    /// `old_link_active` tells whether the old link was still active after the vehicle was removed
+    /// from it.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "takes the partition fields separately, so that they can be borrowed independently"
+    )]
     fn move_vehicle(
         mut vehicle: SimulationVehicle,
+        old_link_id: &Id<Link>,
+        old_link_active: bool,
         links: &mut IntMap<Id<Link>, SimLink>,
         active_links: &mut ActiveCache<Link>,
         comp_env: &mut ThreadLocalComputationalEnvironment,
         clock: SimClock,
         now: Tick,
     ) {
-        let old_link_id = vehicle.curr_link_id().unwrap().clone();
+        debug_assert_eq!(Some(old_link_id), vehicle.curr_link_id());
         let now_time = clock.tick_to_time(now);
 
         comp_env.events_manager_borrow_mut().process_event(
@@ -667,12 +694,16 @@ impl SimNetworkPartition {
 
         new_link.push_veh(vehicle, QStart, now);
 
+        // A link whose to node equals its from node can be the old and the new link at once. In
+        // that case, the vehicle has just been pushed onto the old link, so it stays active.
+        let old_link_stays_active = old_link_active || new_link_id == *old_link_id;
+
         // activate new link
-        active_links.activate(new_link_id.clone());
+        active_links.activate(new_link_id);
 
         // deactivate old link if it is not active anymore
-        if !links.get(&old_link_id).unwrap().is_active() {
-            active_links.deactivate(&old_link_id);
+        if !old_link_stays_active {
+            active_links.deactivate(old_link_id);
         }
     }
 }
@@ -821,9 +852,8 @@ mod tests {
     }
 
     fn set_node_rng(network: &mut SimNetworkPartition, node: &str, seed: u64) {
-        network
-            .rng
-            .insert(Id::create(node), Xoshiro256PlusPlus::seed_from_u64(seed));
+        network.nodes.get_mut(&Id::create(node)).unwrap().rng =
+            Xoshiro256PlusPlus::seed_from_u64(seed);
     }
 
     /// Setting: A offers A1 with capacity 1, while B offers B1/B2 with capacity 2; the fixed seed selects B first.
@@ -842,7 +872,13 @@ mod tests {
             SimNetworkPartition::from_network_for_test(&global_network, 0, &test_utils::config());
         set_node_rng(&mut network, "K", 4712);
         let node_id = Id::create("K");
-        let first_draw = network.rng.get(&node_id).unwrap().clone().random::<f64>();
+        let first_draw = network
+            .nodes
+            .get(&node_id)
+            .unwrap()
+            .rng
+            .clone()
+            .random::<f64>();
         assert!(
             first_draw > 1.0 / 3.0,
             "The fixed seed must initially select B, draw was {first_draw}"
@@ -857,6 +893,39 @@ mod tests {
         network.move_nodes(&mut env, 1);
 
         assert_eq!(vec!["21", "22", "11"], events.leaving_vehicles());
+    }
+
+    /// Setting: L is a self-loop at node K, and the vehicle's route passes L twice before leaving via X.
+    /// Execution: The node moves the vehicle from L onto L again, which empties and refills the same link within one node update.
+    /// Expectation: L is active exactly while it holds the vehicle, the vehicle leaves L twice, and its leg ends on X.
+    #[deterministic_id_test]
+    fn self_loop_link_stays_active_when_vehicle_reenters_it() {
+        let mut global_network = Network::new();
+        add_test_nodes(&mut global_network, &["K", "T"]);
+        add_test_link(&mut global_network, "L", "K", "K", 10.0, 3600.0, 10.0);
+        add_test_link(&mut global_network, "X", "K", "T", 10.0, 3600.0, 10.0);
+
+        let mut network =
+            SimNetworkPartition::from_network_for_test(&global_network, 0, &test_utils::config());
+        network.send_veh_en_route(test_vehicle(1, vec!["L", "L", "X"]), None, 0);
+
+        let (mut env, events) = environment_with_transition_events();
+        let link_l = Id::create("L");
+        let mut vehicles_end_leg = vec![];
+        for now in 0..20 {
+            network.move_nodes(&mut env, now);
+            let mut result = network.move_links(&mut env, now);
+            vehicles_end_leg.append(&mut result.vehicles_end_leg);
+            assert_eq!(
+                local_vehicle_count(&network, "L") > 0,
+                network.active_links.contains(&link_l),
+                "tick {now}"
+            );
+        }
+
+        assert_eq!(vec!["1", "1"], events.leaves_on("L"));
+        assert_eq!(1, vehicles_end_leg.len());
+        assert_eq!(0, network.veh_on_net());
     }
 
     /// Setting: A has weight 1, B has weight 2, both remain supplied, and C has room for exactly two vehicles per tick.
@@ -1104,20 +1173,20 @@ mod tests {
         let (mut env, events) = environment_with_transition_events();
         network.move_links(&mut env, 0);
         let node_id = Id::create("K");
-        let (candidates, capacity) = {
-            let node = network.nodes.get(&node_id).unwrap();
-            SimNetworkPartition::get_candidates(&node.in_links, &network.links)
-        };
+        let node = network.nodes.get(&node_id).unwrap();
+        let mut candidates = Vec::new();
+        let capacity =
+            SimNetworkPartition::get_candidates(&node.in_links, &network.links, &mut candidates);
         assert_eq!(
             vec!["B", "C"],
             candidates
                 .iter()
-                .map(|candidate| candidate.id.external().to_owned())
+                .map(|candidate| node.in_links[candidate.in_link].external().to_owned())
                 .collect::<Vec<_>>()
         );
         assert_eq!(2.0, capacity);
 
-        let mut expected_rng = network.rng.get(&node_id).unwrap().clone();
+        let mut expected_rng = node.rng.clone();
         let first_draw = expected_rng.random::<f64>();
         assert!(
             first_draw > 0.5,
@@ -1128,7 +1197,7 @@ mod tests {
 
         // move nodes calls 2 times the rng: choose B, move vehicle & mark it as exhausted; choose C, but D is blocked, so mark it as exhausted.
         network.move_nodes(&mut env, 1);
-        let actual_third_draw = network.rng.get_mut(&node_id).unwrap().random::<u64>();
+        let actual_third_draw = network.nodes.get_mut(&node_id).unwrap().rng.random::<u64>();
 
         assert_eq!(third_draw, actual_third_draw);
         assert_eq!(vec!["3"], events.leaves_on("C"));
@@ -1141,15 +1210,13 @@ mod tests {
     /// Expectation: The inclusive boundary selects A, while the fallback selects the final candidate B.
     #[deterministic_id_test]
     fn weighted_index_uses_inclusive_boundary_and_last_candidate_fallback() {
-        let a = Id::create("A");
-        let b = Id::create("B");
         let candidates = vec![
             Candidate {
-                id: &a,
+                in_link: 0,
                 weight: 1.0,
             },
             Candidate {
-                id: &b,
+                in_link: 1,
                 weight: 2.0,
             },
         ];

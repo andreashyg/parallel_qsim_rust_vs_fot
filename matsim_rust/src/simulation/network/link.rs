@@ -366,14 +366,13 @@ impl LocalLink {
 
             let veh = option.unwrap();
 
-            let arrive = veh.vehicle.driver().is_wanting_to_arrive_on_current_link();
-            let capacity_left = self.has_flow_capacity_left(&veh.vehicle);
-            let exit = veh.earliest_exit_time <= now;
-
             // If the earliest exit time has not passed, nothing to do
-            if !exit {
+            if veh.earliest_exit_time > now {
                 break;
             }
+
+            let arrive = veh.vehicle.driver().is_wanting_to_arrive_on_current_link();
+            let capacity_left = self.has_flow_capacity_left(&veh.vehicle);
 
             // If the vehicle wants to arrive, remove it from the queue
             if arrive {

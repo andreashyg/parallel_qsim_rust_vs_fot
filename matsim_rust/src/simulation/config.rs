@@ -843,6 +843,7 @@ pub struct Scoring {
     pub activity_params: Vec<ActivityParameter>,
     pub mode_params: Vec<ModeParameter>,
     pub agent_params: Vec<AgentParameter>,
+    pub fraction_of_iterations_to_start_score_msa: Option<f64>,
 }
 
 /// `Disabled` skips backpacking and scoring entirely. Selected plans then receive no score.
@@ -873,6 +874,7 @@ impl Default for Scoring {
                 ModeParameter::default_for_mode("bike"),
             ],
             agent_params: vec![AgentParameter::default()],
+            fraction_of_iterations_to_start_score_msa: None,
         }
     }
 }
@@ -888,6 +890,15 @@ register_override!("scoring.mode", |config, value| {
 register_override!("scoring.write_experienced_plans", |config, value| {
     config.scoring_mut().write_experienced_plans = value.parse().unwrap();
 });
+
+register_override!(
+    "scoring.fraction_of_iterations_to_start_score_msa",
+    |config, value| {
+        config
+            .scoring_mut()
+            .fraction_of_iterations_to_start_score_msa = Some(value.parse().unwrap());
+    }
+);
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct ActivityParameter {
@@ -2055,6 +2066,7 @@ mod tests {
                 waiting: -3.0
                 marginal_utility_of_money: 2.0
                 aborted_plan_score: -24.0
+            fraction_of_iterations_to_start_score_msa: 0.75
         "#;
 
         let config: Config = serde_yaml::from_str(yaml).expect("failed to parse config");
@@ -2083,6 +2095,7 @@ mod tests {
                 marginal_utility_of_money: 2.0,
                 aborted_plan_score: -24.0,
             }],
+            fraction_of_iterations_to_start_score_msa: Some(0.75),
         };
         assert_eq!(config.scoring(), &expected);
 
@@ -2637,6 +2650,25 @@ modules:
         config.apply_overrides(&[("scoring.mode".to_string(), "disabled".to_string())]);
 
         assert_eq!(config.scoring().mode, ScoringMode::Disabled);
+    }
+
+    #[test]
+    fn override_fraction_of_iterations_to_start_score_msa() {
+        let mut config = base_config();
+        assert_eq!(
+            config.scoring().fraction_of_iterations_to_start_score_msa,
+            None
+        );
+
+        config.apply_overrides(&[(
+            "scoring.fraction_of_iterations_to_start_score_msa".to_string(),
+            "0.9".to_string(),
+        )]);
+
+        assert_eq!(
+            config.scoring().fraction_of_iterations_to_start_score_msa,
+            Some(0.9)
+        );
     }
 
     #[test]

@@ -466,7 +466,7 @@ impl Controller {
             "Scoring population of {} persons in iteration {iteration}",
             population.persons.len()
         );
-        scoring_pool.score_population(&mut experienced_plans, &mut population);
+        scoring_pool.score_population(&mut experienced_plans, &mut population, iteration);
         info!("Finished scoring population in iteration {iteration}");
 
         if self.config.scoring().write_experienced_plans

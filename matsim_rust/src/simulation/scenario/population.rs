@@ -1173,7 +1173,7 @@ impl FromIOPerson<IOPlan> for InternalPlan {
                 .into_iter()
                 .map(|p| InternalPlanElement::from_io(p, id.clone()))
                 .collect(),
-            msa_contributions: 0,
+            ..Default::default()
         }
     }
 }
@@ -1212,7 +1212,7 @@ impl From<Plan> for InternalPlan {
             score: plan.score,
             selected: plan.selected,
             elements,
-            msa_contributions: 0,
+            ..Default::default()
         }
     }
 }
@@ -1383,7 +1383,7 @@ mod tests {
         let original = InternalPlan {
             score: Some(12.5),
             msa_contributions: 4,
-            ..InternalPlan::default()
+            ..Default::default()
         };
         let mut person = InternalPerson::new(Id::create("1"), original);
 

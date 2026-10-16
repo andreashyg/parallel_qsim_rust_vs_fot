@@ -357,7 +357,7 @@ mod tests {
                     ..AgentParameter::default()
                 },
             ],
-            fraction_of_iterations_to_start_score_msa: None,
+            ..Default::default()
         });
         config
     }

@@ -485,11 +485,9 @@ mod tests {
     #[test]
     fn plan_round_trip_preserves_score() {
         let plan = InternalPlan {
-            attributes: Default::default(),
             score: Some(42.5),
             selected: true,
-            elements: Vec::new(),
-            msa_contributions: 0,
+            ..Default::default()
         };
 
         let wire = Plan::from(&plan);

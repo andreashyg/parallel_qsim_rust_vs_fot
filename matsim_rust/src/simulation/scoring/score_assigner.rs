@@ -80,7 +80,7 @@ mod tests {
         InternalPlan {
             score,
             msa_contributions,
-            ..InternalPlan::default()
+            ..Default::default()
         }
     }
 

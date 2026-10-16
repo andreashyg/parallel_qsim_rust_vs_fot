@@ -17,8 +17,6 @@ use thiserror::Error;
 pub mod a_star;
 mod a_star_core;
 pub mod alt_landmark_data;
-#[cfg(test)]
-mod benchmark;
 pub mod cost;
 mod graph;
 pub mod least_cost_path_calculator;

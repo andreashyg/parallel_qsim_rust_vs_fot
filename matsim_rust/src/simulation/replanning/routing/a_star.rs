@@ -29,7 +29,7 @@ thread_local! {
 }
 
 /// Number of nodes reached and settled by the last search of an A* router on this thread, see
-/// `AStarBuffers::reached_and_settled`. Used by the routing benchmark.
+/// `AStarBuffers::reached_and_settled`.
 #[cfg(test)]
 pub(crate) fn last_search_reached_and_settled() -> (usize, usize) {
     SEARCH_BUFFERS.with_borrow(|buffers| buffers.core.reached_and_settled())
@@ -114,21 +114,13 @@ impl AStarHeuristic for AltHeuristic {
         // the landmark data of a node is (disutility from the landmark, disutility to the
         // landmark), see `ForwardBackwardTravelDisutility`
         for (&(ls, sl), &(lt, tl)) in from_data.iter().zip(to_data) {
-            // An infinite disutility makes the bound useless (or NaN), so the bound is replaced by
-            // 0, which never raises h. The bounds are then never NaN, so a comparison gives the
-            // maximum, without the NaN handling of f64::max and without branches.
-            let forward = if sl.is_finite() && tl.is_finite() {
-                sl - tl
-            } else {
-                0.0
-            };
-            let backward = if lt.is_finite() && ls.is_finite() {
-                lt - ls
-            } else {
-                0.0
-            };
-            h = if forward > h { forward } else { h };
-            h = if backward > h { backward } else { h };
+            // an infinite disutility makes the bound useless (or NaN), so it is skipped
+            if sl.is_finite() && tl.is_finite() {
+                h = h.max(sl - tl);
+            }
+            if lt.is_finite() && ls.is_finite() {
+                h = h.max(lt - ls);
+            }
         }
 
         let result: Disutility = if h < 0.0 { 0.0 } else { h };
@@ -992,18 +984,13 @@ mod tests {
         }
     }
 
-    /// Test that the ALT heuristic is a consistent lower bound on a directed network for every
-    /// choice of the landmark: for all nodes u and t, h(u, t) <= d(u, t), and for every link
-    /// (u, v) with weight w, h(u, t) <= w + h(v, t). In equil, the disutility from a node to a
-    /// landmark mostly differs from the one in the opposite direction.
-    #[deterministic_id_test]
-    fn test_alt_heuristic_consistent_on_directed_network() {
-        let network = load_network("./assets/equil/equil-network.xml");
-        let graph = net_to_graph(&network);
-        let cost = FreeOrMaxSpeedTravelTimeAndDisutility;
+    /// The links of a graph as (from-node, to-node, min disutility), and the min disutilities
+    /// between all pairs of nodes, calculated with Floyd-Warshall
+    fn links_and_all_pairs_disutilities(
+        graph: &dyn IndexableGraph,
+        cost: &dyn TravelDisutility,
+    ) -> (Vec<(usize, usize, Disutility)>, Vec<Vec<Disutility>>) {
         let n = graph.num_nodes();
-
-        // links as (from, to, min disutility) and all-pairs disutilities with Floyd-Warshall
         let mut links = Vec::new();
         for u in 0..n {
             for edge in graph.outgoing_edges_as_idx(u) {
@@ -1026,6 +1013,20 @@ mod tests {
                 }
             }
         }
+        (links, d)
+    }
+
+    /// Test that the ALT heuristic is a consistent lower bound on a directed network for every
+    /// choice of the landmark: for all nodes u and t, h(u, t) <= d(u, t), and for every link
+    /// (u, v) with weight w, h(u, t) <= w + h(v, t). In equil, the disutility from a node to a
+    /// landmark mostly differs from the one in the opposite direction.
+    #[deterministic_id_test]
+    fn test_alt_heuristic_consistent_on_directed_network() {
+        let network = load_network("./assets/equil/equil-network.xml");
+        let graph = net_to_graph(&network);
+        let cost = FreeOrMaxSpeedTravelTimeAndDisutility;
+        let n = graph.num_nodes();
+        let (links, d) = links_and_all_pairs_disutilities(&graph, &cost);
 
         for landmark in 0..n {
             let heuristic = AltHeuristic {
@@ -1064,25 +1065,7 @@ mod tests {
         let network = Arc::new(get_dead_end_test_network());
         let travel_cost = Arc::new(FreeSpeedTravelTimeAndDisutility {});
         let graph = net_to_graph(&network);
-        let n = graph.num_nodes();
-
-        // all-pairs disutilities with Floyd-Warshall. The disutility of a link is its length.
-        let mut d = vec![vec![f64::INFINITY; n]; n];
-        for (u, row) in d.iter_mut().enumerate() {
-            row[u] = 0.0;
-        }
-        for link in network.links() {
-            let u = graph.get_node_idx_from_id(link.from.clone());
-            let v = graph.get_node_idx_from_id(link.to.clone());
-            d[u][v] = d[u][v].min(link.length);
-        }
-        for k in 0..n {
-            for i in 0..n {
-                for j in 0..n {
-                    d[i][j] = d[i][j].min(d[i][k] + d[k][j]);
-                }
-            }
-        }
+        let (_, d) = links_and_all_pairs_disutilities(&graph, travel_cost.as_ref());
 
         let alt = Alt::new(
             network.clone(),

@@ -109,10 +109,6 @@ impl AltLandmarkData {
         let num_landmarks = self.landmarks.len();
         &self.travel_disutilities[node * num_landmarks..(node + 1) * num_landmarks]
     }
-    #[cfg(test)]
-    pub(crate) fn landmarks(&self) -> &[NodeIndex] {
-        &self.landmarks
-    }
 
     /// Chooses up to `number_of_landmarks` landmarks with the farthest landmark selection of
     /// MATSim's `SpeedyALTData`: the first landmark is the first node, and every further landmark
@@ -141,10 +137,8 @@ impl AltLandmarkData {
 
         let mut landmarks = Vec::with_capacity(number_of_landmarks);
         landmarks.push(first);
-        let mut hops = vec![usize::MAX; graph.num_nodes()];
-        let mut queue = VecDeque::new();
         while landmarks.len() < number_of_landmarks {
-            match Self::farthest_node(graph, &landmarks, &mut hops, &mut queue)? {
+            match Self::farthest_node(graph, &landmarks)? {
                 Some(node) => landmarks.push(node),
                 None => break,
             }
@@ -158,11 +152,9 @@ impl AltLandmarkData {
     fn farthest_node(
         graph: &dyn IndexableGraph,
         landmarks: &[NodeIndex],
-        hops: &mut [usize],
-        queue: &mut VecDeque<NodeIndex>,
     ) -> Result<Option<NodeIndex>, GraphError> {
-        hops.fill(usize::MAX);
-        queue.clear();
+        let mut hops = vec![usize::MAX; graph.num_nodes()];
+        let mut queue = VecDeque::new();
         for &landmark in landmarks {
             hops[landmark] = 0;
             queue.push_back(landmark);

@@ -25,14 +25,6 @@ impl ScoreAssigner {
     }
 
     /// Returns the first iteration that averages scores, or `None` if score MSA never starts.
-    ///
-    /// MATSim computes `(int) ((last - first) * fraction + first)`. This uses the same double
-    /// operations in the same order, and the cast truncates toward zero like Java's `(int)` cast,
-    /// which rounds down for these non-negative values. The controller rejects `last < first`, so
-    /// the saturating subtraction only guards the arithmetic.
-    ///
-    /// Unlike MATSim, which does not validate the fraction, this rejects non-finite fractions and
-    /// fractions outside `[0, 1]` instead of producing a start outside the iteration range.
     fn msa_start_iteration(first: u32, last: u32, fraction: Option<f64>) -> Option<u32> {
         let fraction = fraction?;
         if !fraction.is_finite() || !(0.0..=1.0).contains(&fraction) {

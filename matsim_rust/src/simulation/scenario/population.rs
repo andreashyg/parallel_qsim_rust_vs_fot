@@ -273,9 +273,7 @@ pub struct InternalPlan {
     pub selected: bool,
     pub elements: Vec<InternalPlanElement>,
     pub attributes: InternalAttributes,
-    /// Number of scores averaged into `score` since score MSA started. Like MATSim's
-    /// `NewScoreAssignerImpl`, this counter belongs to the plan instance, lives only in memory,
-    /// and is neither written to nor read from plan files.
+    /// Number of scores averaged since MSA started. Field lives only in memory, and is neither written to nor read from plan files.
     pub(crate) msa_contributions: u32,
 }
 

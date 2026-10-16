@@ -842,10 +842,6 @@ pub struct Scoring {
     pub activity_params: Vec<ActivityParameter>,
     pub mode_params: Vec<ModeParameter>,
     pub agent_params: Vec<AgentParameter>,
-    /// Fraction of the iterations between `controller.first_iteration` and
-    /// `controller.last_iteration` after which selected-plan scores are averaged with the
-    /// method of successive averages (MSA), as MATSim's
-    /// `scoring.fractionOfIterationsToStartScoreMSA`. `None` never starts MSA.
     pub fraction_of_iterations_to_start_score_msa: Option<f64>,
 }
 

@@ -120,11 +120,9 @@ impl PartialPlan {
         }
 
         InternalPlan {
-            attributes: Default::default(),
-            score: None,
-            selected: true,
             elements: self.elements,
-            msa_contributions: 0,
+            selected: true,
+            ..Default::default()
         }
     }
 }

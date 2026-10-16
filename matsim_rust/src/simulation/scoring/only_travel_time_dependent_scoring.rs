@@ -153,6 +153,7 @@ mod tests {
             selected: true,
             elements,
             attributes: Default::default(),
+            msa_contributions: 0,
         }
     }
 

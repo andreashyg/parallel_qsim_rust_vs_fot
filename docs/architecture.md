@@ -99,12 +99,19 @@ future scoring events. At `BeforeCleanup`, every worker converts the backpacks c
 partial population and sends it to the controller over a dedicated backchannel before publishing its normal worker
 result. Consequently, all partial populations are available when the controller emits `AfterMobsim`. The scoring
 module verifies iteration and rank and merges the populations deterministically by person ID. The controller then
-scores each reconstructed experienced plan and copies the result to exactly the selected original plan. Experienced
-plans receive the same score and are written only when `scoring.write_experienced_plans` and the configured plan
-writing interval allow it. Collection and scoring always run, even when experienced-plan output is disabled, so
-replanning can consume the updated selected-plan scores. The only exception is `scoring.mode: Disabled`: the controller
-then registers no backpacking engines, collects no experienced plans, and sets the score of each selected plan to
-`None`. Backpacks do not return to an initial or "home" partition.
+scores each reconstructed experienced plan and passes the result to the score assigner, a port of MATSim's
+`NewScoreAssignerImpl` with an implicit learning rate of 1. It updates exactly the selected original plan: the new
+score replaces the old one until the iteration given by `scoring.fraction_of_iterations_to_start_score_msa`, and from
+then on the plan's score is the method-of-successive-averages (MSA) mean of the scores it received since that
+iteration. A plan without a score takes the new score without counting it as an MSA contribution. The MSA counter is
+in-memory state of each plan. A plan copied during replanning restarts the counter at zero, so its first MSA
+contribution replaces any copied score, and a restart from output plans resets all counters, as in MATSim. Without the
+setting, MSA never starts. Experienced plans receive the raw score and are written only when
+`scoring.write_experienced_plans` and the configured plan writing interval allow it. Collection and scoring always
+run, even when experienced-plan output is disabled, so replanning can consume the updated selected-plan scores. The
+only exception is `scoring.mode: Disabled`: the controller then registers no backpacking engines, collects no
+experienced plans, and sets the score of each selected plan to `None`. Backpacks do not return to an initial or "home"
+partition.
 Scoring uses the public `PlanScorer` trait and reads only the experienced plan. The controller builder accepts a
 `Box<dyn PlanScorer>`; without one, it creates `CharyparNagelScoringFunction`. The alternative
 `OnlyTravelTimeDependentScoring` assigns the negative elapsed seconds of completed trips, including transfer waits.

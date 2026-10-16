@@ -945,6 +945,7 @@ mod tests {
             score,
             selected,
             elements: Vec::new(),
+            msa_contributions: 0,
         }
     }
 

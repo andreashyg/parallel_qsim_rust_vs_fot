@@ -124,6 +124,7 @@ impl PartialPlan {
             score: None,
             selected: true,
             elements: self.elements,
+            msa_contributions: 0,
         }
     }
 }

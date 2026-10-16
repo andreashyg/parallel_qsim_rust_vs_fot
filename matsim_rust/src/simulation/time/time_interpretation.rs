@@ -269,6 +269,7 @@ mod tests {
                 InternalPlanElement::Activity(activity(None, Some(Duration::from_secs(3)))),
             ],
             attributes: Default::default(),
+            msa_contributions: 0,
         };
         let target = plan.elements[2].as_activity().unwrap();
 
@@ -290,6 +291,7 @@ mod tests {
                 InternalPlanElement::Activity(activity(None, Some(Duration::from_secs(3)))),
             ],
             attributes: Default::default(),
+            msa_contributions: 0,
         };
         let target = plan.elements[2].as_activity().unwrap();
 
@@ -309,6 +311,7 @@ mod tests {
                 None,
             ))],
             attributes: Default::default(),
+            msa_contributions: 0,
         };
         let outside_activity = activity(Some(SimTime::from_secs(10)), None);
 

@@ -70,6 +70,8 @@ after the conversion and are resolved during preparation; code running afterward
 - `prepare_for_sim` runs once on the loaded `Scenario`, before the controller shares it, e.g. with the routing modules.
   It connects the facilities to the network and resolves the activity locations. Both run in parallel.
 - `prepare_for_mobsim` runs before every mobsim iteration. It validates and repairs plans, e.g. by routing trips.
+  As in MATSim, trips with a mode of `qsim.main_modes` or `routing.network_modes` are routed with the vehicle
+  `<person>_<mode>`; vehicles referenced by the routes of the old trip are not reused.
 
 For mobsim, the controller splits the population into `MobsimInput`s. Each input contains a `MobsimPartition` with the
 shared scenario data and a fresh partition network runtime, plus a `PopulationShard`. Persistent QSim workers receive

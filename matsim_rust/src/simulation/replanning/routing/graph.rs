@@ -433,10 +433,10 @@ impl IndexableGraph for ForwardBackwardRoutingGraph {
 /// to-node.
 ///
 /// The dead-end nodes are the nodes outside the 2-core of the graph without link directions,
-/// i.e., the nodes that are removed by repeatedly removing nodes with at most one neighbour. Each
-/// connected set of such nodes is a tree attached to the rest of the graph by at most one pair of
-/// neighbours. MATSim finds its dead ends by following chains of nodes with a single neighbour
-/// instead, which differs in details, e.g., at loops and for connected components that are trees.
+/// i.e., the nodes that are removed by repeatedly removing nodes with at most one neighbour.
+/// See also https://en.wikipedia.org/wiki/Degeneracy_(graph_theory).
+/// Each connected set of such nodes is a tree attached to the rest of the graph by at most one pair of
+/// neighbours.
 ///
 /// Returns the dead end of each node, identified by its smallest node index, or None for nodes that
 /// are not in a dead end.

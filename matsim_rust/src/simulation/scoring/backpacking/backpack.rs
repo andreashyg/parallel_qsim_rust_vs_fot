@@ -29,18 +29,6 @@ impl Backpack {
         }
     }
 
-    fn relevant_event_for_scoring(_: &dyn EventTrait) -> Option<Box<dyn EventTrait>> {
-        /*
-        Keep scoring-only events in the backpack so they migrate with the affected person.
-        Additional event types can be added here without coupling them to partial-plan creation.
-        (aleks May'26)
-        The event types of the partial plan don't pass this hook: `BackpackingEngine` subscribes to
-        them one by one and hands them to `partial_plan_mut()`. Additional event types need such a
-        subscription as well, which then calls `handle_event`.
-         */
-        None
-    }
-
     pub(crate) fn person_id(&self) -> &Id<InternalPerson> {
         &self.person_id
     }
@@ -48,19 +36,6 @@ impl Backpack {
     /// The partial plan, which the backpacking engine updates with the typed events it subscribes to.
     pub(crate) fn partial_plan_mut(&mut self) -> &mut PartialPlan {
         &mut self.backpack_plan
-    }
-
-    // Extension point for scoring-only events (see `relevant_event_for_scoring`). No such event
-    // type exists yet, so only tests call it.
-    #[cfg_attr(not(test), allow(dead_code))]
-    #[hotpath::measure]
-    pub(crate) fn handle_event(&mut self, event: &dyn EventTrait) {
-        if let Some(e) = Self::relevant_event_for_scoring(event) {
-            self.events.push(e);
-            return;
-        }
-
-        self.backpack_plan.handle_event(event);
     }
 
     #[hotpath::measure]
@@ -127,7 +102,7 @@ mod tests {
             .unwrap(),
         );
         let mut backpack = Backpack::new(original.id().clone());
-        backpack.handle_event(
+        backpack.partial_plan_mut().activity_end(
             &ActivityEndEventBuilder::default()
                 .time(SimTime::from_secs(10))
                 .person(original.id().clone())
@@ -173,7 +148,7 @@ mod tests {
         let person = Id::create("person");
         let link = Id::create("link");
         let mut backpack = Backpack::new(person.clone());
-        backpack.handle_event(
+        backpack.partial_plan_mut().activity_end(
             &ActivityEndEventBuilder::default()
                 .time(SimTime::from_secs(10))
                 .person(person.clone())
@@ -183,7 +158,7 @@ mod tests {
                 .build()
                 .unwrap(),
         );
-        backpack.handle_event(
+        backpack.partial_plan_mut().person_stuck(
             &PersonStuckEventBuilder::default()
                 .time(SimTime::from_secs(20))
                 .person(person)

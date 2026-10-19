@@ -1,6 +1,6 @@
 use crate::simulation::events::{
-    ActivityEndEvent, ActivityStartEvent, EventTrait, LinkEnterEvent, PersonArrivalEvent,
-    PersonDepartureEvent, PersonEntersVehicleEvent, PersonLeavesVehicleEvent, PersonStuckEvent,
+    ActivityEndEvent, ActivityStartEvent, LinkEnterEvent, PersonArrivalEvent, PersonDepartureEvent,
+    PersonEntersVehicleEvent, PersonLeavesVehicleEvent, PersonStuckEvent,
     PtTeleportationArrivalEvent, TeleportationArrivalEvent, VehicleEntersTrafficEvent,
     VehicleLeavesTrafficEvent,
 };
@@ -185,40 +185,6 @@ impl PartialPlan {
         self.with_current_leg(PtTeleportationArrivalEvent::TYPE, |leg| {
             leg.partial_route.handle_pt_teleportation_arrival(event)
         });
-    }
-
-    /// Handles an event whose type is only known at runtime. The simulation passes events to the
-    /// typed methods above directly; this method is meant for other callers like tests. Events of
-    /// other types don't change the plan, but still require a current leg or activity.
-    pub(crate) fn handle_event(&mut self, event: &dyn EventTrait) {
-        let any = event.as_any();
-        if let Some(e) = any.downcast_ref::<PersonStuckEvent>() {
-            self.person_stuck(e);
-        } else if let Some(e) = any.downcast_ref::<PersonDepartureEvent>() {
-            self.person_departure(e);
-        } else if let Some(e) = any.downcast_ref::<PersonArrivalEvent>() {
-            self.person_arrival(e);
-        } else if let Some(e) = any.downcast_ref::<ActivityStartEvent>() {
-            self.activity_start(e);
-        } else if let Some(e) = any.downcast_ref::<ActivityEndEvent>() {
-            self.activity_end(e);
-        } else if let Some(e) = any.downcast_ref::<PersonEntersVehicleEvent>() {
-            self.person_enters_vehicle(e);
-        } else if let Some(e) = any.downcast_ref::<PersonLeavesVehicleEvent>() {
-            self.person_leaves_vehicle(e);
-        } else if let Some(e) = any.downcast_ref::<VehicleEntersTrafficEvent>() {
-            self.vehicle_enters_traffic(e);
-        } else if let Some(e) = any.downcast_ref::<VehicleLeavesTrafficEvent>() {
-            self.vehicle_leaves_traffic(e);
-        } else if let Some(e) = any.downcast_ref::<LinkEnterEvent>() {
-            self.link_enter(e);
-        } else if let Some(e) = any.downcast_ref::<TeleportationArrivalEvent>() {
-            self.teleportation_arrival(e);
-        } else if let Some(e) = any.downcast_ref::<PtTeleportationArrivalEvent>() {
-            self.pt_teleportation_arrival(e);
-        } else {
-            self.with_current_leg(event.type_(), |_| {});
-        }
     }
 
     pub(crate) fn finish(mut self) -> InternalPlan {
@@ -573,7 +539,7 @@ mod tests {
     use macros::deterministic_id_test;
 
     fn finish_initial_activity(plan: &mut PartialPlan) {
-        plan.handle_event(
+        plan.activity_end(
             &ActivityEndEventBuilder::default()
                 .time(SimTime::from_secs(10))
                 .person(Id::create("person"))
@@ -586,7 +552,7 @@ mod tests {
     }
 
     fn depart(plan: &mut PartialPlan, mode: &str) {
-        plan.handle_event(
+        plan.person_departure(
             &PersonDepartureEventBuilder::default()
                 .time(SimTime::from_secs(10))
                 .person(Id::create("person"))
@@ -599,7 +565,7 @@ mod tests {
     }
 
     fn arrive(plan: &mut PartialPlan) {
-        plan.handle_event(
+        plan.teleportation_arrival(
             &TeleportationArrivalEventBuilder::default()
                 .time(SimTime::from_secs(30))
                 .person(Id::create("person"))
@@ -608,7 +574,7 @@ mod tests {
                 .build()
                 .unwrap(),
         );
-        plan.handle_event(
+        plan.person_arrival(
             &PersonArrivalEventBuilder::default()
                 .time(SimTime::from_secs(30))
                 .person(Id::create("person"))
@@ -620,7 +586,7 @@ mod tests {
     }
 
     fn start_activity(plan: &mut PartialPlan) {
-        plan.handle_event(
+        plan.activity_start(
             &ActivityStartEventBuilder::default()
                 .time(SimTime::from_secs(30))
                 .person(Id::create("person"))
@@ -633,7 +599,7 @@ mod tests {
     }
 
     fn stuck(plan: &mut PartialPlan) {
-        plan.handle_event(
+        plan.person_stuck(
             &PersonStuckEventBuilder::default()
                 .time(SimTime::from_secs(60))
                 .person(Id::create("person"))
@@ -664,7 +630,7 @@ mod tests {
         depart(&mut partial, "walk");
         arrive(&mut partial);
         start_activity(&mut partial);
-        partial.handle_event(
+        partial.activity_end(
             &ActivityEndEventBuilder::default()
                 .time(SimTime::from_secs(50))
                 .person(Id::create("person"))
@@ -765,7 +731,7 @@ mod tests {
         let mut partial = PartialPlan::default();
         finish_initial_activity(&mut partial);
         depart(&mut partial, "pt");
-        partial.handle_event(
+        partial.pt_teleportation_arrival(
             &PtTeleportationArrivalEventBuilder::default()
                 .time(SimTime::from_secs(30))
                 .person(Id::create("person"))
@@ -779,7 +745,7 @@ mod tests {
                 .build()
                 .unwrap(),
         );
-        partial.handle_event(
+        partial.person_arrival(
             &PersonArrivalEventBuilder::default()
                 .time(SimTime::from_secs(30))
                 .person(Id::create("person"))
@@ -816,7 +782,7 @@ mod tests {
         let mut leg_plan = PartialPlan::default();
         finish_initial_activity(&mut leg_plan);
         depart(&mut leg_plan, "car");
-        leg_plan.handle_event(
+        leg_plan.person_enters_vehicle(
             &PersonEntersVehicleEventBuilder::default()
                 .time(SimTime::from_secs(10))
                 .person(Id::create("person"))
@@ -824,7 +790,7 @@ mod tests {
                 .build()
                 .unwrap(),
         );
-        leg_plan.handle_event(
+        leg_plan.link_enter(
             &LinkEnterEventBuilder::default()
                 .time(SimTime::from_secs(20))
                 .link(Id::create("current"))

@@ -1,10 +1,11 @@
 use crate::simulation::messaging::messages::{InternalSimMessage, InternalSyncMessage};
 use crate::simulation::messaging::sim_communication::SimCommunicator;
+use crate::simulation::messaging::sim_communication::barrier::{Barrier, WaitPolicy};
 use crate::simulation::time::Tick;
 use hotpath::wrap::std::sync::mpsc::{Receiver, Sender};
 use nohash_hasher::{IntMap, IntSet};
+use std::sync::Arc;
 use std::sync::mpsc::{TryRecvError, channel};
-use std::sync::{Arc, Barrier};
 use std::time::{Duration, Instant};
 
 /// How long a partition polls for the next message before it blocks on the channel. Blocking
@@ -12,10 +13,13 @@ use std::time::{Duration, Instant};
 /// wait until the scheduler runs it again. With few agents, a time step takes only a few
 /// microseconds, so these costs dominate the step. Polling avoids them, but keeps a core busy while
 /// waiting. Thus, the polling is bounded, and slow neighbors are still waited for by blocking.
+/// The barrier at which all partitions wait in every time step with `global_sync` polls for as long
+/// before it sleeps, for the same reasons.
 const POLL_BEFORE_BLOCKING: Duration = Duration::from_micros(50);
 /// How long a partition busy-waits while polling. Afterwards, it yields its core between polls.
 /// Busy-waiting notices a message fastest. But with more partitions than cores, it keeps the
-/// partitions that have to send the awaited messages from running.
+/// partitions that have to send the awaited messages from running. The barrier busy-waits for as
+/// long, too.
 const SPIN_BEFORE_YIELDING: Duration = Duration::from_micros(5);
 
 pub struct ChannelSimCommunicator {
@@ -88,7 +92,13 @@ impl ChannelSimCommunicator {
     pub fn create_n_2_n(num_parts: u32) -> Vec<ChannelSimCommunicator> {
         let mut senders: Vec<_> = Vec::new();
         let mut comms: Vec<_> = Vec::new();
-        let barrier = Arc::new(Barrier::new(num_parts as usize));
+        let barrier = Arc::new(Barrier::with_policy(
+            num_parts as usize,
+            WaitPolicy {
+                spin: SPIN_BEFORE_YIELDING,
+                yield_until: POLL_BEFORE_BLOCKING,
+            },
+        ));
 
         for rank in 0..num_parts {
             // if the feature `hotpath` is deactivated, this is a no-op!

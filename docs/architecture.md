@@ -97,9 +97,10 @@ it does not inspect or clone their contents.
 
 Experienced-plan collection uses this migration bus. Each worker creates one `BackpackingEngine` in an
 `Rc<RefCell<_>>`; its backpacks move with vehicles and teleporting agents and keep both their partial plans and any
-future scoring events. At `BeforeCleanup`, every worker converts the backpacks currently on that partition into one
-partial population and sends it to the controller over a dedicated backchannel before publishing its normal worker
-result. Consequently, all partial populations are available when the controller emits `AfterMobsim`. The scoring
+future scoring events. The engine subscribes only to the event types that change a partial plan, so that other events,
+e.g. link leave events, don't reach it. At `BeforeCleanup`, every worker converts the backpacks currently on that
+partition into one partial population and sends it to the controller over a dedicated backchannel before publishing its
+normal worker result. Consequently, all partial populations are available when the controller emits `AfterMobsim`. The scoring
 module verifies iteration and rank and merges the populations deterministically by person ID. The controller then
 scores each reconstructed experienced plan and passes the result to the score assigner, a port of MATSim's
 `NewScoreAssignerImpl` with an implicit learning rate of 1. It updates exactly the selected original plan: the new

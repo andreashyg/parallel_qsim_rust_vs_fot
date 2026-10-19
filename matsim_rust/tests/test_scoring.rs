@@ -31,6 +31,33 @@ fn backpacking_produces_partition_independent_experienced_plans() {
     }
 }
 
+/// Compares the experienced plans of all 100 equil agents with a stored reference, so that changes
+/// to the event handling of backpacking can't alter the reconstructed plans or their scores
+/// unnoticed. After an intended change of the result, replace the reference with the decompressed
+/// `test_output/simulation/scoring_reference_1/output_experienced_plans.xml.zst`.
+#[deterministic_id_test(matsim_rust)]
+fn full_equil_population_matches_reference_experienced_plans() {
+    let mut experienced = Vec::new();
+    for parts in [1, 2] {
+        let mut config = Config::from_args(CommandLineArgs::new_with_path(format!(
+            "./tests/resources/equil/equil-config-{parts}-scoring.yml"
+        )));
+        config.population_mut().path = Some("./assets/equil/equil-plans.xml.gz".into());
+        config.output_mut().output_dir =
+            format!("./test_output/simulation/scoring_reference_{parts}").into();
+        experienced.push(run_config_and_load(config));
+    }
+    // Load the reference after the runs, so that it doesn't change the order in which ids are created.
+    let expected = load_population(&PathBuf::from(
+        "./tests/resources/equil/expected_experienced_plans.xml",
+    ));
+
+    assert_eq!(expected.persons.len(), 100);
+    for population in experienced {
+        assert_eq!(population, expected);
+    }
+}
+
 #[deterministic_id_test(matsim_rust)]
 fn controller_builder_uses_custom_travel_time_scorer() {
     let mut config = Config::from_args(CommandLineArgs::new_with_path(

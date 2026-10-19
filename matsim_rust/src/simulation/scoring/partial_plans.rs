@@ -1,7 +1,8 @@
 use crate::simulation::events::{
-    ActivityEndEvent, ActivityStartEvent, EventTrait, LinkEnterEvent, PersonArrivalEvent,
-    PersonDepartureEvent, PersonEntersVehicleEvent, PersonStuckEvent, PtTeleportationArrivalEvent,
-    TeleportationArrivalEvent, VehicleEntersTrafficEvent, VehicleLeavesTrafficEvent,
+    ActivityEndEvent, ActivityStartEvent, LinkEnterEvent, PersonArrivalEvent, PersonDepartureEvent,
+    PersonEntersVehicleEvent, PersonLeavesVehicleEvent, PersonStuckEvent,
+    PtTeleportationArrivalEvent, TeleportationArrivalEvent, VehicleEntersTrafficEvent,
+    VehicleLeavesTrafficEvent,
 };
 use crate::simulation::id::Id;
 use crate::simulation::scenario::Coordinate;
@@ -79,33 +80,111 @@ impl PartialPlan {
         }
     }
 
-    pub(crate) fn handle_event(&mut self, event: &dyn EventTrait) {
-        if let Some(_) = event.as_any().downcast_ref::<PersonStuckEvent>() {
-            self.handle_stuck();
+    /// Passes an event to the current leg. While an activity is going on, the activity ignores
+    /// leg events.
+    fn with_current_leg(&mut self, event_type: &str, handle: impl FnOnce(&mut PartialLeg)) {
+        if let Some(leg) = self.current_leg.as_mut() {
+            handle(leg);
+        } else if self.current_activity.is_none() {
+            Self::panic_without_element(event_type);
+        }
+    }
+
+    /// Passes an event to the current activity. While a leg is going on, the leg ignores activity
+    /// events, even if an activity has been started.
+    fn with_current_activity(
+        &mut self,
+        event_type: &str,
+        handle: impl FnOnce(&mut PartialActivity),
+    ) {
+        if self.current_leg.is_some() {
             return;
         }
-        if let Some(_) = event.as_any().downcast_ref::<PersonDepartureEvent>() {
-            self.handle_person_departure();
-        } else if let Some(_) = event.as_any().downcast_ref::<ActivityStartEvent>() {
-            self.handle_activity_start();
+        match self.current_activity.as_mut() {
+            Some(activity) => handle(activity),
+            None => Self::panic_without_element(event_type),
         }
+    }
 
-        if self.current_leg.is_some() {
-            self.current_leg.as_mut().unwrap().handle_event(event);
-        } else if self.current_activity.is_some() {
-            self.current_activity.as_mut().unwrap().handle_event(event);
-        } else {
-            panic!(
-                "Tried to handle an event with neither leg nor activity being initialized! Event type: {}",
-                event.type_()
-            )
-        }
+    fn panic_without_element(event_type: &str) -> ! {
+        panic!(
+            "Tried to handle an event with neither leg nor activity being initialized! Event type: {event_type}"
+        )
+    }
 
-        if let Some(_) = event.as_any().downcast_ref::<PersonArrivalEvent>() {
-            self.handle_person_arrival();
-        } else if let Some(_) = event.as_any().downcast_ref::<ActivityEndEvent>() {
-            self.handle_activity_end();
-        }
+    pub(crate) fn person_stuck(&mut self, _event: &PersonStuckEvent) {
+        self.handle_stuck();
+    }
+
+    pub(crate) fn person_departure(&mut self, event: &PersonDepartureEvent) {
+        self.handle_person_departure();
+        self.with_current_leg(PersonDepartureEvent::TYPE, |leg| {
+            leg.handle_person_departure(event);
+            leg.partial_route.handle_person_departure(event);
+        });
+    }
+
+    pub(crate) fn person_arrival(&mut self, event: &PersonArrivalEvent) {
+        self.with_current_leg(PersonArrivalEvent::TYPE, |leg| {
+            leg.handle_person_arrival(event);
+            leg.partial_route.handle_person_arrival(event);
+        });
+        self.handle_person_arrival();
+    }
+
+    pub(crate) fn activity_start(&mut self, event: &ActivityStartEvent) {
+        self.handle_activity_start();
+        self.with_current_activity(ActivityStartEvent::TYPE, |activity| {
+            activity.handle_activity_start(event)
+        });
+    }
+
+    pub(crate) fn activity_end(&mut self, event: &ActivityEndEvent) {
+        self.with_current_activity(ActivityEndEvent::TYPE, |activity| {
+            activity.handle_activity_end(event)
+        });
+        self.handle_activity_end();
+    }
+
+    pub(crate) fn person_enters_vehicle(&mut self, event: &PersonEntersVehicleEvent) {
+        self.with_current_leg(PersonEntersVehicleEvent::TYPE, |leg| {
+            leg.partial_route.handle_person_enters_vehicle(event)
+        });
+    }
+
+    pub(crate) fn person_leaves_vehicle(&mut self, _event: &PersonLeavesVehicleEvent) {
+        // The route does not record leaving the vehicle; this only checks the state.
+        self.with_current_leg(PersonLeavesVehicleEvent::TYPE, |_| {});
+    }
+
+    pub(crate) fn vehicle_enters_traffic(&mut self, event: &VehicleEntersTrafficEvent) {
+        self.with_current_leg(VehicleEntersTrafficEvent::TYPE, |leg| {
+            leg.partial_route.handle_vehicle_enters_traffic(event)
+        });
+    }
+
+    pub(crate) fn vehicle_leaves_traffic(&mut self, event: &VehicleLeavesTrafficEvent) {
+        self.with_current_leg(VehicleLeavesTrafficEvent::TYPE, |leg| {
+            leg.partial_route.handle_vehicle_leaves_traffic(event)
+        });
+    }
+
+    pub(crate) fn link_enter(&mut self, event: &LinkEnterEvent) {
+        self.with_current_leg(LinkEnterEvent::TYPE, |leg| {
+            leg.partial_route.handle_link_enter_event(event)
+        });
+    }
+
+    pub(crate) fn teleportation_arrival(&mut self, event: &TeleportationArrivalEvent) {
+        self.with_current_leg(TeleportationArrivalEvent::TYPE, |leg| {
+            leg.partial_route.handle_teleportation_arrival(event)
+        });
+    }
+
+    pub(crate) fn pt_teleportation_arrival(&mut self, event: &PtTeleportationArrivalEvent) {
+        self.with_current_leg(PtTeleportationArrivalEvent::TYPE, |leg| {
+            leg.partial_route.handle_pt_teleportation_arrival(event)
+        });
     }
 
     pub(crate) fn finish(mut self) -> InternalPlan {
@@ -168,27 +247,25 @@ impl PartialActivity {
         self.end_time = Some(event.time);
     }
 
-    fn handle_event(&mut self, event: &dyn EventTrait) {
-        if let Some(e) = event.as_any().downcast_ref::<ActivityStartEvent>() {
-            self.handle_activity_start(e);
-        } else if let Some(e) = event.as_any().downcast_ref::<ActivityEndEvent>() {
-            self.handle_activity_end(e);
-        }
-    }
-
     /// Consuming function turning PartialActivity into an InternalActivity
     fn finish(self) -> InternalActivity {
-        let mut activity = InternalActivity::new(
-            self.coordinate,
-            self.act_type
-                .unwrap_or_else(|| panic!("Tried to finish PartialActivity without act type!"))
-                .external(),
-            self.link_id
-                .unwrap_or_else(|| panic!("Tried to finish PartialActivity without link!")),
-            self.start_time,
-            self.end_time,
-            None,
-        );
+        // Same as `InternalActivity::new`, but it keeps the act type id instead of looking it up
+        // again by its external id in the global id store.
+        let mut activity = InternalActivity {
+            coord: self.coordinate,
+            act_type: self
+                .act_type
+                .unwrap_or_else(|| panic!("Tried to finish PartialActivity without act type!")),
+            link_id: Some(
+                self.link_id
+                    .unwrap_or_else(|| panic!("Tried to finish PartialActivity without link!")),
+            ),
+            facility_id: None,
+            start_time: self.start_time,
+            end_time: self.end_time,
+            max_dur: None,
+            attributes: Default::default(),
+        };
         if self.aborted {
             activity.attributes.insert("aborted", true);
         }
@@ -227,30 +304,26 @@ impl PartialLeg {
         self.trav_time = Some(event.time.duration_since(self.dep_time.unwrap()));
     }
 
-    fn handle_event(&mut self, event: &dyn EventTrait) {
-        if let Some(e) = event.as_any().downcast_ref::<PersonArrivalEvent>() {
-            self.handle_person_arrival(e);
-        } else if let Some(e) = event.as_any().downcast_ref::<PersonDepartureEvent>() {
-            self.handle_person_departure(e);
-        }
-
-        self.partial_route.handle_event(event);
-    }
-
     /// Consuming function turning PartialLeg into an InternalLeg
     fn finish(self) -> InternalLeg {
-        InternalLeg::new(
-            self.partial_route.finish(),
-            self.mode
-                .unwrap_or_else(|| panic!("Tried to finish PartialLeg without mode!"))
-                .external(),
-            self.routing_mode
-                .unwrap_or_else(|| panic!("Tried to finish PartialLeg without routing_mode!"))
-                .external(),
-            self.trav_time
-                .unwrap_or_else(|| panic!("Tried to finish PartialLeg without trav_time!")),
-            self.dep_time,
-        )
+        // Same as `InternalLeg::new`, but it keeps the mode ids instead of looking them up again by
+        // their external ids in the global id store.
+        InternalLeg {
+            route: Some(self.partial_route.finish()),
+            mode: self
+                .mode
+                .unwrap_or_else(|| panic!("Tried to finish PartialLeg without mode!")),
+            routing_mode: Some(
+                self.routing_mode
+                    .unwrap_or_else(|| panic!("Tried to finish PartialLeg without routing_mode!")),
+            ),
+            trav_time: Some(
+                self.trav_time
+                    .unwrap_or_else(|| panic!("Tried to finish PartialLeg without trav_time!")),
+            ),
+            dep_time: self.dep_time,
+            attributes: Default::default(),
+        }
     }
 
     fn finish_incomplete(self) -> InternalLeg {
@@ -286,7 +359,8 @@ struct PartialRoute {
     end_time: Option<SimTime>,
     distance: Option<f64>,
     vehicle: Option<Id<InternalVehicle>>,
-    pt_description: Option<InternalPtRouteDescription>,
+    // Boxed, because only pt legs have it and it would otherwise make up a quarter of every backpack.
+    pt_description: Option<Box<InternalPtRouteDescription>>,
 
     //TODO These values are currently unused
     relative_position_on_departure_link: Option<f64>,
@@ -361,33 +435,13 @@ impl PartialRoute {
         }
         self.route_type = Some(PartialRouteTypes::Pt);
         self.distance = Some(event.distance);
-        self.pt_description = Some(InternalPtRouteDescription {
+        self.pt_description = Some(Box::new(InternalPtRouteDescription {
             transit_route_id: event.route.external().to_string(),
             boarding_time: Some(event.boarding_time),
             transit_line_id: event.line.external().to_string(),
             access_facility_id: event.access_facility.external().to_string(),
             egress_facility_id: event.egress_facility.external().to_string(),
-        });
-    }
-
-    fn handle_event(&mut self, event: &dyn EventTrait) {
-        if let Some(e) = event.as_any().downcast_ref::<PersonDepartureEvent>() {
-            self.handle_person_departure(e);
-        } else if let Some(e) = event.as_any().downcast_ref::<PersonArrivalEvent>() {
-            self.handle_person_arrival(e);
-        } else if let Some(e) = event.as_any().downcast_ref::<PersonEntersVehicleEvent>() {
-            self.handle_person_enters_vehicle(e);
-        } else if let Some(e) = event.as_any().downcast_ref::<VehicleEntersTrafficEvent>() {
-            self.handle_vehicle_enters_traffic(e);
-        } else if let Some(e) = event.as_any().downcast_ref::<VehicleLeavesTrafficEvent>() {
-            self.handle_vehicle_leaves_traffic(e);
-        } else if let Some(e) = event.as_any().downcast_ref::<LinkEnterEvent>() {
-            self.handle_link_enter_event(e);
-        } else if let Some(e) = event.as_any().downcast_ref::<TeleportationArrivalEvent>() {
-            self.handle_teleportation_arrival(e);
-        } else if let Some(e) = event.as_any().downcast_ref::<PtTeleportationArrivalEvent>() {
-            self.handle_pt_teleportation_arrival(e);
-        }
+        }));
     }
 
     /// Consuming function turning PartialRoute into an InternalRoute
@@ -438,7 +492,7 @@ impl PartialRoute {
             }
             Some(PartialRouteTypes::Pt) => InternalRoute::Pt(InternalPtRoute {
                 generic_delegate: route_delegate,
-                description: self.pt_description.unwrap_or_else(|| {
+                description: *self.pt_description.unwrap_or_else(|| {
                     panic!("Tried to finish PT PartialRoute without route description!")
                 }),
             }),
@@ -485,7 +539,7 @@ mod tests {
     use macros::deterministic_id_test;
 
     fn finish_initial_activity(plan: &mut PartialPlan) {
-        plan.handle_event(
+        plan.activity_end(
             &ActivityEndEventBuilder::default()
                 .time(SimTime::from_secs(10))
                 .person(Id::create("person"))
@@ -498,7 +552,7 @@ mod tests {
     }
 
     fn depart(plan: &mut PartialPlan, mode: &str) {
-        plan.handle_event(
+        plan.person_departure(
             &PersonDepartureEventBuilder::default()
                 .time(SimTime::from_secs(10))
                 .person(Id::create("person"))
@@ -511,7 +565,7 @@ mod tests {
     }
 
     fn arrive(plan: &mut PartialPlan) {
-        plan.handle_event(
+        plan.teleportation_arrival(
             &TeleportationArrivalEventBuilder::default()
                 .time(SimTime::from_secs(30))
                 .person(Id::create("person"))
@@ -520,7 +574,7 @@ mod tests {
                 .build()
                 .unwrap(),
         );
-        plan.handle_event(
+        plan.person_arrival(
             &PersonArrivalEventBuilder::default()
                 .time(SimTime::from_secs(30))
                 .person(Id::create("person"))
@@ -532,7 +586,7 @@ mod tests {
     }
 
     fn start_activity(plan: &mut PartialPlan) {
-        plan.handle_event(
+        plan.activity_start(
             &ActivityStartEventBuilder::default()
                 .time(SimTime::from_secs(30))
                 .person(Id::create("person"))
@@ -545,7 +599,7 @@ mod tests {
     }
 
     fn stuck(plan: &mut PartialPlan) {
-        plan.handle_event(
+        plan.person_stuck(
             &PersonStuckEventBuilder::default()
                 .time(SimTime::from_secs(60))
                 .person(Id::create("person"))
@@ -576,7 +630,7 @@ mod tests {
         depart(&mut partial, "walk");
         arrive(&mut partial);
         start_activity(&mut partial);
-        partial.handle_event(
+        partial.activity_end(
             &ActivityEndEventBuilder::default()
                 .time(SimTime::from_secs(50))
                 .person(Id::create("person"))
@@ -677,7 +731,7 @@ mod tests {
         let mut partial = PartialPlan::default();
         finish_initial_activity(&mut partial);
         depart(&mut partial, "pt");
-        partial.handle_event(
+        partial.pt_teleportation_arrival(
             &PtTeleportationArrivalEventBuilder::default()
                 .time(SimTime::from_secs(30))
                 .person(Id::create("person"))
@@ -691,7 +745,7 @@ mod tests {
                 .build()
                 .unwrap(),
         );
-        partial.handle_event(
+        partial.person_arrival(
             &PersonArrivalEventBuilder::default()
                 .time(SimTime::from_secs(30))
                 .person(Id::create("person"))
@@ -728,7 +782,7 @@ mod tests {
         let mut leg_plan = PartialPlan::default();
         finish_initial_activity(&mut leg_plan);
         depart(&mut leg_plan, "car");
-        leg_plan.handle_event(
+        leg_plan.person_enters_vehicle(
             &PersonEntersVehicleEventBuilder::default()
                 .time(SimTime::from_secs(10))
                 .person(Id::create("person"))
@@ -736,7 +790,7 @@ mod tests {
                 .build()
                 .unwrap(),
         );
-        leg_plan.handle_event(
+        leg_plan.link_enter(
             &LinkEnterEventBuilder::default()
                 .time(SimTime::from_secs(20))
                 .link(Id::create("current"))

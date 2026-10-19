@@ -283,17 +283,23 @@ impl PartialActivity {
 
     /// Consuming function turning PartialActivity into an InternalActivity
     fn finish(self) -> InternalActivity {
-        let mut activity = InternalActivity::new(
-            self.coordinate,
-            self.act_type
-                .unwrap_or_else(|| panic!("Tried to finish PartialActivity without act type!"))
-                .external(),
-            self.link_id
-                .unwrap_or_else(|| panic!("Tried to finish PartialActivity without link!")),
-            self.start_time,
-            self.end_time,
-            None,
-        );
+        // Same as `InternalActivity::new`, but it keeps the act type id instead of looking it up
+        // again by its external id in the global id store.
+        let mut activity = InternalActivity {
+            coord: self.coordinate,
+            act_type: self
+                .act_type
+                .unwrap_or_else(|| panic!("Tried to finish PartialActivity without act type!")),
+            link_id: Some(
+                self.link_id
+                    .unwrap_or_else(|| panic!("Tried to finish PartialActivity without link!")),
+            ),
+            facility_id: None,
+            start_time: self.start_time,
+            end_time: self.end_time,
+            max_dur: None,
+            attributes: Default::default(),
+        };
         if self.aborted {
             activity.attributes.insert("aborted", true);
         }
@@ -334,18 +340,24 @@ impl PartialLeg {
 
     /// Consuming function turning PartialLeg into an InternalLeg
     fn finish(self) -> InternalLeg {
-        InternalLeg::new(
-            self.partial_route.finish(),
-            self.mode
-                .unwrap_or_else(|| panic!("Tried to finish PartialLeg without mode!"))
-                .external(),
-            self.routing_mode
-                .unwrap_or_else(|| panic!("Tried to finish PartialLeg without routing_mode!"))
-                .external(),
-            self.trav_time
-                .unwrap_or_else(|| panic!("Tried to finish PartialLeg without trav_time!")),
-            self.dep_time,
-        )
+        // Same as `InternalLeg::new`, but it keeps the mode ids instead of looking them up again by
+        // their external ids in the global id store.
+        InternalLeg {
+            route: Some(self.partial_route.finish()),
+            mode: self
+                .mode
+                .unwrap_or_else(|| panic!("Tried to finish PartialLeg without mode!")),
+            routing_mode: Some(
+                self.routing_mode
+                    .unwrap_or_else(|| panic!("Tried to finish PartialLeg without routing_mode!")),
+            ),
+            trav_time: Some(
+                self.trav_time
+                    .unwrap_or_else(|| panic!("Tried to finish PartialLeg without trav_time!")),
+            ),
+            dep_time: self.dep_time,
+            attributes: Default::default(),
+        }
     }
 
     fn finish_incomplete(self) -> InternalLeg {

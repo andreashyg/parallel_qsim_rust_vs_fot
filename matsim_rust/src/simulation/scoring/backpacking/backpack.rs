@@ -15,7 +15,8 @@ pub(crate) struct Backpack {
 
 #[allow(dead_code)]
 pub(crate) struct PersonExperience {
-    dummy_person: InternalPerson,
+    person_id: Id<InternalPerson>,
+    plan: InternalPlan,
     events: Vec<Box<dyn EventTrait>>,
 }
 
@@ -65,7 +66,8 @@ impl Backpack {
     #[hotpath::measure]
     pub(crate) fn finish(mut self) -> PersonExperience {
         PersonExperience {
-            dummy_person: InternalPerson::new(self.person_id, self.backpack_plan.finish()),
+            person_id: self.person_id,
+            plan: self.backpack_plan.finish(),
             events: std::mem::take(&mut self.events),
         }
     }
@@ -73,11 +75,11 @@ impl Backpack {
 
 impl PersonExperience {
     pub(crate) fn plan(&self) -> &InternalPlan {
-        &self.dummy_person.selected_plan().unwrap()
+        &self.plan
     }
 
     pub(crate) fn plan_mut(&mut self) -> &mut InternalPlan {
-        self.dummy_person.selected_plan_mut()
+        &mut self.plan
     }
 
     #[allow(dead_code)]
@@ -85,10 +87,13 @@ impl PersonExperience {
         &self.events
     }
 
+    /// Creates the person only now, i.e. when the experienced plans are written after the mobsim,
+    /// so that the mobsim doesn't look up the default subpopulation for every person.
     pub(crate) fn convert_to_person(mut self, original: &InternalPerson) -> InternalPerson {
-        self.dummy_person.copy_metadata_from(original);
-        self.plan_mut().attributes = original.selected_plan().unwrap().attributes.clone();
-        self.dummy_person
+        self.plan.attributes = original.selected_plan().unwrap().attributes.clone();
+        let mut person = InternalPerson::new(self.person_id, self.plan);
+        person.copy_metadata_from(original);
+        person
     }
 }
 

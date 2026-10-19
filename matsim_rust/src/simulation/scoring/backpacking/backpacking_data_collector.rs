@@ -11,7 +11,8 @@ use crate::simulation::scenario::population::InternalPerson;
 use crate::simulation::scenario::vehicles::InternalVehicle;
 use crate::simulation::scoring::backpacking::backpack::{Backpack, PersonExperience};
 use crate::simulation::scoring::partial_plans::PartialPlan;
-use nohash_hasher::{IntMap, IntSet};
+use nohash_hasher::IntMap;
+use std::collections::hash_map::Entry;
 
 pub(crate) struct BackpackingAttachment {
     backpacks: Vec<Backpack>,
@@ -20,7 +21,57 @@ pub(crate) struct BackpackingAttachment {
 pub struct BackpackingDataCollector {
     home_person_ids: Vec<Id<InternalPerson>>,
     person_id2backpack: IntMap<Id<InternalPerson>, Backpack>,
-    vehicle_id2person_ids: IntMap<Id<InternalVehicle>, IntSet<Id<InternalPerson>>>,
+    vehicle_id2person_ids: IntMap<Id<InternalVehicle>, VehicleOccupants>,
+}
+
+/// The persons in a vehicle. The first one is stored inline, so that a vehicle with only a driver,
+/// the common case, needs no allocation of its own. Looking up the occupants of a vehicle, which
+/// happens for every link a vehicle enters, then also doesn't follow a pointer into another table.
+#[derive(Debug)]
+struct VehicleOccupants {
+    first: Id<InternalPerson>,
+    others: Vec<Id<InternalPerson>>,
+}
+
+impl VehicleOccupants {
+    fn new(person: Id<InternalPerson>) -> Self {
+        Self {
+            first: person,
+            others: Vec::new(),
+        }
+    }
+
+    /// Creates the occupants from the persons of a vehicle, which always has a driver.
+    fn from_persons(persons: impl IntoIterator<Item = Id<InternalPerson>>) -> Self {
+        let mut persons = persons.into_iter();
+        let mut occupants = Self::new(persons.next().expect("A vehicle without persons."));
+        persons.for_each(|person| occupants.insert(person));
+        occupants
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &Id<InternalPerson>> {
+        std::iter::once(&self.first).chain(&self.others)
+    }
+
+    /// Adds the person unless it is an occupant already.
+    fn insert(&mut self, person: Id<InternalPerson>) {
+        if !self.iter().any(|occupant| *occupant == person) {
+            self.others.push(person);
+        }
+    }
+
+    /// Removes the person, if it is an occupant, and returns whether the vehicle is empty then.
+    fn remove(&mut self, person: &Id<InternalPerson>) -> bool {
+        if self.first == *person {
+            match self.others.pop() {
+                Some(next) => self.first = next,
+                None => return true,
+            }
+        } else {
+            self.others.retain(|occupant| occupant != person);
+        }
+        false
+    }
 }
 
 impl BackpackingDataCollector {
@@ -45,10 +96,12 @@ impl BackpackingDataCollector {
     /// Records the person as an occupant of the vehicle and forwards the event to its backpack.
     #[hotpath::measure]
     pub(crate) fn person_enters_vehicle(&mut self, event: &PersonEntersVehicleEvent) {
-        self.vehicle_id2person_ids
-            .entry(event.vehicle.clone())
-            .or_default()
-            .insert(event.person.clone());
+        match self.vehicle_id2person_ids.entry(event.vehicle.clone()) {
+            Entry::Occupied(mut occupants) => occupants.get_mut().insert(event.person.clone()),
+            Entry::Vacant(vacant) => {
+                vacant.insert(VehicleOccupants::new(event.person.clone()));
+            }
+        }
         self.partial_plan(&event.person)
             .person_enters_vehicle(event);
     }
@@ -59,10 +112,7 @@ impl BackpackingDataCollector {
         let remove_vehicle = self
             .vehicle_id2person_ids
             .get_mut(&event.vehicle)
-            .map(|persons| {
-                persons.remove(&event.person);
-                persons.is_empty()
-            })
+            .map(|occupants| occupants.remove(&event.person))
             .unwrap_or(false);
         if remove_vehicle {
             self.vehicle_id2person_ids.remove(&event.vehicle);
@@ -120,10 +170,10 @@ impl BackpackingDataCollector {
         vehicle: &Id<InternalVehicle>,
         mut handle: impl FnMut(&mut PartialPlan),
     ) {
-        let Some(persons) = self.vehicle_id2person_ids.get(vehicle) else {
+        let Some(occupants) = self.vehicle_id2person_ids.get(vehicle) else {
             return;
         };
-        for person in persons {
+        for person in occupants.iter() {
             handle(Self::backpack(&mut self.person_id2backpack, person).partial_plan_mut());
         }
     }
@@ -197,10 +247,10 @@ impl BackpackingDataCollector {
         }
 
         if let PartitionChangeEntity::Vehicle(vehicle) = entity {
-            let persons = expected_person_ids.into_iter().collect();
+            let occupants = VehicleOccupants::from_persons(expected_person_ids);
             let previous = self
                 .vehicle_id2person_ids
-                .insert(vehicle.id().clone(), persons);
+                .insert(vehicle.id().clone(), occupants);
             assert!(
                 previous.is_none(),
                 "A vehicle mapping for arriving vehicle {} is already present.",
@@ -235,6 +285,7 @@ mod tests {
     use crate::simulation::vehicles::SimulationVehicle;
     use crate::test_utils::create_agent;
     use macros::deterministic_id_test;
+    use nohash_hasher::IntSet;
 
     #[deterministic_id_test]
     fn migrates_driver_and_passenger_and_rebuilds_vehicle_mapping() {
@@ -252,9 +303,7 @@ mod tests {
         departing.reset_iteration();
         departing.vehicle_id2person_ids.insert(
             vehicle.id().clone(),
-            [driver_id.clone(), passenger_id.clone()]
-                .into_iter()
-                .collect(),
+            VehicleOccupants::from_persons([driver_id.clone(), passenger_id.clone()]),
         );
 
         let attachment = departing.send(PartitionChangeEntity::Vehicle(&vehicle));
@@ -264,10 +313,40 @@ mod tests {
         let mut arriving = BackpackingDataCollector::new(Vec::new());
         arriving.receive(PartitionChangeEntity::Vehicle(&vehicle), attachment);
         assert_eq!(arriving.person_id2backpack.len(), 2);
+        let occupants: IntSet<_> = arriving
+            .vehicle_id2person_ids
+            .get(vehicle.id())
+            .unwrap()
+            .iter()
+            .cloned()
+            .collect();
         let expected: IntSet<_> = [driver_id, passenger_id].into_iter().collect();
-        assert_eq!(
-            arriving.vehicle_id2person_ids.get(vehicle.id()).unwrap(),
-            &expected
-        );
+        assert_eq!(occupants, expected);
+    }
+
+    #[deterministic_id_test]
+    fn vehicle_occupants_behave_like_a_set() {
+        let [a, b, c] = ["a", "b", "c"].map(Id::<InternalPerson>::create);
+        let mut occupants = VehicleOccupants::new(a.clone());
+        occupants.insert(b.clone());
+        occupants.insert(a.clone());
+        occupants.insert(c.clone());
+        occupants.insert(b.clone());
+        let members = |occupants: &VehicleOccupants| {
+            let mut members: Vec<_> = occupants.iter().map(|p| p.external().to_string()).collect();
+            members.sort();
+            members
+        };
+        assert_eq!(members(&occupants), ["a", "b", "c"]);
+
+        // Removing a person that isn't an occupant changes nothing.
+        assert!(!occupants.remove(&Id::create("d")));
+        assert_eq!(members(&occupants), ["a", "b", "c"]);
+        // Removing the first occupant moves another one to the front.
+        assert!(!occupants.remove(&a));
+        assert_eq!(members(&occupants), ["b", "c"]);
+        assert!(!occupants.remove(&c));
+        assert_eq!(members(&occupants), ["b"]);
+        assert!(occupants.remove(&b));
     }
 }

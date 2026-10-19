@@ -393,7 +393,8 @@ struct PartialRoute {
     end_time: Option<SimTime>,
     distance: Option<f64>,
     vehicle: Option<Id<InternalVehicle>>,
-    pt_description: Option<InternalPtRouteDescription>,
+    // Boxed, because only pt legs have it and it would otherwise make up a quarter of every backpack.
+    pt_description: Option<Box<InternalPtRouteDescription>>,
 
     //TODO These values are currently unused
     relative_position_on_departure_link: Option<f64>,
@@ -468,13 +469,13 @@ impl PartialRoute {
         }
         self.route_type = Some(PartialRouteTypes::Pt);
         self.distance = Some(event.distance);
-        self.pt_description = Some(InternalPtRouteDescription {
+        self.pt_description = Some(Box::new(InternalPtRouteDescription {
             transit_route_id: event.route.external().to_string(),
             boarding_time: Some(event.boarding_time),
             transit_line_id: event.line.external().to_string(),
             access_facility_id: event.access_facility.external().to_string(),
             egress_facility_id: event.egress_facility.external().to_string(),
-        });
+        }));
     }
 
     /// Consuming function turning PartialRoute into an InternalRoute
@@ -525,7 +526,7 @@ impl PartialRoute {
             }
             Some(PartialRouteTypes::Pt) => InternalRoute::Pt(InternalPtRoute {
                 generic_delegate: route_delegate,
-                description: self.pt_description.unwrap_or_else(|| {
+                description: *self.pt_description.unwrap_or_else(|| {
                     panic!("Tried to finish PT PartialRoute without route description!")
                 }),
             }),

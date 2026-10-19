@@ -1,6 +1,6 @@
 use crate::simulation::messaging::messages::{InternalSimMessage, InternalSyncMessage};
 use crate::simulation::messaging::sim_communication::SimCommunicator;
-use crate::simulation::messaging::sim_communication::barrier::{self, WaitPolicy};
+use crate::simulation::messaging::sim_communication::barrier::{Barrier, WaitPolicy};
 use crate::simulation::time::Tick;
 use hotpath::wrap::std::sync::mpsc::{Receiver, Sender};
 use nohash_hasher::{IntMap, IntSet};
@@ -26,7 +26,7 @@ pub struct ChannelSimCommunicator {
     receiver: Receiver<InternalSimMessage>,
     senders: Vec<Sender<InternalSimMessage>>,
     rank: u32,
-    barrier: Arc<barrier::Barrier>,
+    barrier: Arc<Barrier>,
 }
 
 impl SimCommunicator for ChannelSimCommunicator {
@@ -92,7 +92,7 @@ impl ChannelSimCommunicator {
     pub fn create_n_2_n(num_parts: u32) -> Vec<ChannelSimCommunicator> {
         let mut senders: Vec<_> = Vec::new();
         let mut comms: Vec<_> = Vec::new();
-        let barrier = Arc::new(barrier::Barrier::with_policy(
+        let barrier = Arc::new(Barrier::with_policy(
             num_parts as usize,
             WaitPolicy {
                 spin: SPIN_BEFORE_YIELDING,

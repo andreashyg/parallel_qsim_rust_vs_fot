@@ -19,22 +19,6 @@
 //! barrier. If a participant panics before it calls `wait`, the others wait forever, as with
 //! [`std::sync::Barrier`].
 //!
-//! # When to use it
-//!
-//! The barrier suits threads that arrive close to each other and for which the latency of the
-//! barrier matters, e.g. threads that synchronize after every short step of a simulation. In
-//! contrast to [`std::sync::Barrier`] (a mutex and a condition variable), arriving threads do
-//! not contend for a lock, waiting threads notice the opening without a system call while they
-//! spin or yield, and the last thread only makes a system call if a thread is sleeping. How long
-//! a thread spins and yields is set with a [`WaitPolicy`]. Spinning and yielding keep a core
-//! busy, which slows down other threads if there are more threads than cores.
-//!
-//! # Limitations
-//!
-//! All threads increment the same counter, so the cache line holding it moves between all cores
-//! once per generation. On machines with many cores, a hierarchical barrier that first
-//! synchronizes the threads sharing a cache (e.g. an AMD core complex) would scale better.
-//!
 //! The module only depends on `std` and `atomic-wait`, which provides the futex-like
 //! `wait`/`wake_all` that `std` does not expose.
 
@@ -49,17 +33,13 @@ use std::time::{Duration, Instant};
 /// Setting both to zero makes waiting threads sleep immediately.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WaitPolicy {
-    /// How long a waiting thread busy-waits. Busy-waiting notices the opening of the barrier
-    /// fastest, but keeps other threads from running on the core.
+    /// How long a waiting thread busy-waits.
     pub spin: Duration,
-    /// Until when a waiting thread yields its core between checks, once it no longer
-    /// busy-waits. Afterwards, it sleeps until the last thread arrives and wakes it up. If this
-    /// is not larger than `spin`, the thread sleeps right after busy-waiting.
+    /// Until when a waiting thread yields its core between checks, once it no longer busy-waits.
     pub yield_until: Duration,
 }
 
 impl Default for WaitPolicy {
-    /// Busy-waits for 5 µs and yields until 50 µs have passed.
     fn default() -> Self {
         Self {
             spin: Duration::from_micros(5),
@@ -164,22 +144,13 @@ impl Barrier {
         // arrived, so this is the generation that this thread waits for to end.
         let generation = self.generation.load(Ordering::Acquire);
 
-        // Every arrival is a read-modify-write of `arrived`. The release halves of all arrivals of
-        // a generation form a release sequence, which the acquire half of the last arrival reads
-        // from. Thus, everything that any thread did before arriving happens before the last
-        // thread opens the barrier.
         let prev = self.arrived.fetch_add(1, Ordering::AcqRel);
         if prev + 1 == self.n {
-            // Reset the counter before the next generation becomes visible. A thread can only
-            // arrive in the next generation after it has seen the new generation with acquire
-            // ordering below, so it also sees this reset.
+            // This is the last caller of `wait` in this generation, so it opens the barrier for the others and immediately returns.
+
             self.arrived.store(0, Ordering::Relaxed);
-            // Opens the barrier. Its release half publishes everything that happened before any
-            // arrival to the threads that read the new generation with acquire ordering. The
-            // counter wraps around, which is fine because waiting threads only compare it for
-            // inequality, and no thread can fall 2^32 generations behind, since the barrier
-            // cannot open without it.
             self.generation.fetch_add(1, Ordering::SeqCst);
+
             // Together with `sleep`, this is Dekker's pattern: this thread writes `generation`
             // and then reads `sleepers`, a sleeping thread increments `sleepers` and then reads
             // `generation`, all with sequentially consistent ordering. Hence, either this thread

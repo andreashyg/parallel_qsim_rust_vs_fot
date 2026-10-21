@@ -24,9 +24,10 @@ add_access_egress_legs_case() {
   local beta="$2"
   local java_seed_index="$3"
   local _rust_seed="$4"  # unused in this module
-  local experiment_set_name="$5"
-  local base_output_dir="$6"
-  local skip_if_existing="$7"
+  local global_config_path="$5"
+  local experiment_set_name="$6"
+  local base_output_dir="$7"
+  local skip_if_existing="$8"
 
   local skip_if_existing_array=()
   if [[ "$skip_if_existing" == "true" ]]; then
@@ -45,6 +46,7 @@ add_access_egress_legs_case() {
     --experiment-set-name "${experiment_set_name}" \
     --beta "${beta}" \
     --read-from-random "${java_seed_index}" \
+    --global-config-path "${global_config_path}" \
     "${skip_if_existing_array[@]}"
   then
     echo "Failed to add access egress legs." >&2

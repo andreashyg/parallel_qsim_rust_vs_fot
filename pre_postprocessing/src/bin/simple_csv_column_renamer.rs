@@ -38,6 +38,9 @@ struct InputArgs {
     /// New column names in order. Provide this argument multiple times, once per column.
     #[arg(long = "column-name", required = true)]
     pub column_names: Vec<String>,
+    /// Path to the global config file.
+    #[arg(long)]
+    pub global_config_path: String,
 }
 
 fn main() {
@@ -56,7 +59,7 @@ fn main() {
 
     let global_config: GlobalConfig = serde_yaml::from_reader(
         std::fs::File::open(
-            "./experiments/compare_braess_to_java/experiment_sets/global_config.yaml",
+            &args.global_config_path,
         )
             .expect("Failed to open global config file"),
     )

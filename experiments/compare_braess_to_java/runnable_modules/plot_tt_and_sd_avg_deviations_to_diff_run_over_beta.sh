@@ -9,15 +9,16 @@ plot_deviation_boxplots_to_diff_run_over_beta_case() {
   local beta="$2"
   local java_seed_index="$3"
   local rust_seed="$4"
-  local experiment_set_name="$5"
-  local base_output_dir="$6"
-  local main_input_tt_csv_path_pattern="$7"
-  local main_input_sd_csv_path_pattern="$8"
-  local secondary_input_tt_csv_path_pattern="$9"
-  local secondary_input_sd_csv_path_pattern="${10}"
-  local seeds_to_use_array_string="${11}"
-  local betas_to_use_array_string="${12}"
-  local which_deviation="${13}"
+  local global_config_path="$5"
+  local experiment_set_name="$6"
+  local base_output_dir="$7"
+  local main_input_tt_csv_path_pattern="$8"
+  local main_input_sd_csv_path_pattern="$9"
+  local secondary_input_tt_csv_path_pattern="${10}"
+  local secondary_input_sd_csv_path_pattern="${11}"
+  local seeds_to_use_array_string="${12}"
+  local betas_to_use_array_string="${13}"
+  local which_deviation="${14}"
 
   read -a seeds_to_use <<< "$seeds_to_use_array_string"
 
@@ -29,7 +30,7 @@ plot_deviation_boxplots_to_diff_run_over_beta_case() {
     "$which_deviation" \
     "$main_input_tt_csv_path_pattern" "$main_input_sd_csv_path_pattern" \
     "$secondary_input_tt_csv_path_pattern" "$secondary_input_sd_csv_path_pattern" \
-    "$betas_to_use_array_string" "${seeds_to_use[@]}"
+    "$betas_to_use_array_string" "$global_config_path" "${seeds_to_use[@]}"
   then
     echo "Plotting failed, continuing with next case." >&2
     record_failure plotting "$replanning_variant" "all_betas" "$java_seed_index" "$rust_seed"
@@ -44,15 +45,16 @@ plot_deviation_scatterplots_to_diff_run_over_beta_case() {
   local beta="$2"
   local java_seed_index="$3"
   local rust_seed="$4"
-  local experiment_set_name="$5"
-  local base_output_dir="$6"
-  local main_input_tt_csv_path_pattern="$7"
-  local main_input_sd_csv_path_pattern="${8}"
-  local secondary_input_tt_csv_path_pattern="${9}"
-  local secondary_input_sd_csv_path_pattern="${10}"
-  local seeds_to_use_array_string="${11}"
-  local betas_to_use_array_string="${12}"
-  local which_deviation="${13}"
+  local global_config_path="$5"
+  local experiment_set_name="$6"
+  local base_output_dir="$7"
+  local main_input_tt_csv_path_pattern="$8"
+  local main_input_sd_csv_path_pattern="${9}"
+  local secondary_input_tt_csv_path_pattern="${10}"
+  local secondary_input_sd_csv_path_pattern="${11}"
+  local seeds_to_use_array_string="${12}"
+  local betas_to_use_array_string="${13}"
+  local which_deviation="${14}"
 
 
   read -a seeds_to_use <<< "$seeds_to_use_array_string"
@@ -65,7 +67,7 @@ plot_deviation_scatterplots_to_diff_run_over_beta_case() {
     "$which_deviation" \
     "$main_input_tt_csv_path_pattern" "$main_input_sd_csv_path_pattern" \
     "$secondary_input_tt_csv_path_pattern" "$secondary_input_sd_csv_path_pattern" \
-    "$betas_to_use_array_string" "${seeds_to_use[@]}"
+    "$betas_to_use_array_string" "$global_config_path" "${seeds_to_use[@]}"
   then
     echo "Plotting failed, continuing with next case." >&2
     record_failure plotting "$replanning_variant" "all_betas" "$java_seed_index" "$rust_seed"

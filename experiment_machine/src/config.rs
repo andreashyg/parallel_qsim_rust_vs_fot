@@ -108,12 +108,13 @@ impl Config {
     pub fn run_all_modules(
         &self,
         global_config: &GlobalConfig,
+        global_config_path: &str,
         resume: bool,
         resume_failed: bool,
     ) -> Result<(), String> {
         // Run all modules.
         for module in &self.modules {
-            module.run(self, global_config, resume, resume_failed)?;
+            module.run(self, global_config, global_config_path, resume, resume_failed)?;
         }
         Ok(())
     }
@@ -200,6 +201,7 @@ pub trait Module: Debug {
         &self,
         config: &Config,
         global_config: &GlobalConfig,
+        global_config_path: &str,
         resume: bool,
         resume_failed: bool,
     ) -> Result<(), String> {
@@ -208,7 +210,7 @@ pub trait Module: Debug {
 
         bash_function.run_for_cartprod_in_parallel(
             config,
-            global_config,
+            global_config_path,
             self,
             resume,
             resume_failed,

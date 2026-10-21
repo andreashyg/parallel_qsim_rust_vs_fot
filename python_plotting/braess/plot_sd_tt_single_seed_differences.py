@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from setup import FIG_SIZE, COMMON_PLOTS_PATTERN
+from setup import FIG_SIZE, get_file_name_end_and_common_plots_patterns_from_global_config
 from utils import plot_extracted_sd_over_time, plot_extracted_tt_over_time, \
     get_elementwise_difference_df, plot_textbox, plot_value_count_table, ExperimentSet, save_value_count_table_as_csv
 
@@ -24,7 +24,12 @@ if __name__ == '__main__':
     (_, beta, replanning_variant, read_random, use_random, experiment_set_name, base_output_dir,
      minus_what, main_input_tt_csv_path_pattern,
      main_input_sd_csv_path_pattern, secondary_input_tt_csv_path_pattern,
-     secondary_input_sd_csv_path_pattern) = sys.argv
+     secondary_input_sd_csv_path_pattern, global_config_path) = sys.argv
+
+    (FILE_NAME_END_PATTERN_WITH_BETA_RR_UR,
+     FILE_NAME_END_PATTERN_WITH_BETA_RR,
+     FILE_NAME_END_PATTERN_WITH_BETA,
+     COMMON_PLOTS_PATTERN) = get_file_name_end_and_common_plots_patterns_from_global_config(global_config_path)
 
     beta = int(beta)
     read_random = int(read_random)
@@ -67,7 +72,7 @@ if __name__ == '__main__':
     tt_avg_diff_csv_path = tt_avg_diff_csv_path.replace("{minus_what}", minus_what)
     sd_avg_diff_csv_path = sd_avg_diff_csv_path.replace("{minus_what}", minus_what)
 
-    experiment_set = ExperimentSet(base_output_dir, replanning_variant, experiment_set_name,
+    experiment_set = ExperimentSet(global_config_path, base_output_dir, replanning_variant, experiment_set_name,
                                    output_tt_plot_path_pattern, output_sd_plot_path_pattern,
                                    main_input_tt_csv_path_pattern, main_input_sd_csv_path_pattern,
                                    secondary_input_tt_csv_path_pattern, secondary_input_sd_csv_path_pattern)

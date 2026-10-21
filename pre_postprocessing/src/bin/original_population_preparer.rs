@@ -3,7 +3,6 @@ use experiment_machine::config::GlobalConfig;
 use matsim_rust::simulation::logging::init_std_out_logging_thread_local;
 use matsim_rust::simulation::scenario::population::Population;
 use matsim_rust::simulation::scenario::vehicles::Garage;
-use pre_postprocessing::access_egress_leg_adding::add_access_egress_legs_if_necessary;
 use pre_postprocessing::activity_time_replacement::replace_activity_times_and_add_dummy_coords_to_acts;
 use pre_postprocessing::utils::replace_placeholders_in_path_pattern;
 use tracing::info;
@@ -31,18 +30,18 @@ struct InputArgs {
     pub read_from_random: usize,
     #[arg(long)]
     pub skip_if_existing: bool,
+    /// global config file path
+    #[arg(long)]
+    pub global_config_path: String,
 }
 
 fn main() {
     let _guard = init_std_out_logging_thread_local();
     let args = InputArgs::parse();
 
-    // TODO this is not *really* global, since it is written to compare_braess_to_java.
-    //  Decide if it should be moved to the parent folder, to be valid for all experiments, or if
-    //  every such folder should have its own, and then pass it around as a parameter.
     let global_config: GlobalConfig = serde_yaml::from_reader(
         std::fs::File::open(
-            "./experiments/compare_braess_to_java/experiment_sets/global_config.yaml",
+            &args.global_config_path,
         )
             .expect("Failed to open global config file"),
     )

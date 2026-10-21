@@ -82,12 +82,18 @@ struct CommandLineArgs {
     /// if set, the output directory will be deleted if it already exists
     #[arg(long)]
     delete_output_dir_if_existing: bool,
+    /// global config file path
+    #[arg(long)]
+    global_config_path: String,
 }
 
 fn main() {
     let _guard = init_std_out_logging_thread_local();
+    let args = CommandLineArgs::parse();
+    info!("Started with args: {:?}", args);
+    
     let global_config_path =
-        PathBuf::from("./experiments/compare_braess_to_java/experiment_sets/global_config.yaml");
+        PathBuf::from(&args.global_config_path);
 
     let global_config: GlobalConfig =
         serde_yaml::from_reader(std::fs::File::open(&global_config_path).unwrap())
@@ -120,8 +126,6 @@ fn main() {
         .expect("corrected_output_pop_pattern must be a string")
         .to_string();
 
-    let args = CommandLineArgs::parse();
-    info!("Started with args: {:?}", args);
 
     // represents vehicle size and time step
     let beta = args.beta;

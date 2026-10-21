@@ -1,7 +1,8 @@
 import sys
+
 from matplotlib import pyplot as plt
 
-from setup import BOXPLOT_FIG_SIZE, COMMON_PLOTS_PATTERN
+from setup import BOXPLOT_FIG_SIZE, get_file_name_end_and_common_plots_patterns_from_global_config
 from utils import plot_boxplot_over_beta, compute_deviation_to_reference_df, ExperimentSet
 
 plot_type_specific_tt_path_pattern = "{common_plots_pattern}/deviationsToNash/ttAvgDeviationToNashBoxplots/ttAvgDeviationToNashBoxplot.pdf"
@@ -9,10 +10,15 @@ plot_type_specific_sd_path_pattern = "{common_plots_pattern}/deviationsToNash/sd
 
 if __name__ == '__main__':
     (_, replanning_variant, experiment_set_name, read_random, use_random, base_output_dir,
-     input_tt_csv_path_pattern, input_sd_csv_path_pattern, betas_to_use_str) = sys.argv[0:9]
-    seeds_to_use = [int(s) for s in sys.argv[9:]]
+     input_tt_csv_path_pattern, input_sd_csv_path_pattern, betas_to_use_str, global_config_path) = sys.argv[0:10]
+    seeds_to_use = [int(s) for s in sys.argv[10:]]
 
     betas_to_use = [int(b) for b in betas_to_use_str.split(" ")]
+
+    (FILE_NAME_END_PATTERN_WITH_BETA_RR_UR,
+     FILE_NAME_END_PATTERN_WITH_BETA_RR,
+     FILE_NAME_END_PATTERN_WITH_BETA,
+     COMMON_PLOTS_PATTERN) = get_file_name_end_and_common_plots_patterns_from_global_config(global_config_path)
 
     if use_random == "UseAll":
         use_random = "{seed}"  # placeholder to be formatted later
@@ -36,7 +42,7 @@ if __name__ == '__main__':
     output_sd_plot_path_pattern = plot_type_specific_sd_path_pattern.replace("{common_plots_pattern}",
                                                                              COMMON_PLOTS_PATTERN)
 
-    experiment_set = ExperimentSet(base_output_dir, replanning_variant, experiment_set_name,
+    experiment_set = ExperimentSet(global_config_path, base_output_dir, replanning_variant, experiment_set_name,
                                    output_tt_plot_path_pattern,
                                    output_sd_plot_path_pattern, input_tt_csv_path_pattern, input_sd_csv_path_pattern)
 

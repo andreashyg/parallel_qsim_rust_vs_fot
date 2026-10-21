@@ -9,10 +9,11 @@ add_dummy_coordinates_case() {
   local beta="$2"
   local read_from_random_seed_index="$3"
   local use_random_seed="$4"
-  local experiment_set_name="$5"
-  local base_output_dir="$6"
-  local input_file_pattern="$7"
-  local output_file_pattern="$8"
+  local global_config_path="$5"
+  local experiment_set_name="$6"
+  local base_output_dir="$7"
+  local input_file_pattern="$8"
+  local output_file_pattern="$9"
 
   echo "Adding dummy coordinates to events for parameters: replanning_variant=$replanning_variant, beta=$beta, read_from_random_seed_index=$read_from_random_seed_index, use_random_seed=$use_random_seed"
   echo "writing from $input_file_pattern and writing to $output_file_pattern"
@@ -33,6 +34,7 @@ add_dummy_coordinates_case() {
     --experiment-set-name "${experiment_set_name}" \
     --beta "${beta}" \
     --read-from-random "${read_from_random_seed_index}" \
+    --global-config-path "${global_config_path}" \
     "${use_random_seed_string[@]}"
   then
     echo "Failed to add dummy coordinates to the original Java output events." >&2

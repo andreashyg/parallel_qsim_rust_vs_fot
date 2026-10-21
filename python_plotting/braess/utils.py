@@ -6,7 +6,7 @@ import pandas as pd
 from matplotlib import pyplot as plt
 
 from setup import NASH_TT_POINTS, NASH_SD_POINTS, COLORS, LABELS, FONT_SIZE, LEGEND_FONT_SIZE, \
-    TOP_COLOUR, FILE_NAME_END_PATTERN_WITH_BETA_RR_UR, FILE_NAME_END_PATTERN_WITH_BETA_RR
+    TOP_COLOUR, get_file_name_end_and_common_plots_patterns_from_global_config
 
 
 def get_interpolated_nash_vals(at_xvals: pd.Index, mode: str, for_path: Optional[int] = None):
@@ -588,11 +588,12 @@ def compute_deviation_to_reference_series_but_avg_first(csv_path_template: str, 
 
 class ExperimentSet:
 
-    def __init__(self, base_output_dir: str, replanning_variant: str, experiment_set_name: str,
+    def __init__(self, global_config_path: str, base_output_dir: str, replanning_variant: str, experiment_set_name: str,
                  output_tt_plot_path_pattern: str, output_sd_plot_path_pattern: str,
                  main_input_tt_csv_path_pattern: str,
                  main_input_sd_csv_path_pattern: str, secondary_input_tt_csv_path_pattern: Optional[str] = None,
                  secondary_input_sd_csv_path_pattern: Optional[str] = None):
+        self.global_config_path = global_config_path
         self.base_output_dir = base_output_dir
         self.replanning_variant = replanning_variant
         self.experiment_set_name = experiment_set_name
@@ -634,8 +635,13 @@ class ExperimentSet:
         self.__make_dir_if_not_exists(self.get_tt_plot_dir_path(beta, read_from_random, use_random))
         self.__make_dir_if_not_exists(self.get_sd_plot_dir_path(beta, read_from_random, use_random))
 
-    @staticmethod
-    def get_file_name_end_pattern(use_random: Optional[int | str]):
+    def get_file_name_end_pattern(self, use_random: Optional[int | str]):
+
+        (FILE_NAME_END_PATTERN_WITH_BETA_RR_UR,
+         FILE_NAME_END_PATTERN_WITH_BETA_RR,
+         FILE_NAME_END_PATTERN_WITH_BETA,
+         COMMON_PLOTS_PATTERN) = get_file_name_end_and_common_plots_patterns_from_global_config(self.global_config_path)
+
         if use_random is not None:
             return FILE_NAME_END_PATTERN_WITH_BETA_RR_UR
         else:

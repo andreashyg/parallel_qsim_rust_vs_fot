@@ -9,12 +9,13 @@ reformat_original_java_extracted_measurements_case() {
   local beta="$2"
   local java_seed_index="$3"
   local _rust_seed="$4"  # unused in this module
-  local experiment_set_name="$5"
-  local base_output_dir="$6"
-  local original_tt_tsv_file_pattern="$7"
-  local original_sd_tsv_file_pattern="$8"
-  local new_tt_csv_path_pattern="$9"
-  local new_sd_csv_path_pattern="${10}"
+  local global_config_path="$5"
+  local experiment_set_name="$6"
+  local base_output_dir="$7"
+  local original_tt_tsv_file_pattern="$8"
+  local original_sd_tsv_file_pattern="$9"
+  local new_tt_csv_path_pattern="$10"
+  local new_sd_csv_path_pattern="${11}"
 
   echo "Copying and reformatting extracted original java average travel times and summed departures for parameters: replanning_variant=$replanning_variant, beta=$beta, read_from_random=${java_seed_index}"
   echo "writing into $new_tt_csv_path_pattern and $new_sd_csv_path_pattern"
@@ -27,6 +28,7 @@ reformat_original_java_extracted_measurements_case() {
     --experiment-set-name "${experiment_set_name}" \
     --beta "${beta}" \
     --read-from-random "${java_seed_index}" \
+    --global-config-path "${global_config_path}" \
     --column-name departure_time \
     --column-name avg_travel_time_path_0 --column-name avg_travel_time_path_1 \
     --column-name avg_travel_time_path_2 --column-name avg_travel_time || ! cargo run --release --bin \
@@ -38,6 +40,7 @@ reformat_original_java_extracted_measurements_case() {
     --experiment-set-name "${experiment_set_name}" \
     --beta "${beta}" \
     --read-from-random "${java_seed_index}" \
+    --global-config-path "${global_config_path}" \
     --column-name time --column-name sum_departures_path_0 \
     --column-name sum_departures_path_1 --column-name sum_departures_path_2 \
     --column-name sum_departures_total

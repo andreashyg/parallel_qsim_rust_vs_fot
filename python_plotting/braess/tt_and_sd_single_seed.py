@@ -1,8 +1,9 @@
-import matplotlib.pyplot as plt
-import pandas as pd
 import sys
 
-from setup import FIG_SIZE, COMMON_PLOTS_PATTERN
+import matplotlib.pyplot as plt
+import pandas as pd
+
+from setup import FIG_SIZE, get_file_name_end_and_common_plots_patterns_from_global_config
 from utils import plot_nash_lines, plot_extracted_sd_over_time, plot_extracted_tt_over_time, ExperimentSet
 
 # This is the pattern for the paths to the plots created by this script.
@@ -10,7 +11,13 @@ plot_type_specific_tt_path_pattern = "{common_plots_pattern}/perSeed/ttPerPathOv
 plot_type_specific_sd_path_pattern = "{common_plots_pattern}/perSeed/sdPerPathOverTime/sdPerPathOverTime{file_name_end}.pdf"
 
 if __name__ == '__main__':
-    _, beta, replanning_variant, read_random, use_random, experiment_set_name, base_output_dir, input_tt_csv_path_pattern, input_sd_csv_path_pattern = sys.argv
+    (_, beta, replanning_variant, read_random, use_random, experiment_set_name, base_output_dir,
+     input_tt_csv_path_pattern, input_sd_csv_path_pattern, global_config_path) = sys.argv
+
+    (FILE_NAME_END_PATTERN_WITH_BETA_RR_UR,
+     FILE_NAME_END_PATTERN_WITH_BETA_RR,
+     FILE_NAME_END_PATTERN_WITH_BETA,
+     COMMON_PLOTS_PATTERN) = get_file_name_end_and_common_plots_patterns_from_global_config(global_config_path)
 
     if use_random.lower() == "none":
         use_random = None
@@ -26,7 +33,8 @@ if __name__ == '__main__':
     output_sd_plot_path_pattern = plot_type_specific_sd_path_pattern.replace("{common_plots_pattern}",
                                                                              COMMON_PLOTS_PATTERN)
 
-    experiment_set = ExperimentSet(base_output_dir,
+    experiment_set = ExperimentSet(global_config_path,
+                                   base_output_dir,
                                    replanning_variant,
                                    experiment_set_name,
                                    output_tt_plot_path_pattern,

@@ -71,8 +71,7 @@ modules:
     # but the automatic replacement would think so, since the experiment set has use_random_seed parameters otherwise.
     secondary_input_tt_csv_path_pattern: "{base_output_dir}/recreating-java-analysis/analysis/extractedData/{replanning_variant}/averageRouteTtsPerDeptimeBeta{beta}ReadFromRandom{read_from_random}ReformattedOriginalJavaData.csv"
     secondary_input_sd_csv_path_pattern: "{base_output_dir}/recreating-java-analysis/analysis/extractedData/{replanning_variant}/summedDepsPerTimeBeta{beta}ReadFromRandom{read_from_random}ReformattedOriginalJavaData.csv"
-    overwrites:
-      resume_failed: false
+
   - plot_tt_and_sd_avgd_over_seeds_diff_to_original_java:
     type: PlotTtAndSdAvgdOverSeedsDiff
     minus_what: "OriginalJava"
@@ -81,8 +80,6 @@ modules:
     secondary_input_tt_csv_path_pattern: "{base_output_dir}/recreating-java-analysis/analysis/extractedData/{replanning_variant}/averageRouteTtsPerDeptimeBeta{beta}ReadFromRandom{read_from_random}ReformattedOriginalJavaData.csv"
     secondary_input_sd_csv_path_pattern: "{base_output_dir}/recreating-java-analysis/analysis/extractedData/{replanning_variant}/summedDepsPerTimeBeta{beta}ReadFromRandom{read_from_random}ReformattedOriginalJavaData.csv"
     seeds_to_avg_over: UseRandomSeeds
-    overwrites:
-      resume_failed: false
 
   # Plot deviation box- and scatterplots of the rust runs (for different rust seeds) w.r.t. the original java runs
   # (instead of comparing to the nash flow values)
@@ -95,6 +92,7 @@ modules:
     secondary_input_tt_csv_path_pattern: "{base_output_dir}/recreating-java-analysis/analysis/extractedData/{replanning_variant}/averageRouteTtsPerDeptimeBeta{beta}ReadFromRandom{read_from_random}ReformattedOriginalJavaData.csv"
     secondary_input_sd_csv_path_pattern: "{base_output_dir}/recreating-java-analysis/analysis/extractedData/{replanning_variant}/summedDepsPerTimeBeta{beta}ReadFromRandom{read_from_random}ReformattedOriginalJavaData.csv"
     seeds_to_avg_over: UseRandomSeeds
+
   - plot_tt_and_sd_deviation_to_java_scatterplots:
     type: PlotTtAndSdDeviationToDiffRunScatterplotsOverBeta
     # "which_deviation" is used in the plot path pattern to denote what is being compared (can e.g. be to_original_java or so)

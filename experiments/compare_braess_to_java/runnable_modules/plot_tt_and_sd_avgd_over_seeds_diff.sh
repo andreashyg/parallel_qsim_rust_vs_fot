@@ -9,14 +9,15 @@ plot_avgd_over_seeds_diff_case() {
   local beta="$2"
   local java_seed_index="$3"
   local rust_seed="$4"
-  local experiment_set_name="$5"
-  local base_output_dir="$6"
-  local main_input_tt_csv_path_pattern="$7"
-  local main_input_sd_csv_path_pattern="$8"
-  local secondary_input_tt_csv_path_pattern="$9"
-  local secondary_input_sd_csv_path_pattern="${10}"
-  local seeds_to_use_array_string="${11}"
-  local minus_what="${12}"
+  local global_config_path="$5"
+  local experiment_set_name="$6"
+  local base_output_dir="$7"
+  local main_input_tt_csv_path_pattern="$8"
+  local main_input_sd_csv_path_pattern="$9"
+  local secondary_input_tt_csv_path_pattern="${10}"
+  local secondary_input_sd_csv_path_pattern="${11}"
+  local seeds_to_use_array_string="${12}"
+  local minus_what="${13}"
 
   read -a seeds_to_use <<< "$seeds_to_use_array_string"
 
@@ -28,7 +29,8 @@ plot_avgd_over_seeds_diff_case() {
     "$beta" "${replanning_variant}" "$experiment_set_name" "$java_seed_index" "$rust_seed" "$base_output_dir" \
     "$minus_what" \
     "$main_input_tt_csv_path_pattern" "$main_input_sd_csv_path_pattern" \
-    "$secondary_input_tt_csv_path_pattern" "$secondary_input_sd_csv_path_pattern" "${seeds_to_use[@]}"
+    "$secondary_input_tt_csv_path_pattern" "$secondary_input_sd_csv_path_pattern" "$global_config_path" \
+    "${seeds_to_use[@]}"
   then
     echo "Plotting failed, continuing with next case." >&2
 

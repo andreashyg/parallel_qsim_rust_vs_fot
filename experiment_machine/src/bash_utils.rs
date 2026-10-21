@@ -1,4 +1,4 @@
-use crate::config::{Config, GlobalConfig, Module};
+use crate::config::{Config, Module};
 use crate::logging::run_step_while_tracing;
 use serde_yaml::Value;
 use std::collections::HashMap;
@@ -43,7 +43,7 @@ impl BashFunction {
     /// common_code_for_modules.sh (which in turn uses GNU parallel)
     /// # Arguments:
     /// - config: the Config object containing the parameter sweep definitions
-    /// - global_config: the GlobalConfig object containing the global parameters
+    /// - global_config_path: the path to the global config file
     /// - module: the Module object containing the module-specific parameters and overwrites
     /// - resume: if true, only run experiments that have not yet been run. Can be overwritten by
     ///     the module's overwrites
@@ -55,7 +55,7 @@ impl BashFunction {
     pub fn run_for_cartprod_in_parallel<M: Module + ?Sized>(
         &self,
         config: &Config,
-        _global_config: &GlobalConfig,  // keeping this unused parameter for future use
+        global_config_path: &str,
         module: &M,
         resume: bool,
         resume_failed: bool,
@@ -186,6 +186,7 @@ run_callback_for_parameter_arrays_parallel \
   betas \
   read_from_random_seed_indices \
   use_random_seeds \
+  {global_config_path} \
   {experiment_set_name} \
   {base_output_dir} \
   {max_parallel_jobs} \
@@ -202,6 +203,7 @@ print_failure_summary
             betas_decl = betas_decl,
             read_from_random_seed_decl = read_from_random_seed_decl,
             use_random_seed_decl = use_random_seed_decl,
+            global_config_path = global_config_path,
             common = shell_escape_single_quoted(common),
             module = shell_escape_single_quoted(module),
             experiment_set_name = shell_escape_single_quoted(&experiment_set_name),

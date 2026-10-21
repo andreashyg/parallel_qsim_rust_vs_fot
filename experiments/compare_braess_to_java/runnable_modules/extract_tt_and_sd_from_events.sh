@@ -10,13 +10,14 @@ extract_travel_time_sum_dep_case() {
   local beta="$2"
   local java_seed_index="$3"
   local rust_seed="$4"
-  local experiment_set_name="$5"
-  local base_output_dir="$6"
-  local input_file_stem_pattern="$7"
-  local input_file_format="$8"
-  local tt_csv_path_pattern="$9"
-  local sd_csv_path_pattern="${10}"
-  local num_parts="${11}"
+  local global_config_path="$5"
+  local experiment_set_name="$6"
+  local base_output_dir="$7"
+  local input_file_stem_pattern="$8"
+  local input_file_format="$9"
+  local tt_csv_path_pattern="${10}"
+  local sd_csv_path_pattern="${11}"
+  local num_parts="${12}"
 
   echo "Extracting average travel times and summed departures for parameters: replanning_variant=$replanning_variant, beta=$beta, java_seed_index=$java_seed_index, rust_seed=$rust_seed"
   echo "writing into $tt_csv_path_pattern and $sd_csv_path_pattern"
@@ -40,6 +41,7 @@ extract_travel_time_sum_dep_case() {
     --tt-csv-path-pattern "$tt_csv_path_pattern" \
     --sd-csv-path-pattern "$sd_csv_path_pattern" \
     --num-parts "$num_parts" \
+    --global-config-path "$global_config_path" \
     --link-to-path-map-name "braess" \
     --beta "$beta"
   then

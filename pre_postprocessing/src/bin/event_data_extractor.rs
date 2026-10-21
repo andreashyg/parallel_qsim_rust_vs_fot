@@ -69,6 +69,9 @@ struct InputArgs {
     /// This is used to divide the summed departures count, to report values in PCU's/PCE's.
     #[arg(long)]
     pub beta: usize,
+    /// global config file path
+    #[arg(long)]
+    pub global_config_path: String,
 }
 
 fn main() {
@@ -78,8 +81,7 @@ fn main() {
     let args = InputArgs::parse();
     let mut event_mgr = EventsManager::new();
 
-    let global_config_path =
-        PathBuf::from("./experiments/compare_braess_to_java/experiment_sets/global_config.yaml");
+    let global_config_path = PathBuf::from(&args.global_config_path);
     let global_config: experiment_machine::config::GlobalConfig =
         serde_yaml::from_reader(std::fs::File::open(&global_config_path).unwrap())
             .expect("Failed to read global config");

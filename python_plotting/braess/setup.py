@@ -23,11 +23,25 @@ LABELS = ["top", "middle", "bottom"]
 
 # read things from global_config.yaml
 config_data_from_global_config = get_config_file_data(
-    "experiments/compare_braess_to_java/experiment_sets/global_config.yaml").get("global_parameters")
-FILE_NAME_END_PATTERN_WITH_BETA_RR_UR = config_data_from_global_config.get("file_name_end_pattern_with_beta_rr_ur")
-FILE_NAME_END_PATTERN_WITH_BETA_RR = config_data_from_global_config.get("file_name_end_pattern_with_beta_rr")
-FILE_NAME_END_PATTERN_WITH_BETA = config_data_from_global_config.get("file_name_end_pattern_with_beta")
-COMMON_PLOTS_PATTERN = config_data_from_global_config.get("common_plots_pattern")
+    "experiments/compare_braess_to_java/experiment_sets/global_config.yaml"
+).get("global_parameters")
+
+
+def load_config_data_from_global_config(global_config_path: str) -> dict:
+    return get_config_file_data(
+        global_config_path
+    ).get("global_parameters")
+
+
+def get_file_name_end_and_common_plots_patterns_from_global_config(global_config_path: str) -> tuple:
+    config_data = load_config_data_from_global_config(global_config_path)
+    file_name_end_pattern_with_beta_rr_ur = config_data.get("file_name_end_pattern_with_beta_rr_ur")
+    file_name_end_pattern_with_beta_rr = config_data.get("file_name_end_pattern_with_beta_rr")
+    file_name_end_pattern_with_beta = config_data.get("file_name_end_pattern_with_beta")
+    common_plots_pattern = config_data.get("common_plots_pattern")
+    return (file_name_end_pattern_with_beta_rr_ur, file_name_end_pattern_with_beta_rr,
+            file_name_end_pattern_with_beta, common_plots_pattern)
+
 
 # from "../../../runs-svn/braess/refinement/no_spillback_scenario/braess_nash_tt.txt"
 NASH_TT_POINTS = np.array([[0, 25], [15, 55], [26.25, 66.25], [82.5, 85], [100, 85]])

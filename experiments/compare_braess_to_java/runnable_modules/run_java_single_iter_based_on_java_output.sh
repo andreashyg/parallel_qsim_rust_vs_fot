@@ -10,8 +10,9 @@ source "${SCRIPT_DIR}/../failure_handling.sh"
 read_config_file_entry() {
   local -n var_to_change="$1"
   local key="$2"
+  local global_config_path="$3"
 
-  mapfile -t var_to_change < <(yq -r ".global_parameters.${key} | if type == \"array\" then .[] else . end" "$SCRIPT_DIR/../experiment_sets/global_config.yaml")
+  mapfile -t var_to_change < <(yq -r ".global_parameters.${key} | if type == \"array\" then .[] else . end" "$global_config_path")
 }
 
 
@@ -36,9 +37,10 @@ run_java_single_iter_case() {
   local beta="$2"
   local read_from_random_seed_index="$3"
   local use_this_seed_for_last_iter="$4"
-  local experiment_set_name="$5"
-  local base_output_dir="$6"
-  local delete_output_dir_if_existing="$7"
+  local global_config_path="$5"
+  local experiment_set_name="$6"
+  local base_output_dir="$7"
+  local delete_output_dir_if_existing="$8"
 
   local delete_output_dir_arg=()
   if [ "$delete_output_dir_if_existing" = true ]; then
@@ -46,14 +48,14 @@ run_java_single_iter_case() {
   fi
 
   # read from global config here and pass to java, to avoid having to make java read yaml files
-  read_config_file_entry experiment_output_dir_pattern common_output_from_runs_pattern
-  read_config_file_entry base_dir_to_read_from original_dir_to_read_from
+  read_config_file_entry experiment_output_dir_pattern common_output_from_runs_pattern global_config_path
+  read_config_file_entry base_dir_to_read_from original_dir_to_read_from global_config_path
 
   local original_java_replanning_variant_string
   original_java_replanning_variant_string=$(get_original_java_replanning_folder_string "$replanning_variant")
 
   local config_file_pattern
-  read_config_file_entry config_file_pattern original_output_config_pattern
+  read_config_file_entry config_file_pattern original_output_config_pattern global_config_path
 
   # replace {base_dir_to_read_from}, {original_java_replanning_variant_string}, {beta}, {read_from_random} in config_file_pattern with the corresponding values
   config_file=${config_file_pattern//\{original_dir_to_read_from\}/$base_dir_to_read_from}
@@ -62,7 +64,7 @@ run_java_single_iter_case() {
   config_file=${config_file//\{read_from_random\}/$read_from_random_seed_index}
 
   local corrected_population_file
-  read_config_file_entry corrected_population_file corrected_output_pop_pattern
+  read_config_file_entry corrected_population_file corrected_output_pop_pattern global_config_path
 
   # note: we are not just replacing {base_output_dir} with $base_output_dir, but with ../../../../../../$base_output_dir,
   # because java matsim needs paths relative to the config that it's reading.

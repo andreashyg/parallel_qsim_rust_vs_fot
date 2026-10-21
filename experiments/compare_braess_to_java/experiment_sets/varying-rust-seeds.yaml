@@ -42,6 +42,8 @@ modules:
   - run_rust_based_on_java_output:
     type: RunRustBasedOnJavaOutput
     overwrite_mode: DeleteDirectoryIfExists
+    overwrites:
+      max_parallel_jobs: 4
 
   # Extract measurements from the events files from the rust runs
   - extract_measurements_from_events:

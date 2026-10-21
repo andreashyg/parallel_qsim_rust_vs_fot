@@ -28,18 +28,18 @@ struct InputArgs {
     /// This is used to replace the {read_from_random} placeholder in the input/output file patterns
     #[arg(long)]
     pub read_from_random: usize,
+    /// global config file path
+    #[arg(long)]
+    pub global_config_path: String,
 }
 
 fn main() {
     let _guard = init_std_out_logging_thread_local();
     let args = InputArgs::parse();
 
-    // TODO this is not *really* global, since it is written to compare_braess_to_java.
-    //  Decide if it should be moved to the parent folder, to be valid for all experiments, or if
-    //  every such folder should have its own, and then pass it around as a parameter.
     let global_config: GlobalConfig = serde_yaml::from_reader(
         std::fs::File::open(
-            "./experiments/compare_braess_to_java/experiment_sets/global_config.yaml",
+            &args.global_config_path,
         )
             .expect("Failed to open global config file"),
     )

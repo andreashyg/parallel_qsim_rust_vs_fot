@@ -1,7 +1,8 @@
 import sys
+
 from matplotlib import pyplot as plt
 
-from setup import FIG_SIZE, COMMON_PLOTS_PATTERN
+from setup import FIG_SIZE, get_file_name_end_and_common_plots_patterns_from_global_config
 from utils import plot_scatter_over_beta, compute_deviation_to_reference_series_but_avg_first, ExperimentSet
 
 plot_type_specific_tt_path_pattern = "{common_plots_pattern}/deviations{which_deviation}/ttAvgFirstDeviation{which_deviation}Scatterplots/ttAvgFirstDeviation{which_deviation}Scatterplot.pdf"
@@ -10,11 +11,17 @@ plot_type_specific_sd_path_pattern = "{common_plots_pattern}/deviations{which_de
 if __name__ == '__main__':
     (_, replanning_variant, experiment_set_name, read_random, use_random, base_output_dir,
      which_deviation, main_input_tt_csv_path_pattern, main_input_sd_csv_path_pattern,
-     secondary_input_tt_csv_path_pattern, secondary_input_sd_csv_path_pattern, betas_to_use_str) = sys.argv[0:12]
+     secondary_input_tt_csv_path_pattern, secondary_input_sd_csv_path_pattern, betas_to_use_str,
+     global_config_path) = sys.argv[0:13]
 
-    seeds_to_use = [int(s) for s in sys.argv[12:]]
+    seeds_to_use = [int(s) for s in sys.argv[13:]]
 
     betas_to_use = [int(b) for b in betas_to_use_str.split(" ")]
+
+    (FILE_NAME_END_PATTERN_WITH_BETA_RR_UR,
+     FILE_NAME_END_PATTERN_WITH_BETA_RR,
+     FILE_NAME_END_PATTERN_WITH_BETA,
+     COMMON_PLOTS_PATTERN) = get_file_name_end_and_common_plots_patterns_from_global_config(global_config_path)
 
     if use_random == "AvgOverAll":
         use_random = "{seed}"  # placeholder to be formatted later
@@ -42,7 +49,7 @@ if __name__ == '__main__':
     # also replace the extra which_deviation placeholder
     output_sd_plot_path_pattern = output_sd_plot_path_pattern.replace("{which_deviation}", which_deviation)
 
-    experiment_set = ExperimentSet(base_output_dir, replanning_variant, experiment_set_name,
+    experiment_set = ExperimentSet(global_config_path, base_output_dir, replanning_variant, experiment_set_name,
                                    output_tt_plot_path_pattern, output_sd_plot_path_pattern,
                                    main_input_tt_csv_path_pattern, main_input_sd_csv_path_pattern,
                                    secondary_input_tt_csv_path_pattern, secondary_input_sd_csv_path_pattern)

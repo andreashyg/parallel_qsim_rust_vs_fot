@@ -20,17 +20,18 @@ run_callback_for_parameter_arrays_parallel() {
   local -n betas_ref="$2"
   local -n java_seed_indices_ref="$3"
   local -n rust_seeds_ref="$4"
-  local experiment_set_name="$5"
-  local base_output_dir="$6"
-  local max_parallel_jobs="$7"
-  local resume="$8"
-  local resume_failed="$9"
-  local script_type="${10}"
-  local actual_callback="${11}"
+  local global_config_path="$5"
+  local experiment_set_name="$6"
+  local base_output_dir="$7"
+  local max_parallel_jobs="$8"
+  local resume="$9"
+  local resume_failed="${10}"
+  local script_type="${11}"
+  local actual_callback="${12}"
 
   local batch_common_file="${SCRIPT_DIR}/common_code_for_modules.sh"
 
-  shift 11
+  shift 12
 
   local resume_arg=()
   if [[ "$resume" == "true" ]]; then
@@ -44,7 +45,7 @@ run_callback_for_parameter_arrays_parallel() {
     resume_arg+=("--resume-failed")
   fi
 
-  local callback_q experiment_set_name_q base_output_dir_q common_q arg extra_args=""
+  local callback_q experiment_set_name_q base_output_dir_q common_q global_config_path_q arg extra_args=""
 
   # create a temporary file to log failures from parallel jobs
   local failure_log
@@ -55,6 +56,7 @@ run_callback_for_parameter_arrays_parallel() {
   printf -v experiment_set_name_q '%q' "$experiment_set_name"
   printf -v base_output_dir_q '%q' "$base_output_dir"
   printf -v common_q '%q' "$batch_common_file"
+  printf -v global_config_path_q '%q' "$global_config_path"
 
   for arg in "$@"; do
     extra_args+=" $(printf '%q' "$arg")"
@@ -87,11 +89,11 @@ run_callback_for_parameter_arrays_parallel() {
   fi
   echo "Starting parallel execution of callback '$actual_callback' for all parameter combinations..."
 
-  parallel --memsuspend 10G \
+  parallel --memsuspend 15G \
     --will-cite --eta --bar -j "${max_parallel_jobs}" \
     "${resume_arg[@]}" \
     --joblog "${joblog_path}" \
-    "bash -lc 'source ${common_q}; source ${module_q}; ${callback_q} {1} {2} {3} {4} ${experiment_set_name_q} ${base_output_dir_q} ${extra_args}'" \
+    "bash -lc 'source ${common_q}; source ${module_q}; ${callback_q} {1} {2} {3} {4} ${global_config_path_q} ${experiment_set_name_q} ${base_output_dir_q} ${extra_args}'" \
     ::: "${replanning_variants_ref[@]}" \
     ::: "${betas_ref[@]}" \
     ::: "${java_seed_indices_ref[@]}" \

@@ -15,10 +15,7 @@ struct InputArgs {
     #[arg(long)]
     pub experiment_set_config_file: PathBuf,
     /// Path to global config file
-    #[arg(
-        long,
-        default_value = "./experiments/compare_braess_to_java/experiment_sets/global_config.yaml"
-    )]
+    #[arg(long)]
     pub global_config_file: PathBuf,
     /// if true, gnu parallel is called with --resume, so that it will resume the run of the experiment set if it was interrupted.
     #[arg(long, default_value = "false")]
@@ -42,7 +39,7 @@ struct InputArgs {
 fn main() {
     let args = InputArgs::parse();
 
-    // load global config TODO this is not *really* global, since it is specific to compare_braess_to_java.
+    // load global config
     let global_config: config::GlobalConfig = serde_yaml::from_reader(
         File::open(&args.global_config_file).expect("Failed to open global config file"),
     )
@@ -123,7 +120,7 @@ fn main() {
     // run the modules specified in the config
     info!("********** Starting run of experiment set **********");
     experiment_set_config
-        .run_all_modules(&global_config, args.resume, args.resume_failed)
+        .run_all_modules(&global_config, &args.global_config_file.to_string_lossy(), args.resume, args.resume_failed)
         .expect("Failed to run experiment set");
 
     info!("********** Finished run of experiment set **********");

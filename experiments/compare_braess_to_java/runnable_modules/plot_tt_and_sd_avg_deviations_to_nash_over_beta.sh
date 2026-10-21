@@ -9,12 +9,13 @@ plot_deviation_boxplots_over_beta_case() {
   local _beta="$2" # unused in this module
   local java_seed_index="$3"
   local rust_seed="$4"
-  local experiment_set_name="$5"
-  local base_output_dir="$6"
-  local input_tt_csv_path_pattern="$7"
-  local input_sd_csv_path_pattern="$8"
-  local seeds_to_use_array_string="${9}"
-  local betas_to_use_array_string="${10}"
+  local global_config_path="$5"
+  local experiment_set_name="$6"
+  local base_output_dir="$7"
+  local input_tt_csv_path_pattern="$8"
+  local input_sd_csv_path_pattern="$9"
+  local seeds_to_use_array_string="${10}"
+  local betas_to_use_array_string="${11}"
 
   read -a seeds_to_use <<< "$seeds_to_use_array_string"
 
@@ -26,7 +27,8 @@ plot_deviation_boxplots_over_beta_case() {
   # Plot the average travel times and summed departures once per replanning variant.
   if ! ~/miniforge3/envs/rust-vs-fot-plots/bin/python3 python_plotting/braess/tt_and_sd_dev_boxplots_to_nash_over_beta.py \
     "${replanning_variant}" "${experiment_set_name}" "${java_seed_index}" "${rust_seed}" "$base_output_dir" \
-    "$input_tt_csv_path_pattern" "$input_sd_csv_path_pattern" "$betas_to_use_array_string" "${seeds_to_use[@]}"
+    "$input_tt_csv_path_pattern" "$input_sd_csv_path_pattern" "$betas_to_use_array_string" "$global_config_path" \
+    "${seeds_to_use[@]}"
   then
     echo "Plotting failed, continuing with next case." >&2
     record_failure plotting "$replanning_variant" "all_betas" "$java_seed_index" "$rust_seed"
@@ -41,12 +43,13 @@ plot_deviation_scatterplots_over_beta_case() {
   local _beta="$2" # unused in this module
   local java_seed_index="$3"
   local rust_seed="$4"
-  local experiment_set_name="$5"
-  local base_output_dir="$6"
-  local input_tt_csv_path_pattern="$7"
-  local input_sd_csv_path_pattern="$8"
-  local seeds_to_use_array_string="${9}"
-  local betas_to_use_array_string="${10}"
+  local global_config_path="$5"
+  local experiment_set_name="$6"
+  local base_output_dir="$7"
+  local input_tt_csv_path_pattern="$8"
+  local input_sd_csv_path_pattern="$9"
+  local seeds_to_use_array_string="${10}"
+  local betas_to_use_array_string="${11}"
 
 
   read -a seeds_to_use <<< "$seeds_to_use_array_string"
@@ -56,7 +59,8 @@ plot_deviation_scatterplots_over_beta_case() {
   # Plot the average travel times and summed departures once per replanning variant.
   if ! ~/miniforge3/envs/rust-vs-fot-plots/bin/python3 python_plotting/braess/tt_and_sd_dev_scatterplots_to_nash_over_beta.py \
     "${replanning_variant}" "${experiment_set_name}" "${java_seed_index}" "${rust_seed}" "$base_output_dir" \
-    "$input_tt_csv_path_pattern" "$input_sd_csv_path_pattern" "$betas_to_use_array_string" "${seeds_to_use[@]}"
+    "$input_tt_csv_path_pattern" "$input_sd_csv_path_pattern" "$betas_to_use_array_string" "${global_config_path}" \
+    "${seeds_to_use[@]}"
   then
     echo "Plotting failed, continuing with next case." >&2
     record_failure plotting "$replanning_variant" "all_betas" "$java_seed_index" "$rust_seed"

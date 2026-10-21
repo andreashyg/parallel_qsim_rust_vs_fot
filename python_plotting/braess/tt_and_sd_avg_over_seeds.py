@@ -1,7 +1,8 @@
-import matplotlib.pyplot as plt
 import sys
 
-from setup import FIG_SIZE, COMMON_PLOTS_PATTERN
+import matplotlib.pyplot as plt
+
+from setup import FIG_SIZE, get_file_name_end_and_common_plots_patterns_from_global_config
 from utils import plot_nash_lines, plot_extracted_sd_over_time, plot_extracted_tt_over_time, get_elementwise_avg_df, \
     ExperimentSet
 
@@ -10,9 +11,15 @@ plot_type_specific_tt_path_pattern = "{common_plots_pattern}/avgOverSeeds/ttPerP
 plot_type_specific_sd_path_pattern = "{common_plots_pattern}/avgOverSeeds/sdPerPathOverTime/sdPerPathOverTime{file_name_end}.pdf"
 
 if __name__ == '__main__':
-    _, beta, replanning_variant, experiment_set_name, read_random, use_random, base_output_dir, input_tt_csv_path_pattern, input_sd_csv_path_pattern = sys.argv[
-        0:9]
-    seeds_to_use = [int(s) for s in sys.argv[9:]]
+    (_, beta, replanning_variant, experiment_set_name, read_random, use_random, base_output_dir,
+     input_tt_csv_path_pattern, input_sd_csv_path_pattern, global_config_path) = sys.argv[
+        0:10]
+    seeds_to_use = [int(s) for s in sys.argv[10:]]
+
+    (FILE_NAME_END_PATTERN_WITH_BETA_RR_UR,
+     FILE_NAME_END_PATTERN_WITH_BETA_RR,
+     FILE_NAME_END_PATTERN_WITH_BETA,
+     COMMON_PLOTS_PATTERN) = get_file_name_end_and_common_plots_patterns_from_global_config(global_config_path)
 
     if use_random == "AvgOverAll":
         use_random_formatting_term_with_optional_placeholder = "{seed}"  # placeholder to be formatted later
@@ -39,7 +46,7 @@ if __name__ == '__main__':
     output_sd_plot_path_pattern = plot_type_specific_sd_path_pattern.replace("{common_plots_pattern}",
                                                                              COMMON_PLOTS_PATTERN)
 
-    experiment_set = ExperimentSet(base_output_dir, replanning_variant, experiment_set_name,
+    experiment_set = ExperimentSet(global_config_path, base_output_dir, replanning_variant, experiment_set_name,
                                    output_tt_plot_path_pattern,
                                    output_sd_plot_path_pattern, input_tt_csv_path_pattern, input_sd_csv_path_pattern)
 

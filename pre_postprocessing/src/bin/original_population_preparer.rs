@@ -3,6 +3,7 @@ use experiment_machine::config::GlobalConfig;
 use matsim_rust::simulation::logging::init_std_out_logging_thread_local;
 use matsim_rust::simulation::scenario::population::Population;
 use matsim_rust::simulation::scenario::vehicles::Garage;
+use pre_postprocessing::access_egress_leg_adding::add_access_egress_legs_if_necessary;
 use pre_postprocessing::activity_time_replacement::replace_activity_times_and_add_dummy_coords_to_acts;
 use pre_postprocessing::utils::replace_placeholders_in_path_pattern;
 use tracing::info;
@@ -152,8 +153,7 @@ fn main() {
 
     // we use hard-coded access egress leg mode "walk" here, since the experiment runner also uses
     // this
-    // FIXME uncomment this
-    // add_access_egress_legs_if_necessary(&mut pop_to_be_changed, "walk");
+    add_access_egress_legs_if_necessary(&mut pop_to_be_changed, "walk");
     pop_to_be_changed.to_file(output_file.as_ref());
 
     info!(

@@ -332,8 +332,7 @@ fn trip_is_valid(
             || !has_network_main_leg
             || interaction_count < 2
         {
-            // return false;
-            return true; // FIXME remove this
+            return false;
         }
     }
 

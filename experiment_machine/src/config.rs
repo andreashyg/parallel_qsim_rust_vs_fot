@@ -267,6 +267,13 @@ pub struct RunRustBasedOnJavaOutput {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+pub struct RunManyRustItersBasedOnJavaOutput {
+    pub overwrite_mode: OverwriteFiles,
+    pub overwrites: Option<HashMap<String, Value>>,
+    pub iterations: usize,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct RunJavaSingleIterBasedOnJavaOutput {
     pub overwrite_mode: OverwriteFiles,
     pub overwrites: Option<HashMap<String, Value>>,
@@ -432,6 +439,31 @@ impl Module for RunRustBasedOnJavaOutput {
         self.overwrites.clone()
     }
 }
+
+
+#[typetag::serde]
+impl Module for RunManyRustItersBasedOnJavaOutput {
+    fn get_bash_function(&self) -> BashFunction {
+        BashFunction::new(
+            "run_many_iters_experiment_case",
+            "./experiments/compare_braess_to_java/runnable_modules/run_many_rust_iters_based_on_java_output.sh",
+            "rust",
+        )
+    }
+    fn get_extra_str_args(&self, _config: &Config, _global_config: &GlobalConfig) -> Result<Option<Vec<String>>, String> {
+        let delete_output_dir_if_existing = match self.overwrite_mode {
+            OverwriteFiles::DeleteDirectoryIfExists => "true".to_string(),
+            _ => "false".to_string(),
+        };
+        Ok(Some(vec![delete_output_dir_if_existing,
+                     self.iterations.to_string()]))
+    }
+
+    fn get_expset_config_overwrites(&self) -> Option<HashMap<String, Value>> {
+        self.overwrites.clone()
+    }
+}
+
 
 #[typetag::serde]
 impl Module for RunJavaSingleIterBasedOnJavaOutput {

@@ -14,7 +14,7 @@ reformat_original_java_extracted_measurements_case() {
   local base_output_dir="$7"
   local original_tt_tsv_file_pattern="$8"
   local original_sd_tsv_file_pattern="$9"
-  local new_tt_csv_path_pattern="$10"
+  local new_tt_csv_path_pattern="${10}"
   local new_sd_csv_path_pattern="${11}"
 
   echo "Copying and reformatting extracted original java average travel times and summed departures for parameters: replanning_variant=$replanning_variant, beta=$beta, read_from_random=${java_seed_index}"

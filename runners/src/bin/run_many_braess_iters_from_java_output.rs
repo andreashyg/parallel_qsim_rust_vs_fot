@@ -194,6 +194,7 @@ fn main() {
     config.scoring_mut().mode_params = vec![
         ModeParameter::default_for_mode("car"),
         ModeParameter::default_for_mode("walk")];
+    config.scoring_mut().fraction_of_iterations_to_start_score_msa = Some(0.8);
 
     // config.
     if args.delete_output_dir_if_existing {

@@ -218,8 +218,7 @@ fn main() {
         StrategySetting::new(SELECT_EXP_BETA_STRATEGY_NAME.to_string(), 0.9, "person".to_string())];
 
 
-    // FIXME this should be 1 / beta but it doesnt support floats
-    config.travel_time_calculator_mut().bin_size = 1; //1.0 / &args.beta as f64;
+    config.travel_time_calculator_mut().bin_size = 1.0 / args.beta as f64;
 
 
     config.apply_overrides(&args.overrides);

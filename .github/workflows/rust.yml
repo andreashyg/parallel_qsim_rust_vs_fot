@@ -19,8 +19,6 @@ jobs:
         uses: dtolnay/rust-toolchain@1.94.0
         with:
           components: rustfmt
-      - name: Install other libraries
-        run: sudo apt -y install libclang-dev llvm-dev libmetis-dev
       - name: Check formatting
         run: cargo fmt --all --check
       - name: Build

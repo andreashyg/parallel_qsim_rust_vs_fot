@@ -2,6 +2,7 @@ use crate::simulation::messaging::messages::InternalSyncMessage;
 use crate::simulation::time::Tick;
 use nohash_hasher::{IntMap, IntSet};
 
+pub mod barrier;
 pub mod local_communicator;
 pub mod message_broker;
 
@@ -14,6 +15,9 @@ pub trait SimCommunicator {
         on_msg: F,
     ) where
         F: FnMut(InternalSyncMessage);
+
+    /// Returns all messages that have been received but not read yet, without blocking.
+    fn receive_pending(&self) -> Vec<InternalSyncMessage>;
 
     fn barrier(&self);
 

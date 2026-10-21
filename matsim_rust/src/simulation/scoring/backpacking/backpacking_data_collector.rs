@@ -1,7 +1,7 @@
 use crate::simulation::Identifiable;
 use crate::simulation::events::{
-    ActivityEndEvent, ActivityStartEvent, EventTrait, LinkEnterEvent, PersonArrivalEvent,
-    PersonDepartureEvent, PersonEntersVehicleEvent, PersonLeavesVehicleEvent, PersonStuckEvent,
+    ActivityEndEvent, ActivityStartEvent, LinkEnterEvent, PersonArrivalEvent, PersonDepartureEvent,
+    PersonEntersVehicleEvent, PersonLeavesVehicleEvent, PersonStuckEvent,
     PtTeleportationArrivalEvent, TeleportationArrivalEvent, VehicleEntersTrafficEvent,
     VehicleLeavesTrafficEvent,
 };
@@ -10,6 +10,7 @@ use crate::simulation::messaging::partition_change::PartitionChangeEntity;
 use crate::simulation::scenario::population::InternalPerson;
 use crate::simulation::scenario::vehicles::InternalVehicle;
 use crate::simulation::scoring::backpacking::backpack::{Backpack, PersonExperience};
+use crate::simulation::scoring::partial_plans::PartialPlan;
 use nohash_hasher::{IntMap, IntSet};
 
 pub(crate) struct BackpackingAttachment {
@@ -31,6 +32,7 @@ impl BackpackingDataCollector {
         }
     }
 
+    #[hotpath::measure]
     pub(crate) fn reset_iteration(&mut self) {
         self.person_id2backpack.clear();
         for person in &self.home_person_ids {
@@ -40,13 +42,19 @@ impl BackpackingDataCollector {
         self.vehicle_id2person_ids.clear();
     }
 
+    /// Records the person as an occupant of the vehicle and forwards the event to its backpack.
+    #[hotpath::measure]
     pub(crate) fn person_enters_vehicle(&mut self, event: &PersonEntersVehicleEvent) {
         self.vehicle_id2person_ids
             .entry(event.vehicle.clone())
             .or_default()
             .insert(event.person.clone());
+        self.partial_plan(&event.person)
+            .person_enters_vehicle(event);
     }
 
+    /// Removes the person from the occupants of the vehicle and forwards the event to its backpack.
+    #[hotpath::measure]
     pub(crate) fn person_leaves_vehicle(&mut self, event: &PersonLeavesVehicleEvent) {
         let remove_vehicle = self
             .vehicle_id2person_ids
@@ -59,61 +67,84 @@ impl BackpackingDataCollector {
         if remove_vehicle {
             self.vehicle_id2person_ids.remove(&event.vehicle);
         }
+        self.partial_plan(&event.person)
+            .person_leaves_vehicle(event);
     }
 
-    /// Forwards simulation events to all backpacks affected by that event.
-    pub(crate) fn handle_event(&mut self, event: &dyn EventTrait) {
-        let affected_persons = if let Some(event) = event.as_any().downcast_ref::<LinkEnterEvent>()
-        {
-            self.vehicle_id2person_ids
-                .get(&event.vehicle)
-                .map(|persons| persons.iter().cloned().collect())
-                .unwrap_or_default()
-        } else if let Some(event) = event.as_any().downcast_ref::<PersonArrivalEvent>() {
-            vec![event.person.clone()]
-        } else if let Some(event) = event.as_any().downcast_ref::<PersonDepartureEvent>() {
-            vec![event.person.clone()]
-        } else if let Some(event) = event.as_any().downcast_ref::<ActivityStartEvent>() {
-            vec![event.person.clone()]
-        } else if let Some(event) = event.as_any().downcast_ref::<ActivityEndEvent>() {
-            vec![event.person.clone()]
-        } else if let Some(event) = event.as_any().downcast_ref::<TeleportationArrivalEvent>() {
-            vec![event.person.clone()]
-        } else if let Some(event) = event.as_any().downcast_ref::<PtTeleportationArrivalEvent>() {
-            vec![event.person.clone()]
-        } else if let Some(event) = event.as_any().downcast_ref::<PersonEntersVehicleEvent>() {
-            vec![event.person.clone()]
-        } else if let Some(event) = event.as_any().downcast_ref::<PersonLeavesVehicleEvent>() {
-            vec![event.person.clone()]
-        } else if let Some(event) = event.as_any().downcast_ref::<PersonStuckEvent>() {
-            vec![event.person.clone()]
-        } else if let Some(event) = event.as_any().downcast_ref::<VehicleEntersTrafficEvent>() {
-            self.vehicle_id2person_ids
-                .get(&event.vehicle)
-                .map(|persons| persons.iter().cloned().collect())
-                .unwrap_or_default()
-        } else if let Some(event) = event.as_any().downcast_ref::<VehicleLeavesTrafficEvent>() {
-            self.vehicle_id2person_ids
-                .get(&event.vehicle)
-                .map(|persons| persons.iter().cloned().collect())
-                .unwrap_or_default()
-        } else {
+    pub(crate) fn person_departure(&mut self, event: &PersonDepartureEvent) {
+        self.partial_plan(&event.person).person_departure(event);
+    }
+
+    pub(crate) fn person_arrival(&mut self, event: &PersonArrivalEvent) {
+        self.partial_plan(&event.person).person_arrival(event);
+    }
+
+    pub(crate) fn activity_start(&mut self, event: &ActivityStartEvent) {
+        self.partial_plan(&event.person).activity_start(event);
+    }
+
+    pub(crate) fn activity_end(&mut self, event: &ActivityEndEvent) {
+        self.partial_plan(&event.person).activity_end(event);
+    }
+
+    pub(crate) fn teleportation_arrival(&mut self, event: &TeleportationArrivalEvent) {
+        self.partial_plan(&event.person)
+            .teleportation_arrival(event);
+    }
+
+    pub(crate) fn pt_teleportation_arrival(&mut self, event: &PtTeleportationArrivalEvent) {
+        self.partial_plan(&event.person)
+            .pt_teleportation_arrival(event);
+    }
+
+    pub(crate) fn person_stuck(&mut self, event: &PersonStuckEvent) {
+        self.partial_plan(&event.person).person_stuck(event);
+    }
+
+    pub(crate) fn link_enter(&mut self, event: &LinkEnterEvent) {
+        self.for_each_occupant(&event.vehicle, |plan| plan.link_enter(event));
+    }
+
+    pub(crate) fn vehicle_enters_traffic(&mut self, event: &VehicleEntersTrafficEvent) {
+        self.for_each_occupant(&event.vehicle, |plan| plan.vehicle_enters_traffic(event));
+    }
+
+    pub(crate) fn vehicle_leaves_traffic(&mut self, event: &VehicleLeavesTrafficEvent) {
+        self.for_each_occupant(&event.vehicle, |plan| plan.vehicle_leaves_traffic(event));
+    }
+
+    /// Passes an event of a vehicle to the backpacks of all its occupants. Events of vehicles
+    /// without occupants on this partition are ignored.
+    fn for_each_occupant(
+        &mut self,
+        vehicle: &Id<InternalVehicle>,
+        mut handle: impl FnMut(&mut PartialPlan),
+    ) {
+        let Some(persons) = self.vehicle_id2person_ids.get(vehicle) else {
             return;
         };
-
-        for person in affected_persons {
-            self.person_id2backpack
-                .get_mut(&person)
-                .unwrap_or_else(|| {
-                    panic!(
-                        "No backpack is available for person {} while handling an event.",
-                        person.external()
-                    )
-                })
-                .handle_event(event);
+        for person in persons {
+            handle(Self::backpack(&mut self.person_id2backpack, person).partial_plan_mut());
         }
     }
 
+    fn partial_plan(&mut self, person: &Id<InternalPerson>) -> &mut PartialPlan {
+        Self::backpack(&mut self.person_id2backpack, person).partial_plan_mut()
+    }
+
+    fn backpack<'a>(
+        backpacks: &'a mut IntMap<Id<InternalPerson>, Backpack>,
+        person: &Id<InternalPerson>,
+    ) -> &'a mut Backpack {
+        backpacks.get_mut(person).unwrap_or_else(|| {
+            panic!(
+                "No backpack is available for person {} while handling an event.",
+                person.external()
+            )
+        })
+    }
+
+    #[hotpath::measure]
     pub(crate) fn send(&mut self, entity: PartitionChangeEntity<'_>) -> BackpackingAttachment {
         let person_ids = Self::person_ids(entity);
         if let PartitionChangeEntity::Vehicle(vehicle) = entity {
@@ -136,6 +167,7 @@ impl BackpackingDataCollector {
         BackpackingAttachment { backpacks }
     }
 
+    #[hotpath::measure]
     pub(crate) fn receive(
         &mut self,
         entity: PartitionChangeEntity<'_>,
@@ -187,6 +219,7 @@ impl BackpackingDataCollector {
         }
     }
 
+    #[hotpath::measure]
     pub(crate) fn finish(&mut self) -> IntMap<Id<InternalPerson>, PersonExperience> {
         self.person_id2backpack
             .drain()

@@ -132,6 +132,24 @@ where
         result
     }
 
+    /// Returns the non-empty messages this partition received but never processed. Must be called
+    /// by all partitions after their last step.
+    ///
+    /// A partition only waits for messages from its neighbors, i.e. the partitions it shares a link
+    /// with. Messages from other partitions, e.g. teleported agents, are only read if they arrive
+    /// while the partition is waiting for its neighbors, and never if it has no neighbors at all.
+    /// The agents in such messages are lost.
+    pub fn take_unprocessed_messages(&mut self) -> Vec<InternalSyncMessage> {
+        // Wait until all partitions have finished their last step, so that no message is still
+        // being sent.
+        self.communicator.barrier();
+
+        let mut messages: Vec<InternalSyncMessage> = self.in_messages.drain().collect();
+        messages.extend(self.communicator.receive_pending());
+        messages.retain(|msg| !msg.is_empty());
+        messages
+    }
+
     fn handle_incoming_msg(
         msg: InternalSyncMessage,
         result: &mut Vec<InternalSyncMessage>,
@@ -192,6 +210,7 @@ mod tests {
     use crate::simulation::vehicles::SimulationVehicle;
     use crate::test_utils::create_agent;
     use macros::deterministic_id_test;
+    use std::panic::{self, AssertUnwindSafe};
     use std::rc::Rc;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -201,18 +220,16 @@ mod tests {
     fn send_recv_empty_msgs() {
         let sends = Arc::new(AtomicUsize::new(0));
 
-        execute_test(move |communicator| {
-            let mut broker = create_net_message_broker(communicator);
-
+        execute_test(move |broker| {
             sends.fetch_add(1, Ordering::Relaxed);
             let result = broker.send_recv(0);
 
-            // all threads should block on receive. Therefore, the send count should be equal to 3, as
-            // 0,1 have 3 as a remote neighbor. It is possible for 0 and 1 to move on before 3 has
-            // increased the send count. Most of the time it should be 4 though. I don't know how
-            // good this test is in this case. I guess the remaining asserts are also fine.
+            // all threads block on receive until their neighbors have sent, and every thread
+            // increases the send count before it sends. Therefore, the send count is at least the
+            // number of neighbors plus one, i.e., 3 for 0 and 1, 4 for 2 and only 2 for 3, which
+            // can move on before 0 and 1 have increased the send count. Most of the time it is 4.
             assert!(
-                3 <= sends.load(Ordering::Relaxed),
+                broker.neighbors.len() + 1 <= sends.load(Ordering::Relaxed),
                 "# {} Failed on send count of {}",
                 broker.rank(),
                 sends.load(Ordering::Relaxed)
@@ -236,9 +253,7 @@ mod tests {
     /// Two send_recv steps.
     #[deterministic_id_test]
     fn send_recv_local_vehicle_msg() {
-        execute_test(|communicator| {
-            let mut broker = create_net_message_broker(communicator);
-
+        execute_test(|broker| {
             // place vehicle into partition 0
             if broker.rank() == 0 {
                 let agent = create_agent(0, vec!["2", "6"]);
@@ -291,9 +306,7 @@ mod tests {
 
     #[deterministic_id_test]
     fn send_recv_remote_message() {
-        execute_test(|communicator| {
-            let mut broker = create_net_message_broker(communicator);
-
+        execute_test(|broker| {
             // place vehicle into partition 0 with a future timestamp
             if broker.rank() == 0 {
                 let agent = create_agent(0, vec!["6"]);
@@ -324,9 +337,7 @@ mod tests {
 
     #[deterministic_id_test]
     fn send_recv_local_and_remote_msg() {
-        execute_test(|communicator| {
-            let mut broker = create_net_message_broker(communicator);
-
+        execute_test(|broker| {
             if broker.rank() == 0 {
                 // place vehicle into partition 0 with a future timestamp with remote destination
                 let agent = create_agent(0, vec!["6"]);
@@ -409,8 +420,7 @@ mod tests {
 
     #[deterministic_id_test]
     fn send_recv_storage_cap() {
-        execute_test(|communicator| {
-            let mut broker = create_net_message_broker(communicator);
+        execute_test(|broker| {
             // add a storage cap message for link 4, which connects parts 1 -> 2
             if broker.rank() == 2 {
                 broker.add_cap_update(
@@ -438,9 +448,13 @@ mod tests {
         });
     }
 
+    /// Runs the test in one thread per partition, with the message broker of the partition.
+    /// Afterwards, all partitions wait for each other, as in a simulation, so that no partition
+    /// drops its channel while another one still sends to it, e.g. a message to a partition that is
+    /// not a neighbor.
     fn execute_test<F>(test: F)
     where
-        F: Fn(ChannelSimCommunicator) + Send + Sync + 'static,
+        F: Fn(&mut NetMessageBroker<ChannelSimCommunicator>) + Send + Sync + 'static,
     {
         let network = create_network();
         let communicators = ChannelSimCommunicator::create_n_2_n(network.nodes().len() as u32);
@@ -451,7 +465,15 @@ mod tests {
 
         for c in communicators {
             let cloned_test_ref = test_ref.clone();
-            let handle = thread::spawn(move || cloned_test_ref(c));
+            let handle = thread::spawn(move || {
+                let mut broker = create_net_message_broker(c);
+                let result = panic::catch_unwind(AssertUnwindSafe(|| cloned_test_ref(&mut broker)));
+                // a failing partition still waits, so that the others do not wait forever
+                broker.take_unprocessed_messages();
+                if let Err(payload) = result {
+                    panic::resume_unwind(payload);
+                }
+            });
             join_handles.push(handle)
         }
 

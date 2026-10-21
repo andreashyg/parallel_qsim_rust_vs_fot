@@ -485,10 +485,9 @@ mod tests {
     #[test]
     fn plan_round_trip_preserves_score() {
         let plan = InternalPlan {
-            attributes: Default::default(),
             score: Some(42.5),
             selected: true,
-            elements: Vec::new(),
+            ..Default::default()
         };
 
         let wire = Plan::from(&plan);
@@ -534,7 +533,7 @@ mod tests {
 
     #[deterministic_id_test]
     fn test_proto() {
-        let _net = Network::from_file_as_is(&PathBuf::from("./assets/equil/equil-network.xml"));
+        let _net = Network::from_file(&PathBuf::from("./assets/equil/equil-network.xml"));
         let mut garage = Garage::from_file(&PathBuf::from("./assets/equil/equil-vehicles.xml"));
         let pop = Population::from_file(
             &PathBuf::from("./assets/equil/equil-plans.xml.gz"),
@@ -556,7 +555,7 @@ mod tests {
 
     #[deterministic_id_test]
     fn test_filtered_proto() {
-        let _net = Network::from_file_as_is(&PathBuf::from("./assets/equil/equil-network.xml"));
+        let _net = Network::from_file(&PathBuf::from("./assets/equil/equil-network.xml"));
         let mut garage = Garage::from_file(&PathBuf::from("./assets/equil/equil-vehicles.xml"));
         let pop = Population::from_file(
             &PathBuf::from("./assets/equil/equil-plans.xml.gz"),

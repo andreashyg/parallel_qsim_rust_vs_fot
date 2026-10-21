@@ -32,7 +32,7 @@ where
     F: Fn(&mut Population),
 {
     let input_dir = PathBuf::from("./assets/equil/");
-    let net = Network::from_file_as_is(&input_dir.join("equil-network.xml"));
+    let net = Network::from_file(&input_dir.join("equil-network.xml"));
     let mut garage = Garage::from_file(&input_dir.join("equil-vehicles.xml"));
     let mut pop = Population::from_file(&input_dir.join("equil-1-plan.xml"), &mut garage);
 
@@ -87,6 +87,29 @@ fn equil_single_part_with_10_ticks_per_second_matches_expected_events() {
 fn equil_two_parts_matches_expected_events() {
     let config_args = CommandLineArgs::new_with_path("./tests/resources/equil/equil-config-2.yml");
     let config = Config::from_args(config_args);
+    let output_dir = config.output().output_dir.clone();
+
+    let scenario = Scenario::load(config);
+    let controller = ControllerBuilder::default_with_scenario(scenario)
+        .build()
+        .unwrap();
+    controller.run();
+    compare_event_folder(
+        "./tests/resources/equil/expected_events",
+        output_dir.join("events"),
+    )
+    .unwrap();
+}
+
+/// Same as `equil_two_parts_matches_expected_events`, but the partitions wait for each other in
+/// every time step. This must not change the events.
+#[deterministic_id_test(matsim_rust)]
+fn equil_two_parts_with_global_sync_matches_expected_events() {
+    let config_args = CommandLineArgs::new_with_path("./tests/resources/equil/equil-config-2.yml");
+    let mut config = Config::from_args(config_args);
+    config.computational_setup_mut().global_sync = true;
+    config.output_mut().output_dir =
+        PathBuf::from("./test_output/simulation/equil_two_parts_global_sync");
     let output_dir = config.output().output_dir.clone();
 
     let scenario = Scenario::load(config);

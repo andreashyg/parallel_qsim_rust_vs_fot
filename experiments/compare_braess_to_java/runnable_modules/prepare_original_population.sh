@@ -13,6 +13,8 @@ get_original_java_replanning_folder_string() {
     echo "2026-05-10-10-2-21_500it_reRouteProba0.1until0.8it_selExpBeta1proba0.9_msaFrom0.8it"
   elif [ "${replanning_variant}" = "sel-exp10-switch-at80" ]; then
     echo "2026-05-12-8-42-24_500it_reRouteProba0.1until0.8it_selExpBeta10proba0.9_msaFrom0.8it"
+  elif [ "${replanning_variant}" = "sel-exp10-switch-at80-my-own" ]; then
+    echo "2026-10-14-12-22-10_500it_reRouteProba0.1until0.8it_selExpBeta10proba0.9_msaFrom0.8it_myFirstReplRun"
   else
     echo "unknown replanning_variant value: $replanning_variant" >&2
     return 1

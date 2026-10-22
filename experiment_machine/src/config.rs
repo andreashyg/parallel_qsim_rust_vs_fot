@@ -300,12 +300,9 @@ pub struct AddDummyCoordinatesToEvents {
 /// access/egress legs before and after the main leg.
 #[derive(Debug, Deserialize, Serialize)]
 pub struct PrepareOriginalPopulation {
-    pub skip_if_existing: bool,
-    pub overwrites: Option<HashMap<String, Value>>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct AddAccessEgressLegsToPopulation {
+    pub pop_to_be_changed_pattern: Option<String>,
+    pub pop_with_correct_activity_times_pattern: Option<String>,
+    pub vehicle_file_pattern: Option<String>,
     pub skip_if_existing: bool,
     pub overwrites: Option<HashMap<String, Value>>,
 }
@@ -575,11 +572,20 @@ impl Module for PrepareOriginalPopulation {
 
     /// The extra string arguments for this module are:
     /// 1. `skip_if_existing` (read from module field)
+    /// 2. `pop_to_be_changed_pattern` (read from module field)
+    /// 3. `pop_with_correct_activity_times_pattern` (read from module field)
+    /// 4. `vehicle_file_pattern` (read from module field)
     fn get_extra_str_args(&self, _config: &Config, _global_config: &GlobalConfig) -> Result<Option<Vec<String>>, String> {
-        match self.skip_if_existing {
-            true => Ok(Some(vec!["true".to_string()])),
-            false => Ok(Some(vec!["false".to_string()])),
-        }
+        let skip_if_existing_str = if self.skip_if_existing { "true" } else { "false" }.to_string();
+        let pop_to_be_changed_pattern = self.pop_to_be_changed_pattern.clone().ok_or("pop_to_be_changed_pattern must be set")?;
+        let pop_with_correct_activity_times_pattern = self.pop_with_correct_activity_times_pattern.clone().unwrap_or("None".to_string());
+        let vehicle_file_pattern = self.vehicle_file_pattern.clone().ok_or("vehicle_file_pattern must be set")?;
+        Ok(Some(vec![
+            skip_if_existing_str,
+            pop_to_be_changed_pattern,
+            pop_with_correct_activity_times_pattern,
+            vehicle_file_pattern,
+        ]))
     }
 
     fn get_param_sweep_overwrites(&self) -> Option<HashMap<String, String>> {
@@ -588,43 +594,6 @@ impl Module for PrepareOriginalPopulation {
         // function is only called once per cartesian product of the other parameters
         let use_random_seed_decl_overwrite = "use_random_seeds=(None)".to_string();
         Some(HashMap::from_iter([("use_random_seeds".to_string(), use_random_seed_decl_overwrite.clone())]))
-    }
-
-    fn get_expset_config_overwrites(&self) -> Option<HashMap<String, Value>> {
-        self.overwrites.clone()
-    }
-}
-
-#[typetag::serde]
-impl Module for AddAccessEgressLegsToPopulation {
-    fn get_bash_function(&self) -> BashFunction {
-        BashFunction::new(
-            "add_access_egress_legs_case",
-            "./experiments/compare_braess_to_java/runnable_modules/add_access_egress_legs_to_population.sh",
-            "rust",
-        )
-    }
-
-    /// The extra string arguments for this module are:
-    /// 1. `skip_if_existing` (read from module field)
-    fn get_extra_str_args(&self, _config: &Config, _global_config: &GlobalConfig) -> Result<Option<Vec<String>>, String> {
-        match self.skip_if_existing {
-            true => Ok(Some(vec!["true".to_string()])),
-            false => Ok(Some(vec!["false".to_string()])),
-        }
-    }
-
-    /// The param sweep overwrites for this module are:
-    /// 1. `use_random_seeds` is overwritten to contain only one parameter, so that the bash function is
-    ///     only called once per cartesian product of the other parameters.
-    fn get_param_sweep_overwrites(&self) -> Option<HashMap<String, String>> {
-        // this module doesn't use any rust seeds, because it is only editing the input population.
-        // So we overwrite the use_random_seeds variable to contain only one parameter, so that the bash
-        // function is only called once per cartesian product of the other parameters
-        let use_random_seed_decl_overwrite = "use_random_seeds=(None)".to_string();
-        let overwrites =
-            HashMap::from_iter([("use_random_seeds".to_string(), use_random_seed_decl_overwrite.clone())]);
-        Some(overwrites)
     }
 
     fn get_expset_config_overwrites(&self) -> Option<HashMap<String, Value>> {
@@ -1124,10 +1093,6 @@ mod tests {
                 ("max_parallel_jobs".to_string(), Value::Number(8.into())),
             ])),
             param_sweep: HashMap::from([
-                (
-                    "replanning_variants".to_string(),
-                    vec![Value::String("sel-exp10-switch-at80".to_string())],
-                ),
                 ("betas".to_string(), vec![Value::Number(1.into())]),
                 (
                     "read_from_random_seed_indices".to_string(),
@@ -1144,6 +1109,9 @@ mod tests {
             ]),
             modules: vec![
                 Box::new(PrepareOriginalPopulation {
+                    pop_to_be_changed_pattern: None,
+                    pop_with_correct_activity_times_pattern: None,
+                    vehicle_file_pattern: None,
                     skip_if_existing: false,
                     overwrites: Some(HashMap::from_iter([(
                         "max_parallel_jobs".to_string(),

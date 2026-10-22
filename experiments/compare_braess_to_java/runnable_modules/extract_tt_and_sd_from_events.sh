@@ -6,20 +6,19 @@ source "${SCRIPT_DIR}/../failure_handling.sh"
 
 # function to run the travel time & summed departures extraction for a single experiment case.S
 extract_travel_time_sum_dep_case() {
-  local replanning_variant="$1"
-  local beta="$2"
-  local java_seed_index="$3"
-  local rust_seed="$4"
-  local global_config_path="$5"
-  local experiment_set_name="$6"
-  local base_output_dir="$7"
-  local input_file_stem_pattern="$8"
-  local input_file_format="$9"
-  local tt_csv_path_pattern="${10}"
-  local sd_csv_path_pattern="${11}"
-  local num_parts="${12}"
+  local beta="$1"
+  local java_seed_index="$2"
+  local rust_seed="$3"
+  local global_config_path="$4"
+  local experiment_set_name="$5"
+  local base_output_dir="$6"
+  local input_file_stem_pattern="$7"
+  local input_file_format="$8"
+  local tt_csv_path_pattern="${9}"
+  local sd_csv_path_pattern="${10}"
+  local num_parts="${11}"
 
-  echo "Extracting average travel times and summed departures for parameters: replanning_variant=$replanning_variant, beta=$beta, java_seed_index=$java_seed_index, rust_seed=$rust_seed"
+  echo "Extracting average travel times and summed departures for parameters: replanning_variant=deprecated, beta=$beta, java_seed_index=$java_seed_index, rust_seed=$rust_seed"
   echo "writing into $tt_csv_path_pattern and $sd_csv_path_pattern"
 
   local rust_seed_string=()
@@ -33,7 +32,6 @@ extract_travel_time_sum_dep_case() {
   if ! ./target/release/event_data_extractor \
     --base-output-dir "$base_output_dir" \
     --experiment-set-name "$experiment_set_name" \
-    --replanning-variant "$replanning_variant" \
     --read-from-random "$java_seed_index" \
     "${rust_seed_string[@]}" \
     --input-file-stem-pattern "$input_file_stem_pattern" \
@@ -46,7 +44,7 @@ extract_travel_time_sum_dep_case() {
     --beta "$beta"
   then
     echo "Travel-time/summed departures extraction failed, continuing with next case." >&2
-    record_failure extraction "$replanning_variant" "$beta" "$java_seed_index" "$rust_seed"
+    record_failure extraction "deprecated" "$beta" "$java_seed_index" "$rust_seed"
     return 1
   fi
 

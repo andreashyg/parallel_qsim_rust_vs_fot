@@ -6,16 +6,15 @@ source "${SCRIPT_DIR}/../failure_handling.sh"
 
 # function to run a single experiment case.
 run_experiment_case() {
-  local replanning_variant="$1"
-  local beta="$2"
-  local java_seed_index="$3"
-  local rust_seed="$4"
-  local global_config_path="$5"
-  local experiment_set_name="$6"
-  local base_output_dir="$7"
-  local delete_output_dir_if_existing="$8"
+  local beta="$1"
+  local java_seed_index="$2"
+  local rust_seed="$3"
+  local global_config_path="$4"
+  local experiment_set_name="$5"
+  local base_output_dir="$6"
+  local delete_output_dir_if_existing="$7"
 
-  echo "Running rust simulation with parameters: replanning_variant=${replanning_variant}, beta=${beta}, java_seed_index=${java_seed_index}, rust_seed=${rust_seed}"
+  echo "Running rust simulation with parameters: replanning_variant=deprecated, beta=${beta}, java_seed_index=${java_seed_index}, rust_seed=${rust_seed}"
 
   local delete_output_dir_arg=()
   if [ "$delete_output_dir_if_existing" = true ]; then
@@ -27,7 +26,6 @@ run_experiment_case() {
     --beta "$beta" \
     --read-from-random "$java_seed_index" \
     --use-random-seed "$rust_seed" \
-    --replanning-variant "$replanning_variant" \
     --experiment-set-name "$experiment_set_name" \
     --base-output-dir "$base_output_dir" \
     --global-config-path "$global_config_path" \
@@ -36,7 +34,7 @@ run_experiment_case() {
     echo "Experiment failed, continuing with next case." >&2
     # Record the failure with the appropriate parameters. Will append to the failure log file if specified (in the
     # global environment variable FAILURE_LOG_FILE).
-    record_failure experiment "$replanning_variant" "$beta" "$java_seed_index" "$rust_seed"
+    record_failure experiment "deprecated" "$beta" "$java_seed_index" "$rust_seed"
     return 1
   fi
 

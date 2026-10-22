@@ -5,26 +5,25 @@ set -uo pipefail
 source "${SCRIPT_DIR}/../failure_handling.sh"
 
 plot_per_seed_case() {
-  local replanning_variant="$1"
-  local beta="$2"
-  local java_seed_index="$3"
-  local rust_seed="$4"
-  local global_config_path="$5"
-  local experiment_set_name="$6"
-  local base_output_dir="$7"
-  local input_tt_csv_path_pattern="$8"
-  local input_sd_csv_path_pattern="$9"
+  local beta="$1"
+  local java_seed_index="$2"
+  local rust_seed="$3"
+  local global_config_path="$4"
+  local experiment_set_name="$5"
+  local base_output_dir="$6"
+  local input_tt_csv_path_pattern="$7"
+  local input_sd_csv_path_pattern="$8"
 
-  echo "Plotting average travel times and summed departures per seed for parameters: replanning_variant=${replanning_variant}, beta=$beta, read_from_random=$java_seed_index, use_random_seed=$rust_seed"
+  echo "Plotting average travel times and summed departures per seed for parameters: replanning_variant=deprecated, beta=$beta, read_from_random=$java_seed_index, use_random_seed=$rust_seed"
 
 
   # Plot the average travel times and summed departures.
   if ! ~/miniforge3/envs/rust-vs-fot-plots/bin/python3 python_plotting/braess/tt_and_sd_single_seed.py \
-    "$beta" "${replanning_variant}" "$java_seed_index" "$rust_seed" "${experiment_set_name}" "${base_output_dir}" \
+    "$beta" "$java_seed_index" "$rust_seed" "${experiment_set_name}" "${base_output_dir}" \
     "${input_tt_csv_path_pattern}" "${input_sd_csv_path_pattern}" "${global_config_path}"
   then
     echo "Plotting failed, continuing with next case." >&2
-    record_failure plotting "$replanning_variant" "$beta" "$java_seed_index" "$rust_seed"
+    record_failure plotting "deprecated" "$beta" "$java_seed_index" "$rust_seed"
     return 1
   fi
 

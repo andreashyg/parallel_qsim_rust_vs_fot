@@ -23,13 +23,13 @@ modules:
   - add_dummy_coordinates_to_events:
     type: AddDummyCoordinatesToEvents
     input_file_pattern: "{original_dir_to_read_from}/2026-05-12-8-42-24_500it_reRouteProba0.1until0.8it_selExpBeta10proba0.9_msaFrom0.8it/beta{beta}/random{read_from_random}/beta{beta}random{read_from_random}.output_events.xml.gz"
-    output_file_pattern: "{base_output_dir}/{experiment_set_name}/originalEventFilesWithAddedCoordinates/{replanning_variant}/beta{beta}/random{read_from_random}/beta{beta}random{read_from_random}.output_events.xml.gz"
+    output_file_pattern: "{base_output_dir}/{experiment_set_name}/originalEventFilesWithAddedCoordinates/beta{beta}/random{read_from_random}/beta{beta}random{read_from_random}.output_events.xml.gz"
 
   # extract measurements from the events files from the original java runs with added dummy coordinates.
   # Note: most of them do not exist.
   - extract_measurements_from_events:
     type: ExtractMeasurementsFromEvents
-    input_file_stem_pattern: "{base_output_dir}/{experiment_set_name}/originalEventFilesWithAddedCoordinates/{replanning_variant}/beta{beta}/random{read_from_random}/beta{beta}random{read_from_random}.output_events"
+    input_file_stem_pattern: "{base_output_dir}/{experiment_set_name}/originalEventFilesWithAddedCoordinates/beta{beta}/random{read_from_random}/beta{beta}random{read_from_random}.output_events"
     input_file_format: xml.gz
     num_parts: 0
     # overwrite the default patterns for the output csv files, since we will not use these in the plotting, only for

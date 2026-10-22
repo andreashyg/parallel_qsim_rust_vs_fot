@@ -20,7 +20,7 @@ sd_avg_abs_diff_csv_path = "{common_plots_pattern}/avgOverSeeds/sdPerPathOverTim
 
 if __name__ == '__main__':
 
-    (_, beta, replanning_variant, experiment_set_name, read_random, use_random, base_output_dir,
+    (_, beta, experiment_set_name, read_random, use_random, base_output_dir,
      minus_what, main_input_tt_csv_path_pattern, main_input_sd_csv_path_pattern,
      secondary_input_tt_csv_path_pattern, secondary_input_sd_csv_path_pattern, global_config_path) = sys.argv[0:13]
 
@@ -77,7 +77,7 @@ if __name__ == '__main__':
     sd_avg_diff_csv_path = sd_avg_diff_csv_path.replace("{common_plots_pattern}", COMMON_PLOTS_PATTERN)
     sd_avg_diff_csv_path = sd_avg_diff_csv_path.replace("{minus_what}", minus_what)
 
-    experiment_set = ExperimentSet(global_config_path, base_output_dir, replanning_variant, experiment_set_name,
+    experiment_set = ExperimentSet(global_config_path, base_output_dir, experiment_set_name,
                                    output_tt_plot_path_pattern, output_sd_plot_path_pattern,
                                    main_input_tt_csv_path_pattern, main_input_sd_csv_path_pattern,
                                    secondary_input_tt_csv_path_pattern, secondary_input_sd_csv_path_pattern)

@@ -11,7 +11,7 @@ plot_type_specific_tt_path_pattern = "{common_plots_pattern}/perSeed/ttPerPathOv
 plot_type_specific_sd_path_pattern = "{common_plots_pattern}/perSeed/sdPerPathOverTime/sdPerPathOverTime{file_name_end}.pdf"
 
 if __name__ == '__main__':
-    (_, beta, replanning_variant, read_random, use_random, experiment_set_name, base_output_dir,
+    (_, beta, read_random, use_random, experiment_set_name, base_output_dir,
      input_tt_csv_path_pattern, input_sd_csv_path_pattern, global_config_path) = sys.argv
 
     (FILE_NAME_END_PATTERN_WITH_BETA_RR_UR,
@@ -35,7 +35,6 @@ if __name__ == '__main__':
 
     experiment_set = ExperimentSet(global_config_path,
                                    base_output_dir,
-                                   replanning_variant,
                                    experiment_set_name,
                                    output_tt_plot_path_pattern,
                                    output_sd_plot_path_pattern,

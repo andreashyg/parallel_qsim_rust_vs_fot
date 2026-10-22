@@ -5,8 +5,6 @@ globals:
   #  delete_output_dir_if_existing: true
   max_parallel_jobs: 8
 param_sweep:
-  replanning_variants:
-    - sel-exp10-switch-at80
   betas: [ 1 ]
   read_from_random_seed_indices: [ 1, 20, 4 ]
   use_random_seeds: [ 42, 43 ]
@@ -14,6 +12,9 @@ modules:
   # Replace activity times in the population with the correct ones, and add access/egress legs
   - replace_activity_times_and_add_access_egress_legs_in_population:
     type: PrepareOriginalPopulation
+    pop_to_be_changed_pattern: None
+    pop_with_correct_activity_times_pattern: None
+    vehicle_file_pattern: None
     skip_if_existing: false
     overwrites:
       max_parallel_jobs: 1  # this seems to take a lot of memory, so we don't want to run too many in parallel

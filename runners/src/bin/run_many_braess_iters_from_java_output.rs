@@ -23,6 +23,7 @@ enum ReplanningVariant {
     SelExp10SwitchAt80,
     /// selection exponent ("preference for higher scores" of 10, rerouting until 0.5, msa from 0.5
     SelExp10SwitchAt80MyOwn, // This is a custom variant for testing purposes
+    SelExp10SwitchAt80MyOwnOnlyLegScoringAndBrain1Only64, // This is a custom variant for testing purposes
 }
 
 impl Display for ReplanningVariant {
@@ -32,6 +33,7 @@ impl Display for ReplanningVariant {
             Self::SelExp1SwitchAt80 => write!(f, "sel-exp1-switch-at80"),
             Self::SelExp10SwitchAt80 => write!(f, "sel-exp10-switch-at80"),
             Self::SelExp10SwitchAt80MyOwn => write!(f, "sel-exp10-switch-at80-my-own"),
+            Self::SelExp10SwitchAt80MyOwnOnlyLegScoringAndBrain1Only64 => write!(f, "sel-exp10-switch-at80-my-own-only-leg-scoring-and-brain1-only64"),
         }
     }
 }
@@ -52,6 +54,9 @@ impl ReplanningVariant {
             Self::SelExp10SwitchAt80MyOwn => {
                 "2026-10-14-12-22-10_500it_reRouteProba0.1until0.8it_selExpBeta10proba0.9_msaFrom0.8it_myFirstReplRun"
             }
+            Self::SelExp10SwitchAt80MyOwnOnlyLegScoringAndBrain1Only64 => {
+                "2026-10-21-23-11-32_original_settings_but_only_leg_scoring_and_brain_1_only_beta_64"
+            }
         }
     }
 }
@@ -71,10 +76,6 @@ struct CommandLineArgs {
     /// random seed to use for the new experiments
     #[arg(long)]
     use_random_seed: u64,
-    /// replanning variant of the original java experiment to use. Available: `SelExp1SwitchAt50`,
-    /// `SelExp1SwitchAt80`, `SelExp10SwitchAt80`
-    #[arg(long)]
-    replanning_variant: ReplanningVariant,
     /// name of the current experiment set, used to create the output directory
     #[arg(long)]
     experiment_set_name: String,
@@ -129,10 +130,10 @@ fn main() {
 
     let corrected_times_pop_pattern = global_config
         .global_parameters
-        .get("corrected_output_pop_pattern")
-        .expect("Failed to get corrected_output_pop_pattern from global config")
+        .get("pop_to_use_as_input_pattern")
+        .expect("Failed to get pop_to_use_as_input_pattern from global config")
         .as_str()
-        .expect("corrected_output_pop_pattern must be a string")
+        .expect("pop_to_use_as_input_pattern must be a string")
         .to_string();
 
 
@@ -146,7 +147,7 @@ fn main() {
     let output_dir = experiment_output_dir_pattern
         .replace("{base_output_dir}", &args.base_output_dir)
         .replace("{experiment_set_name}", &args.experiment_set_name)
-        .replace("{replanning_variant}", &args.replanning_variant.to_string())
+        // .replace("{replanning_variant}", &args.replanning_variant.to_string())
         .replace("{beta}", &beta.to_string())
         .replace("{read_from_random}", &random_java.to_string())
         .replace("{use_random_seed}", &seed_rust.to_string())
@@ -157,7 +158,7 @@ fn main() {
         .expect("Failed to replace common pattern in pop_with_correct_activity_times_pattern")
         .replace("{base_output_dir}", &args.base_output_dir)
         .replace("{experiment_set_name}", &args.experiment_set_name)
-        .replace("{replanning_variant}", &args.replanning_variant.to_string())
+        // .replace("{replanning_variant}", &args.replanning_variant.to_string())
         .replace("{beta}", &beta.to_string())
         .replace("{read_from_random}", &random_java.to_string())
         .into();

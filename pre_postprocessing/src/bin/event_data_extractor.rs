@@ -18,9 +18,6 @@ struct InputArgs {
     /// name of the experiment set, e.g., "varying_rust_seeds"
     #[arg(long)]
     pub experiment_set_name: String,
-    /// replanning variant of the original java experiment to use, such as "sel-exp10-switch-at-80"
-    #[arg(long)]
-    pub replanning_variant: String,
     /// java seed for the random run to read from, e.g., 1-20
     #[arg(long)]
     pub read_from_random: usize,
@@ -110,7 +107,6 @@ fn main() {
             id_store_path_pattern.to_str().unwrap(),
             Some(&args.base_output_dir),
             Some(&args.experiment_set_name),
-            Some(&args.replanning_variant),
             args.beta.into(),
             args.read_from_random.into(),
             args.use_random_seed,
@@ -125,7 +121,6 @@ fn main() {
         input_path_stem_pattern,
         Some(&args.base_output_dir),
         Some(&args.experiment_set_name),
-        Some(&args.replanning_variant),
         args.beta.into(),
         args.read_from_random.into(),
         args.use_random_seed,
@@ -142,7 +137,6 @@ fn main() {
         &tt_output_file_path_with_file_name_end,
         Some(&args.base_output_dir),
         Some(&args.experiment_set_name),
-        Some(&args.replanning_variant),
         args.beta.into(),
         args.read_from_random.into(),
         args.use_random_seed,
@@ -159,7 +153,6 @@ fn main() {
         &sd_output_file_path_with_file_name_end,
         Some(&args.base_output_dir),
         Some(&args.experiment_set_name),
-        Some(&args.replanning_variant),
         args.beta.into(),
         args.read_from_random.into(),
         args.use_random_seed,

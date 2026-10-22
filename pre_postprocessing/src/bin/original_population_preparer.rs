@@ -13,12 +13,12 @@ struct InputArgs {
     /// Base directory for output files.
     #[arg(long)]
     pub base_output_dir: String,
-    /// Replanning variant. The short name used in the experiment. Used in the output file name
-    #[arg(long)]
-    pub replanning_variant: String,
-    /// Replanning variant. The long, original directory name. Needed for the input file names.
-    #[arg(long)]
-    pub replanning_variant_original: String,
+    // /// Replanning variant. The short name used in the experiment. Used in the output file name
+    // #[arg(long)]
+    // pub replanning_variant: String,
+    // /// Replanning variant. The long, original directory name. Needed for the input file names.
+    // #[arg(long)]
+    // pub replanning_variant_original: String,
     /// Name of the experiment set.
     #[arg(long)]
     pub experiment_set_name: String,
@@ -34,6 +34,18 @@ struct InputArgs {
     /// global config file path
     #[arg(long)]
     pub global_config_path: String,
+    /// Pattern for the population to be changed.
+    #[arg(long)]
+    pub pop_to_be_changed_pattern: String,
+    /// Pattern for the population with correct activity times. If not provided, no activity times will be replaced.
+    #[arg(long)]
+    pub pop_with_correct_activity_times_pattern: Option<String>,
+    /// Pattern for the vehicle file.
+    #[arg(long)]
+    pub vehicle_file_pattern: String,
+    /// Option to add access/egress legs if necessary. If not provided, no access/egress legs will be added.
+    #[arg(long)]
+    pub add_access_egress_legs_if_necessary: bool,
 }
 
 fn main() {
@@ -50,62 +62,71 @@ fn main() {
 
     let pop_to_be_changed_pattern = global_config
         .replace_common_pattern(
-            global_config
-                .global_parameters
-                .get("original_output_pop_pattern")
-                .expect("Failed to get original_output_pop_pattern from global config")
-                .as_str()
-                .expect("original_output_pop_pattern must be a string"),
+            &args.pop_to_be_changed_pattern
+            // global_config
+            //     .global_parameters
+            //     .get("original_output_pop_pattern")
+            //     .expect("Failed to get original_output_pop_pattern from global config")
+            //     .as_str()
+            //     .expect("original_output_pop_pattern must be a string"),
         )
-        .expect("Failed to replace common pattern in original_output_pop_pattern");
+        .expect("Failed to replace common pattern in pop_to_be_changed_pattern");
 
     let pop_to_be_changed_path = replace_placeholders_in_path_pattern(
         &pop_to_be_changed_pattern,
         Some(&args.base_output_dir),
         Some(&args.experiment_set_name),
-        Some(&args.replanning_variant_original),
         Some(args.beta),
         Some(args.read_from_random),
         None,
     );
 
-    let pop_with_correct_times_pattern = global_config
-        .replace_common_pattern(
+    // If pop_with_correct_activity_times_pattern is given, replace common patterns in it.
+    let pop_with_correct_times_pattern = &args.pop_with_correct_activity_times_pattern.map(
+        |pat|
             global_config
-                .global_parameters
-                .get("pop_with_correct_activity_times_pattern")
-                .expect("Failed to get pop_with_correct_activity_times_pattern from global config")
-                .as_str()
-                .expect("pop_with_correct_activity_times_pattern must be a string"),
-        )
-        .expect("Failed to replace common pattern in pop_with_correct_activity_times_pattern");
-
-    let pop_with_correct_times_path = replace_placeholders_in_path_pattern(
-        &pop_with_correct_times_pattern,
-        Some(&args.base_output_dir),
-        Some(&args.experiment_set_name),
-        Some(&args.replanning_variant_original),
-        Some(args.beta),
-        Some(args.read_from_random),
-        None,
+                .replace_common_pattern(
+                    &pat
+                    // global_config
+                    //     .global_parameters
+                    //     .get("pop_with_correct_activity_times_pattern")
+                    //     .expect("Failed to get pop_with_correct_activity_times_pattern from global config")
+                    //     .as_str()
+                    //     .expect("pop_with_correct_activity_times_pattern must be a string"),
+                )
+                .expect("Failed to replace common pattern in pop_with_correct_activity_times_pattern")
     );
 
+    // then also replace standard placeholders
+    let pop_with_correct_times_path = pop_with_correct_times_pattern.as_ref().map(
+        |pat|
+            replace_placeholders_in_path_pattern(
+                pat,
+                Some(&args.base_output_dir),
+                Some(&args.experiment_set_name),
+                Some(args.beta),
+                Some(args.read_from_random),
+                None,
+            )
+    );
+
+    // the output file of this module will be the global "pop_to_use_as_input_pattern", since
+    // the output of this module is intended to be used as input for the runner module
     let output_file_pattern = global_config
         .replace_common_pattern(
             global_config
                 .global_parameters
-                .get("corrected_output_pop_pattern")
-                .expect("Failed to get corrected_output_pop_pattern from global config")
+                .get("pop_to_use_as_input_pattern")
+                .expect("Failed to get pop_to_use_as_input_pattern from global config")
                 .as_str()
-                .expect("corrected_output_pop_pattern must be a string"),
+                .expect("pop_to_use_as_input_pattern must be a string"),
         )
-        .expect("Failed to replace common pattern in corrected_output_pop_pattern");
+        .expect("Failed to replace common pattern in pop_to_use_as_input_pattern");
 
     let output_file = replace_placeholders_in_path_pattern(
         &output_file_pattern,
         Some(&args.base_output_dir),
         Some(&args.experiment_set_name),
-        Some(&args.replanning_variant),
         Some(args.beta),
         Some(args.read_from_random),
         None,
@@ -113,12 +134,13 @@ fn main() {
 
     let vehicle_file_pattern = global_config
         .replace_common_pattern(
-            global_config
-                .global_parameters
-                .get("vehicle_file_pattern")
-                .expect("Failed to get vehicle_file_pattern from global config")
-                .as_str()
-                .expect("vehicle_file_pattern must be a string"),
+            &args.vehicle_file_pattern
+            // global_config
+            //     .global_parameters
+            //     .get("vehicle_file_pattern")
+            //     .expect("Failed to get vehicle_file_pattern from global config")
+            //     .as_str()
+            //     .expect("vehicle_file_pattern must be a string"),
         )
         .expect("Failed to replace common pattern in vehicle_file_pattern");
 
@@ -126,7 +148,6 @@ fn main() {
         &vehicle_file_pattern,
         Some(&args.base_output_dir),
         Some(&args.experiment_set_name),
-        Some(&args.replanning_variant_original),
         Some(args.beta),
         Some(args.read_from_random),
         None,
@@ -144,21 +165,35 @@ fn main() {
 
     let mut pop_to_be_changed = Population::from_file(&pop_to_be_changed_path, &mut garage);
 
-    let pop_with_correct_times = Population::from_file(&pop_with_correct_times_path, &mut garage);
+    // if a population with correct activity times is provided, replace the activity times in the
+    // population to be changed with the correct ones
+    if let Some(pop_with_correct_times) = pop_with_correct_times_path
+        .map(|path| Population::from_file(&path, &mut garage)) {
+        info!("Replacing activity times in population");
+        replace_activity_times_and_add_dummy_coords_to_acts(
+            &mut pop_to_be_changed,
+            pop_with_correct_times,
+        );
+        info!("Successfully replaced activity times in population");
+    }
 
-    replace_activity_times_and_add_dummy_coords_to_acts(
-        &mut pop_to_be_changed,
-        pop_with_correct_times,
-    );
+    // let pop_with_correct_times = Population::from_file(&pop_with_correct_times_path, &mut garage);
 
-    // we use hard-coded access egress leg mode "walk" here, since the experiment runner also uses
-    // this
-    add_access_egress_legs_if_necessary(&mut pop_to_be_changed, "walk");
+    // replace_activity_times_and_add_dummy_coords_to_acts(
+    //     &mut pop_to_be_changed,
+    //     pop_with_correct_times,
+    // );
+
+    if args.add_access_egress_legs_if_necessary {
+        info!("Adding access/egress legs to population where necessary");
+        // we use hard-coded access egress leg mode "walk" here, since the experiment runner also
+        // uses this
+        add_access_egress_legs_if_necessary(&mut pop_to_be_changed, "walk");
+        info!("Successfully added access/egress legs to population where necessary");
+    }
+
+    info!("Writing prepared population to {}", output_file);
     pop_to_be_changed.to_file(output_file.as_ref());
 
-    info!(
-        "Successfully wrote population with replaced activity times, and added access/egress legs \
-        where necessary, to {}",
-        output_file
-    );
+    info!("Successfully wrote prepared population to {}", output_file);
 }

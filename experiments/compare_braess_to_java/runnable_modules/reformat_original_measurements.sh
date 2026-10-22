@@ -5,26 +5,24 @@ set -uo pipefail
 source "${SCRIPT_DIR}/../failure_handling.sh"
 
 reformat_original_java_extracted_measurements_case() {
-  local replanning_variant="$1"
-  local beta="$2"
-  local java_seed_index="$3"
-  local _rust_seed="$4"  # unused in this module
-  local global_config_path="$5"
-  local experiment_set_name="$6"
-  local base_output_dir="$7"
-  local original_tt_tsv_file_pattern="$8"
-  local original_sd_tsv_file_pattern="$9"
-  local new_tt_csv_path_pattern="${10}"
-  local new_sd_csv_path_pattern="${11}"
+  local beta="$1"
+  local java_seed_index="$2"
+  local _rust_seed="$3"  # unused in this module
+  local global_config_path="$4"
+  local experiment_set_name="$5"
+  local base_output_dir="$6"
+  local original_tt_tsv_file_pattern="$7"
+  local original_sd_tsv_file_pattern="$8"
+  local new_tt_csv_path_pattern="${9}"
+  local new_sd_csv_path_pattern="${10}"
 
-  echo "Copying and reformatting extracted original java average travel times and summed departures for parameters: replanning_variant=$replanning_variant, beta=$beta, read_from_random=${java_seed_index}"
+  echo "Copying and reformatting extracted original java average travel times and summed departures for parameters: replanning_variant=deprecated, beta=$beta, read_from_random=${java_seed_index}"
   echo "writing into $new_tt_csv_path_pattern and $new_sd_csv_path_pattern"
 
   if ! ./target/release/simple_csv_column_renamer \
     --input-file-pattern "${original_tt_tsv_file_pattern}" \
     --output-file-pattern "${new_tt_csv_path_pattern}" \
     --base-output-dir "${base_output_dir}" \
-    --replanning-variant "${replanning_variant}" \
     --experiment-set-name "${experiment_set_name}" \
     --beta "${beta}" \
     --read-from-random "${java_seed_index}" \
@@ -36,7 +34,6 @@ reformat_original_java_extracted_measurements_case() {
     --input-file-pattern "${original_sd_tsv_file_pattern}" \
     --output-file-pattern "${new_sd_csv_path_pattern}" \
     --base-output-dir "${base_output_dir}" \
-    --replanning-variant "${replanning_variant}" \
     --experiment-set-name "${experiment_set_name}" \
     --beta "${beta}" \
     --read-from-random "${java_seed_index}" \
@@ -46,7 +43,7 @@ reformat_original_java_extracted_measurements_case() {
     --column-name sum_departures_total
   then
     echo "Failed to copy and reformat the original java extracted data." >&2
-    record_failure reformatting "$replanning_variant" "$beta" "$java_seed_index" "reading_original_java"
+    record_failure reformatting "deprecated" "$beta" "$java_seed_index" "reading_original_java"
     return 1
   fi
 

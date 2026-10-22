@@ -88,18 +88,18 @@ impl BashFunction {
             resume_failed
         };
 
-        // param_sweep -> first four parameters of the bash function
-        // we need to transform the arrays into bash array declarations
-        let replanning_decl = {
-            if let Some(overwrite) = param_sweep_overwrites
-                .as_ref()
-                .and_then(|m| m.get("replanning_variants"))
-            {
-                overwrite.clone()
-            } else {
-                config.get_sweep_array_decl("replanning_variants", "replanning_variants")?
-            }
-        };
+        // // param_sweep -> first four parameters of the bash function
+        // // we need to transform the arrays into bash array declarations
+        // let replanning_decl = {
+        //     if let Some(overwrite) = param_sweep_overwrites
+        //         .as_ref()
+        //         .and_then(|m| m.get("replanning_variants"))
+        //     {
+        //         overwrite.clone()
+        //     } else {
+        //         config.get_sweep_array_decl("replanning_variants", "replanning_variants")?
+        //     }
+        // };
 
         let betas_decl = {
             if let Some(overwrite) = param_sweep_overwrites.as_ref().and_then(|m| m.get("betas")) {
@@ -173,7 +173,6 @@ impl BashFunction {
         let bash_script = format!(
             r#"
 set -uo pipefail
-{replanning_decl}
 {betas_decl}
 {read_from_random_seed_decl}
 {use_random_seed_decl}
@@ -182,7 +181,6 @@ source {common}
 source {module}
 
 run_callback_for_parameter_arrays_parallel \
-  replanning_variants \
   betas \
   read_from_random_seed_indices \
   use_random_seeds \
@@ -199,7 +197,7 @@ run_callback_for_parameter_arrays_parallel \
 printf "\n\nAll experiments completed.\n"
 print_failure_summary
 "#,
-            replanning_decl = replanning_decl,
+            // replanning_decl = replanning_decl,
             betas_decl = betas_decl,
             read_from_random_seed_decl = read_from_random_seed_decl,
             use_random_seed_decl = use_random_seed_decl,

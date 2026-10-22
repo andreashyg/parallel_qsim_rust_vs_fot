@@ -11,7 +11,7 @@ use tracing::info;
 #[derive(Parser, Debug)]
 struct InputArgs {
     /// Path to input XML events file
-    /// Note: *can* contain placeholders {base_output_dir}, {replanning_variant}, {beta},
+    /// Note: *can* contain placeholders {base_output_dir}, {beta},
     /// {read_from_random} that will be replaced.
     #[arg(long)]
     pub input_file_pattern: String,
@@ -19,8 +19,6 @@ struct InputArgs {
     pub output_file_pattern: String,
     #[arg(long)]
     pub base_output_dir: String,
-    #[arg(long)]
-    pub replanning_variant: String,
     #[arg(long)]
     pub experiment_set_name: String,
     #[arg(long)]
@@ -43,7 +41,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         &args.input_file_pattern,
         Some(&args.base_output_dir),
         Some(&args.experiment_set_name),
-        Some(&args.replanning_variant),
         args.beta.into(),
         args.read_from_random.into(),
         args.use_random_seed,
@@ -56,7 +53,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         &args.output_file_pattern,
         Some(&args.base_output_dir),
         Some(&args.experiment_set_name),
-        Some(&args.replanning_variant),
         args.beta.into(),
         args.read_from_random.into(),
         args.use_random_seed,

@@ -1,0 +1,49 @@
+# Setup
+globals:
+  experiment_set_name: recreating-my-own-java-analysis
+  base_output_dir: ./../../runs-svn/Abschlussarbeiten/2026/andreas-hygrell-rust-vs-fot/compare-braess-to-java-newrunner
+  max_parallel_jobs: 8
+  # For clarity, add the reformatted_original_java_data to the pattern, so it is clear that these are not the extracted
+  # measurements
+  tt_csv_path_pattern: "{common_extracted_data_pattern}/averageRouteTtsPerDeptime{file_name_end}NewExtractionFromOriginalJavaEvents.csv"
+  sd_csv_path_pattern: "{common_extracted_data_pattern}/summedDepsPerTimeBeta{file_name_end}NewExtractionFromOriginalJavaEvents.csv"
+
+param_sweep:
+  replanning_variants:
+    - sel-exp10-switch-at80-my-second-own
+  betas: [ 1, 2, 4, 8 ]
+  read_from_random_seed_indices: [ 1 ]
+  use_random_seeds: [ None ]
+
+# What to actually run in this experiment set:
+modules:
+
+  # extract measurements from the events files from the original java runs with added dummy coordinates.
+  - extract_measurements_from_events:
+    type: ExtractMeasurementsFromEvents
+    input_file_stem_pattern: "{original_dir_to_read_from}/2026-10-19-18-16-35_original_settings_to_beta_8/beta{beta}/random{read_from_random}/beta{beta}random{read_from_random}.output_events"
+    input_file_format: xml.zst
+    num_parts: 0
+
+  # plot the measurements from the original java runs (specifically, the reformatted measurements)
+  - plot_tt_and_sd_per_seed:
+    type: PlotTtAndSdPerSeed
+  - plot_tt_and_sd_avgd_over_seeds:
+    type: PlotTtAndSdAvgdOverSeeds
+    seeds_to_avg_over: ReadFromRandomSeedIndices
+  - plot_tt_and_sd_deviation_to_nash_boxplots:
+    type: PlotTtAndSdDeviationToNashBoxplotsOverBeta
+    seeds_to_avg_over: ReadFromRandomSeedIndices
+  - plot_tt_and_sd_deviation_to_nash_scatterplots:
+    type: PlotTtAndSdDeviationToNashScatterplotsOverBeta
+    seeds_to_avg_over: ReadFromRandomSeedIndices
+
+  #  Plot the differences to the original java runs
+  - plot_tt_and_sd_diff_to_original_java_per_seed:
+    type: PlotTtAndSdDiffPerSeed
+    minus_what: "OriginalJava"
+    # Note: cannot use placeholder {file_name_end} here, since the original java runs don't have a use_random_seed,
+    # but the automatic replacement would think so, since the experiment set has use_random_seed parameters otherwise.
+    secondary_input_tt_csv_path_pattern: "{base_output_dir}/recreating-java-analysis/analysis/extractedData/sel-exp10-switch-at80/averageRouteTtsPerDeptimeBeta{beta}ReadFromRandom{read_from_random}ReformattedOriginalJavaData.csv"
+    secondary_input_sd_csv_path_pattern: "{base_output_dir}/recreating-java-analysis/analysis/extractedData/sel-exp10-switch-at80/summedDepsPerTimeBeta{beta}ReadFromRandom{read_from_random}ReformattedOriginalJavaData.csv"
+

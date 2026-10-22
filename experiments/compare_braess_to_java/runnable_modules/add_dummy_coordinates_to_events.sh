@@ -5,17 +5,16 @@ set -uo pipefail
 source "${SCRIPT_DIR}/../failure_handling.sh"
 
 add_dummy_coordinates_case() {
-  local replanning_variant="$1"
-  local beta="$2"
-  local read_from_random_seed_index="$3"
-  local use_random_seed="$4"
-  local global_config_path="$5"
-  local experiment_set_name="$6"
-  local base_output_dir="$7"
-  local input_file_pattern="$8"
-  local output_file_pattern="$9"
+  local beta="$1"
+  local read_from_random_seed_index="$2"
+  local use_random_seed="$3"
+  local global_config_path="$4"
+  local experiment_set_name="$5"
+  local base_output_dir="$6"
+  local input_file_pattern="$7"
+  local output_file_pattern="$8"
 
-  echo "Adding dummy coordinates to events for parameters: replanning_variant=$replanning_variant, beta=$beta, read_from_random_seed_index=$read_from_random_seed_index, use_random_seed=$use_random_seed"
+  echo "Adding dummy coordinates to events for parameters: replanning_variant=deprecated, beta=$beta, read_from_random_seed_index=$read_from_random_seed_index, use_random_seed=$use_random_seed"
   echo "writing from $input_file_pattern and writing to $output_file_pattern"
 
   local use_random_seed_string=()
@@ -30,7 +29,6 @@ add_dummy_coordinates_case() {
     --input-file-pattern "${input_file_pattern}" \
     --output-file-pattern "${output_file_pattern}" \
     --base-output-dir "${base_output_dir}" \
-    --replanning-variant "${replanning_variant}" \
     --experiment-set-name "${experiment_set_name}" \
     --beta "${beta}" \
     --read-from-random "${read_from_random_seed_index}" \
@@ -38,7 +36,7 @@ add_dummy_coordinates_case() {
     "${use_random_seed_string[@]}"
   then
     echo "Failed to add dummy coordinates to the original Java output events." >&2
-    record_failure dummy_coordinate_adding "$replanning_variant" "$beta" "$read_from_random_seed_index" "$use_random_seed"
+    record_failure dummy_coordinate_adding "deprecated" "$beta" "$read_from_random_seed_index" "$use_random_seed"
     return 1
   fi
 }

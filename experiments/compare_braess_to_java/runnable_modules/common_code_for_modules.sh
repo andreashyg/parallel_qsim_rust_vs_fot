@@ -16,22 +16,21 @@ read_config_file_entry() {
 }
 
 run_callback_for_parameter_arrays_parallel() {
-  local -n replanning_variants_ref="$1"
-  local -n betas_ref="$2"
-  local -n java_seed_indices_ref="$3"
-  local -n rust_seeds_ref="$4"
-  local global_config_path="$5"
-  local experiment_set_name="$6"
-  local base_output_dir="$7"
-  local max_parallel_jobs="$8"
-  local resume="$9"
-  local resume_failed="${10}"
-  local script_type="${11}"
-  local actual_callback="${12}"
+  local -n betas_ref="$1"
+  local -n java_seed_indices_ref="$2"
+  local -n rust_seeds_ref="$3"
+  local global_config_path="$4"
+  local experiment_set_name="$5"
+  local base_output_dir="$6"
+  local max_parallel_jobs="$7"
+  local resume="$8"
+  local resume_failed="${9}"
+  local script_type="${10}"
+  local actual_callback="${11}"
 
   local batch_common_file="${SCRIPT_DIR}/common_code_for_modules.sh"
 
-  shift 12
+  shift 11
 
   local resume_arg=()
   if [[ "$resume" == "true" ]]; then
@@ -93,8 +92,7 @@ run_callback_for_parameter_arrays_parallel() {
     --will-cite --eta --bar -j "${max_parallel_jobs}" \
     "${resume_arg[@]}" \
     --joblog "${joblog_path}" \
-    "bash -lc 'source ${common_q}; source ${module_q}; ${callback_q} {1} {2} {3} {4} ${global_config_path_q} ${experiment_set_name_q} ${base_output_dir_q} ${extra_args}'" \
-    ::: "${replanning_variants_ref[@]}" \
+    "bash -lc 'source ${common_q}; source ${module_q}; ${callback_q} {1} {2} {3} ${global_config_path_q} ${experiment_set_name_q} ${base_output_dir_q} ${extra_args}'" \
     ::: "${betas_ref[@]}" \
     ::: "${java_seed_indices_ref[@]}" \
     ::: "${rust_seeds_ref[@]}"

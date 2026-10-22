@@ -16,31 +16,30 @@ read_config_file_entry() {
 }
 
 
-get_original_java_replanning_folder_string() {
-  local replanning_variant="$1"
-
-  if [ "${replanning_variant}" = "sel-exp1-switch-at50" ]; then
-    echo "2026-05-8-12-16-8_500it_reRouteProba0.1until0.5it_selExpBeta1proba0.9_msaFrom0.5it"
-  elif [ "${replanning_variant}" = "sel-exp1-switch-at80" ]; then
-    echo "2026-05-10-10-2-21_500it_reRouteProba0.1until0.8it_selExpBeta1proba0.9_msaFrom0.8it"
-  elif [ "${replanning_variant}" = "sel-exp10-switch-at80" ]; then
-    echo "2026-05-12-8-42-24_500it_reRouteProba0.1until0.8it_selExpBeta10proba0.9_msaFrom0.8it"
-  else
-    echo "unknown replanning_variant value: $replanning_variant" >&2
-    return 1
-  fi
-}
+#get_original_java_replanning_folder_string() {
+#  local replanning_variant="$1"
+#
+#  if [ "${replanning_variant}" = "sel-exp1-switch-at50" ]; then
+#    echo "2026-05-8-12-16-8_500it_reRouteProba0.1until0.5it_selExpBeta1proba0.9_msaFrom0.5it"
+#  elif [ "${replanning_variant}" = "sel-exp1-switch-at80" ]; then
+#    echo "2026-05-10-10-2-21_500it_reRouteProba0.1until0.8it_selExpBeta1proba0.9_msaFrom0.8it"
+#  elif [ "${replanning_variant}" = "sel-exp10-switch-at80" ]; then
+#    echo "2026-05-12-8-42-24_500it_reRouteProba0.1until0.8it_selExpBeta10proba0.9_msaFrom0.8it"
+#  else
+#    echo "unknown replanning_variant value: $replanning_variant" >&2
+#    return 1
+#  fi
+#}
 
 # function to run a single experiment case.
 run_java_single_iter_case() {
-  local replanning_variant="$1"
-  local beta="$2"
-  local read_from_random_seed_index="$3"
-  local use_this_seed_for_last_iter="$4"
-  local global_config_path="$5"
-  local experiment_set_name="$6"
-  local base_output_dir="$7"
-  local delete_output_dir_if_existing="$8"
+  local beta="$1"
+  local read_from_random_seed_index="$2"
+  local use_this_seed_for_last_iter="$3"
+  local global_config_path="$4"
+  local experiment_set_name="$5"
+  local base_output_dir="$6"
+  local delete_output_dir_if_existing="$7"
 
   local delete_output_dir_arg=()
   if [ "$delete_output_dir_if_existing" = true ]; then
@@ -51,25 +50,25 @@ run_java_single_iter_case() {
   read_config_file_entry experiment_output_dir_pattern common_output_from_runs_pattern global_config_path
   read_config_file_entry base_dir_to_read_from original_dir_to_read_from global_config_path
 
-  local original_java_replanning_variant_string
-  original_java_replanning_variant_string=$(get_original_java_replanning_folder_string "$replanning_variant")
+#  local original_java_replanning_variant_string
+#  original_java_replanning_variant_string=$(get_original_java_replanning_folder_string "$replanning_variant")
 
   local config_file_pattern
   read_config_file_entry config_file_pattern original_output_config_pattern global_config_path
 
   # replace {base_dir_to_read_from}, {original_java_replanning_variant_string}, {beta}, {read_from_random} in config_file_pattern with the corresponding values
   config_file=${config_file_pattern//\{original_dir_to_read_from\}/$base_dir_to_read_from}
-  config_file=${config_file//\{replanning_variant\}/$original_java_replanning_variant_string}
+#  config_file=${config_file//\{replanning_variant\}/$original_java_replanning_variant_string}
   config_file=${config_file//\{beta\}/$beta}
   config_file=${config_file//\{read_from_random\}/$read_from_random_seed_index}
 
   local corrected_population_file
-  read_config_file_entry corrected_population_file corrected_output_pop_pattern global_config_path
+  read_config_file_entry corrected_population_file pop_to_use_as_input_pattern global_config_path
 
   # note: we are not just replacing {base_output_dir} with $base_output_dir, but with ../../../../../../$base_output_dir,
   # because java matsim needs paths relative to the config that it's reading.
   corrected_population_file=${corrected_population_file//\{base_output_dir\}/../../../../../../$base_output_dir}
-  corrected_population_file=${corrected_population_file//\{replanning_variant\}/$replanning_variant}
+#  corrected_population_file=${corrected_population_file//\{replanning_variant\}/$replanning_variant}
   corrected_population_file=${corrected_population_file//\{experiment_set_name\}/$experiment_set_name}
   corrected_population_file=${corrected_population_file//\{beta\}/$beta}
   corrected_population_file=${corrected_population_file//\{read_from_random\}/$read_from_random_seed_index}
@@ -77,7 +76,7 @@ run_java_single_iter_case() {
   local experiment_output_dir
   # replace {base_output_dir}, {replanning_variant}, {experiment_set_name}, {beta}, {read_from_random_seed_index}, {use_this_seed_for_last_iter} in experiment_output_dir_pattern with the corresponding values
   experiment_output_dir=${experiment_output_dir_pattern//\{base_output_dir\}/$base_output_dir}
-  experiment_output_dir=${experiment_output_dir//\{replanning_variant\}/$replanning_variant}
+#  experiment_output_dir=${experiment_output_dir//\{replanning_variant\}/$replanning_variant}
   experiment_output_dir=${experiment_output_dir//\{experiment_set_name\}/$experiment_set_name}
   experiment_output_dir=${experiment_output_dir//\{beta\}/$beta}
   experiment_output_dir=${experiment_output_dir//\{read_from_random\}/$read_from_random_seed_index}
@@ -103,12 +102,12 @@ run_java_single_iter_case() {
     "-Dexec.args=$exec_args"
   then
     echo "failed to run java run with parameters "
-    record_failure java_experiment "$replanning_variant" "$beta" "$read_from_random_seed_index" "$use_this_seed_for_last_iter"
+    record_failure java_experiment "deprecated" "$beta" "$read_from_random_seed_index" "$use_this_seed_for_last_iter"
     return 1
   fi
 }
 
-export -f get_original_java_replanning_folder_string
+#export -f get_original_java_replanning_folder_string
 export -f read_config_file_entry
 
 export -f run_java_single_iter_case

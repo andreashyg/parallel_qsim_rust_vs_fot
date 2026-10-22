@@ -22,9 +22,6 @@ struct InputArgs {
     /// Base directory for output files.
     #[arg(long)]
     pub base_output_dir: String,
-    /// Replanning variant.
-    #[arg(long)]
-    pub replanning_variant: String,
     /// Name of the experiment set.
     #[arg(long)]
     pub experiment_set_name: String,
@@ -51,7 +48,6 @@ fn main() {
         &args.input_file_pattern,
         Some(&args.base_output_dir),
         Some(&args.experiment_set_name),
-        Some(&args.replanning_variant),
         Some(args.beta),
         Some(args.read_from_random),
         None,
@@ -75,7 +71,6 @@ fn main() {
         &output_file_pattern_with_file_name_end,
         Some(&args.base_output_dir),
         Some(&args.experiment_set_name),
-        Some(&args.replanning_variant),
         Some(args.beta),
         Some(args.read_from_random),
         None,

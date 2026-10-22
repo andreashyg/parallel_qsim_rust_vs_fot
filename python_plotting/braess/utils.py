@@ -588,14 +588,13 @@ def compute_deviation_to_reference_series_but_avg_first(csv_path_template: str, 
 
 class ExperimentSet:
 
-    def __init__(self, global_config_path: str, base_output_dir: str, replanning_variant: str, experiment_set_name: str,
+    def __init__(self, global_config_path: str, base_output_dir: str, experiment_set_name: str,
                  output_tt_plot_path_pattern: str, output_sd_plot_path_pattern: str,
                  main_input_tt_csv_path_pattern: str,
                  main_input_sd_csv_path_pattern: str, secondary_input_tt_csv_path_pattern: Optional[str] = None,
                  secondary_input_sd_csv_path_pattern: Optional[str] = None):
         self.global_config_path = global_config_path
         self.base_output_dir = base_output_dir
-        self.replanning_variant = replanning_variant
         self.experiment_set_name = experiment_set_name
         self.output_tt_plot_path_pattern = output_tt_plot_path_pattern
         self.output_sd_plot_path_pattern = output_sd_plot_path_pattern
@@ -658,7 +657,6 @@ class ExperimentSet:
 
         formatted_path_str = self.safe_replace_placeholders(plot_pattern_with_file_name_end_pattern,
                                                             base_output_dir=self.base_output_dir,
-                                                            replanning_variant=self.replanning_variant,
                                                             experiment_set_name=self.experiment_set_name, beta=beta,
                                                             read_from_random=read_from_random)
         if use_random is not None:
@@ -697,7 +695,6 @@ class ExperimentSet:
 
         file_name = self.safe_replace_placeholders(csv_path_pattern_with_file_name_end_pattern,
                                                    base_output_dir=self.base_output_dir,
-                                                   replanning_variant=self.replanning_variant,
                                                    experiment_set_name=self.experiment_set_name,
                                                    beta=beta,
                                                    read_from_random=read_from_random)
@@ -718,7 +715,6 @@ class ExperimentSet:
 
         file_name = self.safe_replace_placeholders(csv_path_pattern_with_file_name_end_pattern,
                                                    base_output_dir=self.base_output_dir,
-                                                   replanning_variant=self.replanning_variant,
                                                    experiment_set_name=self.experiment_set_name,
                                                    beta=beta,
                                                    read_from_random=read_from_random)

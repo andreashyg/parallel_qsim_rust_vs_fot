@@ -11,7 +11,7 @@ plot_type_specific_tt_path_pattern = "{common_plots_pattern}/avgOverSeeds/ttPerP
 plot_type_specific_sd_path_pattern = "{common_plots_pattern}/avgOverSeeds/sdPerPathOverTime/sdPerPathOverTime{file_name_end}.pdf"
 
 if __name__ == '__main__':
-    (_, beta, replanning_variant, experiment_set_name, read_random, use_random, base_output_dir,
+    (_, beta, experiment_set_name, read_random, use_random, base_output_dir,
      input_tt_csv_path_pattern, input_sd_csv_path_pattern, global_config_path) = sys.argv[
         0:10]
     seeds_to_use = [int(s) for s in sys.argv[10:]]
@@ -46,7 +46,7 @@ if __name__ == '__main__':
     output_sd_plot_path_pattern = plot_type_specific_sd_path_pattern.replace("{common_plots_pattern}",
                                                                              COMMON_PLOTS_PATTERN)
 
-    experiment_set = ExperimentSet(global_config_path, base_output_dir, replanning_variant, experiment_set_name,
+    experiment_set = ExperimentSet(global_config_path, base_output_dir, experiment_set_name,
                                    output_tt_plot_path_pattern,
                                    output_sd_plot_path_pattern, input_tt_csv_path_pattern, input_sd_csv_path_pattern)
 

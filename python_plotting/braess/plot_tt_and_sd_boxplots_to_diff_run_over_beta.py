@@ -9,7 +9,7 @@ plot_type_specific_tt_path_pattern = "{common_plots_pattern}/deviations{which_de
 plot_type_specific_sd_path_pattern = "{common_plots_pattern}/deviations{which_deviation}/sdAvgDeviation{which_deviation}Boxplots/sdAvgDeviation{which_deviation}Boxplot.pdf"
 
 if __name__ == '__main__':
-    (_, replanning_variant, experiment_set_name, read_random, use_random, base_output_dir,
+    (_, experiment_set_name, read_random, use_random, base_output_dir,
      which_deviation, main_input_tt_csv_path_pattern, main_input_sd_csv_path_pattern,
      secondary_input_tt_csv_path_pattern, secondary_input_sd_csv_path_pattern, betas_to_use_str,
      global_config_path) = sys.argv[0:13]
@@ -49,7 +49,7 @@ if __name__ == '__main__':
     # also replace the extra which_deviation placeholder
     output_sd_plot_path_pattern = output_sd_plot_path_pattern.replace("{which_deviation}", which_deviation)
 
-    experiment_set = ExperimentSet(global_config_path, base_output_dir, replanning_variant, experiment_set_name,
+    experiment_set = ExperimentSet(global_config_path, base_output_dir, experiment_set_name,
                                    output_tt_plot_path_pattern, output_sd_plot_path_pattern,
                                    main_input_tt_csv_path_pattern, main_input_sd_csv_path_pattern,
                                    secondary_input_tt_csv_path_pattern, secondary_input_sd_csv_path_pattern)

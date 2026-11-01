@@ -28,7 +28,7 @@ plot_deviation_boxplots_over_beta_case() {
   echo "Plotting average travel times and summed departures  boxplots for parameters: replanning_variant=deprecated, java_seed_index=$java_seed_index, rust_seed=$rust_seed with seeds to use = ${seeds_to_use[*]}"
 
   # Plot the average travel times and summed departures once per replanning variant.
-  if ! ~/miniforge3/envs/rust-vs-fot-plots/bin/python3 python_plotting/braess/tt_and_sd_dev_boxplots_to_nash_over_beta.py \
+  if ! python python_plotting/braess/tt_and_sd_dev_boxplots_to_nash_over_beta.py \
     "${experiment_set_name}" "${java_seed_index}" "${rust_seed}" "$base_output_dir" \
     "$input_tt_csv_path_pattern" "$input_sd_csv_path_pattern" "$betas_to_use_array_string" "$global_config_path" \
     "$sd_ybotlim" "$sd_ytoplim" "$tt_ybotlim" "$tt_ytoplim" \
@@ -63,7 +63,7 @@ plot_deviation_scatterplots_over_beta_case() {
   echo "Plotting average travel times and summed departures  boxplots for parameters: replanning_variant=deprecated, java_seed_index=$java_seed_index, rust_seed=$rust_seed with seeds to use = ${seeds_to_use[*]}"
 
   # Plot the average travel times and summed departures once per replanning variant.
-  if ! ~/miniforge3/envs/rust-vs-fot-plots/bin/python3 python_plotting/braess/tt_and_sd_dev_scatterplots_to_nash_over_beta.py \
+  if ! python python_plotting/braess/tt_and_sd_dev_scatterplots_to_nash_over_beta.py \
     "${experiment_set_name}" "${java_seed_index}" "${rust_seed}" "$base_output_dir" \
     "$input_tt_csv_path_pattern" "$input_sd_csv_path_pattern" "$betas_to_use_array_string" "${global_config_path}" \
     "$sd_ybotlim" "$sd_ytoplim" "$tt_ybotlim" "$tt_ytoplim" \

@@ -25,7 +25,7 @@ plot_diff_per_seed_case() {
 
 
   # Plot the average travel times and summed departures.
-  if ! ~/miniforge3/envs/rust-vs-fot-plots/bin/python3 python_plotting/braess/plot_sd_tt_single_seed_differences.py \
+  if ! python python_plotting/braess/plot_sd_tt_single_seed_differences.py \
     "$beta" "$java_seed_index" "$rust_seed" "$experiment_set_name" "$base_output_dir" \
     "$minus_what" \
     "$main_input_tt_csv_path_pattern" "$main_input_sd_csv_path_pattern" \

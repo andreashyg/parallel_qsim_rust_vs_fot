@@ -7,5 +7,6 @@ edition = "2024"
 clap = { version = "4.0.29", features = ["derive"] }
 experiment_machine = { path = "../experiment_machine" }
 matsim-rust = { path = "../matsim_rust" }
+pre_postprocessing = { path = "../pre_postprocessing" }
 tracing = "0.1"
 serde_yaml = "0.9.34"

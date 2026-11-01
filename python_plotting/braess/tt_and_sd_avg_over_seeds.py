@@ -2,7 +2,7 @@ import sys
 
 import matplotlib.pyplot as plt
 
-from setup import FIG_SIZE, get_file_name_end_and_common_plots_patterns_from_global_config
+from setup import PlotParameters, get_file_name_end_and_common_plots_patterns_from_global_config
 from utils import plot_nash_lines, plot_extracted_sd_over_time, plot_extracted_tt_over_time, get_elementwise_avg_df, \
     ExperimentSet
 
@@ -12,9 +12,15 @@ plot_type_specific_sd_path_pattern = "{common_plots_pattern}/avgOverSeeds/sdPerP
 
 if __name__ == '__main__':
     (_, beta, experiment_set_name, read_random, use_random, base_output_dir,
-     input_tt_csv_path_pattern, input_sd_csv_path_pattern, global_config_path) = sys.argv[
-        0:10]
-    seeds_to_use = [int(s) for s in sys.argv[10:]]
+     input_tt_csv_path_pattern, input_sd_csv_path_pattern, global_config_path,
+     sd_ybotlim, sd_ytoplim, tt_ybotlim, tt_ytoplim) = sys.argv[
+        0:13]
+    seeds_to_use = [int(s) for s in sys.argv[13:]]
+
+    sd_ybotlim = float(sd_ybotlim)
+    sd_ytoplim = float(sd_ytoplim)
+    tt_ybotlim = float(tt_ybotlim)
+    tt_ytoplim = float(tt_ytoplim)
 
     (FILE_NAME_END_PATTERN_WITH_BETA_RR_UR,
      FILE_NAME_END_PATTERN_WITH_BETA_RR,
@@ -71,19 +77,25 @@ if __name__ == '__main__':
     experiment_set.create_plot_dirs(beta, read_random, use_random)
 
     ### TT
-    fig_tt, ax_tt = plt.subplots(figsize=FIG_SIZE)
-    plot_nash_lines(ax_tt, mode="tt")
+    tt_plot_parameters = PlotParameters.load_from_global_config(experiment_set.global_config_path, tt_ybotlim,
+                                                                tt_ytoplim)  # 0, 110
+    fig_tt, ax_tt = plt.subplots(figsize=tt_plot_parameters.FIG_SIZE)
+
+    plot_nash_lines(ax_tt, mode="tt", plot_params=tt_plot_parameters)
     tt_df = get_elementwise_avg_df(tt_path, seeds_to_use=seeds_to_use, mode="tt")
-    plot_extracted_tt_over_time(ax_tt, tt_df, per_path=False)
+    plot_extracted_tt_over_time(ax_tt, tt_df, per_path=False, plot_params=tt_plot_parameters)
 
     fig_tt.savefig(
         experiment_set.get_tt_plot_path(beta, read_random, use_random))
 
     ### SD
-    fig_sd, ax_sd = plt.subplots(figsize=FIG_SIZE)
-    plot_nash_lines(ax_sd, mode="sd")
+    sd_plot_parameters = PlotParameters.load_from_global_config(experiment_set.global_config_path, sd_ybotlim,
+                                                                sd_ytoplim)  # 0, 45
+    fig_sd, ax_sd = plt.subplots(figsize=sd_plot_parameters.FIG_SIZE)
+    plot_nash_lines(ax_sd, mode="sd", plot_params=sd_plot_parameters)
+
     sd_df = get_elementwise_avg_df(sd_path, seeds_to_use=seeds_to_use, mode="sd")
-    plot_extracted_sd_over_time(ax_sd, sd_df)
+    plot_extracted_sd_over_time(ax_sd, sd_df, plot_params=sd_plot_parameters)
 
     fig_sd.savefig(
         experiment_set.get_sd_plot_path(beta, read_random, use_random))

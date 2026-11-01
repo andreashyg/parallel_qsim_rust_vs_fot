@@ -29,8 +29,7 @@ reformat_original_java_extracted_measurements_case() {
     --global-config-path "${global_config_path}" \
     --column-name departure_time \
     --column-name avg_travel_time_path_0 --column-name avg_travel_time_path_1 \
-    --column-name avg_travel_time_path_2 --column-name avg_travel_time || ! cargo run --release --bin \
-    simple_csv_column_renamer -- \
+    --column-name avg_travel_time_path_2 --column-name avg_travel_time || ! ./target/release/simple_csv_column_renamer \
     --input-file-pattern "${original_sd_tsv_file_pattern}" \
     --output-file-pattern "${new_sd_csv_path_pattern}" \
     --base-output-dir "${base_output_dir}" \

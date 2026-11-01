@@ -18,6 +18,10 @@ plot_deviation_boxplots_to_diff_run_over_beta_case() {
   local seeds_to_use_array_string="${11}"
   local betas_to_use_array_string="${12}"
   local which_deviation="${13}"
+  local sd_ybotlim="${14}"
+  local sd_ytoplim="${15}"
+  local tt_ybotlim="${16}"
+  local tt_ytoplim="${17}"
 
   read -a seeds_to_use <<< "$seeds_to_use_array_string"
 
@@ -29,7 +33,9 @@ plot_deviation_boxplots_to_diff_run_over_beta_case() {
     "$which_deviation" \
     "$main_input_tt_csv_path_pattern" "$main_input_sd_csv_path_pattern" \
     "$secondary_input_tt_csv_path_pattern" "$secondary_input_sd_csv_path_pattern" \
-    "$betas_to_use_array_string" "$global_config_path" "${seeds_to_use[@]}"
+    "$betas_to_use_array_string" "$global_config_path" \
+    "$sd_ybotlim" "$sd_ytoplim" "$tt_ybotlim" "$tt_ytoplim" \
+    "${seeds_to_use[@]}"
   then
     echo "Plotting failed, continuing with next case." >&2
     record_failure plotting "deprecated" "all_betas" "$java_seed_index" "$rust_seed"
@@ -53,7 +59,10 @@ plot_deviation_scatterplots_to_diff_run_over_beta_case() {
   local seeds_to_use_array_string="${11}"
   local betas_to_use_array_string="${12}"
   local which_deviation="${13}"
-
+  local sd_ybotlim="${14}"
+  local sd_ytoplim="${15}"
+  local tt_ybotlim="${16}"
+  local tt_ytoplim="${17}"
 
   read -a seeds_to_use <<< "$seeds_to_use_array_string"
 
@@ -65,7 +74,9 @@ plot_deviation_scatterplots_to_diff_run_over_beta_case() {
     "$which_deviation" \
     "$main_input_tt_csv_path_pattern" "$main_input_sd_csv_path_pattern" \
     "$secondary_input_tt_csv_path_pattern" "$secondary_input_sd_csv_path_pattern" \
-    "$betas_to_use_array_string" "$global_config_path" "${seeds_to_use[@]}"
+    "$betas_to_use_array_string" "$global_config_path" \
+    "$sd_ybotlim" "$sd_ytoplim" "$tt_ybotlim" "$tt_ytoplim" \
+    "${seeds_to_use[@]}"
   then
     echo "Plotting failed, continuing with next case." >&2
     record_failure plotting "deprecated" "all_betas" "$java_seed_index" "$rust_seed"

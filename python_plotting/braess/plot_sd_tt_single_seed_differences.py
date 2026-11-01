@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from setup import FIG_SIZE, get_file_name_end_and_common_plots_patterns_from_global_config
+from setup import PlotParameters, get_file_name_end_and_common_plots_patterns_from_global_config
 from utils import plot_extracted_sd_over_time, plot_extracted_tt_over_time, \
     get_elementwise_difference_df, plot_textbox, plot_value_count_table, ExperimentSet, save_value_count_table_as_csv
 
@@ -24,7 +24,13 @@ if __name__ == '__main__':
     (_, beta, read_random, use_random, experiment_set_name, base_output_dir,
      minus_what, main_input_tt_csv_path_pattern,
      main_input_sd_csv_path_pattern, secondary_input_tt_csv_path_pattern,
-     secondary_input_sd_csv_path_pattern, global_config_path) = sys.argv
+     secondary_input_sd_csv_path_pattern, global_config_path,
+     sd_ybotlim, sd_ytoplim, tt_ybotlim, tt_ytoplim) = sys.argv
+
+    sd_ybotlim = float(sd_ybotlim)
+    sd_ytoplim = float(sd_ytoplim)
+    tt_ybotlim = float(tt_ybotlim)
+    tt_ytoplim = float(tt_ytoplim)
 
     (FILE_NAME_END_PATTERN_WITH_BETA_RR_UR,
      FILE_NAME_END_PATTERN_WITH_BETA_RR,
@@ -107,10 +113,15 @@ if __name__ == '__main__':
     experiment_set.create_plot_dirs(beta, read_random, use_random)
 
     ### TT
-    fig_tt, ax_tt = plt.subplots(figsize=FIG_SIZE)
+    # define necessary plot parameters (includes defaults such as fig size, and specifics ybotlim and ytoplim
+    tt_plot_parameters = PlotParameters.load_from_global_config(experiment_set.global_config_path, tt_ybotlim,
+                                                                tt_ytoplim)  # -3.3, 4.7)
+
+    fig_tt, ax_tt = plt.subplots(figsize=tt_plot_parameters.FIG_SIZE)
+
     # read tt data
     tt_df = get_elementwise_difference_df(pd.read_csv(tt_path_1), pd.read_csv(tt_path_2), mode="tt")
-    plot_extracted_tt_over_time(ax_tt, tt_df, ybotlim=-3.3, ytoplim=4.7)
+    plot_extracted_tt_over_time(ax_tt, tt_df, True, plot_params=tt_plot_parameters)
 
     # get series with for each discrete difference, the amount of time steps that have this difference
     tt_concated_values = pd.concat([tt_df[f'avg_travel_time_path_{i}'] for i in range(3)])
@@ -135,23 +146,26 @@ if __name__ == '__main__':
 
     plot_textbox(ax_tt,
                  f"Average difference: {tt_avg_diff:.4f}\nAverage absolute difference: {tt_avg_abs_diff:.4f}",
-                 x=0.01, y=0.11)
+                 x=0.01, y=0.11, plot_params=tt_plot_parameters)
 
     # If there are too many different values, we will only show the sign of the difference in the table in the plot
     if tt_diff_counts.size > 7:
-        plot_value_count_table(ax_tt, tt_diff_sign_counts, val_col_name="Sign")
+        plot_value_count_table(ax_tt, tt_diff_sign_counts, val_col_name="Sign", plot_params=tt_plot_parameters)
     else:
         # include this as a table in the plot, with the difference in the first column, the count in the second column
-        plot_value_count_table(ax_tt, tt_diff_counts)
+        plot_value_count_table(ax_tt, tt_diff_counts, plot_params=tt_plot_parameters)
 
     fig_tt.savefig(experiment_set.get_tt_plot_path(beta, read_random, use_random))
 
     ### SD
-    fig_sd, ax_sd = plt.subplots(figsize=FIG_SIZE)
+    sd_plot_parameters = PlotParameters.load_from_global_config(experiment_set.global_config_path, sd_ybotlim,
+                                                                sd_ytoplim)  # -1, 1)
+
+    fig_sd, ax_sd = plt.subplots(figsize=sd_plot_parameters.FIG_SIZE)
     # read sd data
     sd_df = get_elementwise_difference_df(pd.read_csv(sd_path_1), pd.read_csv(sd_path_2), mode="sd")
 
-    plot_extracted_sd_over_time(ax_sd, sd_df, ybotlim=-1, ytoplim=1)
+    plot_extracted_sd_over_time(ax_sd, sd_df, plot_params=sd_plot_parameters)
 
     # get series with for each discrete difference, the amount of time steps that have this difference
     sd_diff_counts = pd.concat([sd_df[f'sum_departures_path_{i}'] for i in range(3)]).apply(
@@ -178,13 +192,13 @@ if __name__ == '__main__':
     np.savetxt(sd_avg_abs_diff_csv_path, [sd_avg_abs_diff], )
 
     plot_textbox(ax_sd, f"Average difference: {sd_avg_diff:.4f}\nAverage absolute difference: {sd_avg_abs_diff:.4f}",
-                 x=0.01, y=0.11)
+                 x=0.01, y=0.11, plot_params=sd_plot_parameters)
 
     if sd_diff_counts.size > 7:
         # if there are too many different values, we will only show the sign of the difference in the table in the plot
-        plot_value_count_table(ax_sd, sd_diff_sign_counts, val_col_name="Sign")
+        plot_value_count_table(ax_sd, sd_diff_sign_counts, val_col_name="Sign", plot_params=sd_plot_parameters)
     else:
         # include this as a table in the plot, with the difference in the first column, the count in the second column, and the percentage in the third column
-        plot_value_count_table(ax_sd, sd_diff_counts)
+        plot_value_count_table(ax_sd, sd_diff_counts, plot_params=sd_plot_parameters)
 
     fig_sd.savefig(experiment_set.get_sd_plot_path(beta, read_random, use_random))

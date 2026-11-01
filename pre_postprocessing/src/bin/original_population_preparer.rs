@@ -46,6 +46,9 @@ struct InputArgs {
     /// Option to add access/egress legs if necessary. If not provided, no access/egress legs will be added.
     #[arg(long)]
     pub add_access_egress_legs_if_necessary: bool,
+    /// pattern for the output file.
+    #[arg(long)]
+    pub output_file_pattern: String,
 }
 
 fn main() {
@@ -110,18 +113,15 @@ fn main() {
             )
     );
 
-    // the output file of this module will be the global "pop_to_use_as_input_pattern", since
-    // the output of this module is intended to be used as input for the runner module
+    // the output file of this module will likely be the same pattern used as
+    // "pop_to_use_as_input_pattern" in the next module.
+    // However, it is no longer a "global" parameter in the global config, for more flexibility,
+    // and since this module is no longer needed in the normal experiments anyway.
     let output_file_pattern = global_config
         .replace_common_pattern(
-            global_config
-                .global_parameters
-                .get("pop_to_use_as_input_pattern")
-                .expect("Failed to get pop_to_use_as_input_pattern from global config")
-                .as_str()
-                .expect("pop_to_use_as_input_pattern must be a string"),
+            &args.output_file_pattern
         )
-        .expect("Failed to replace common pattern in pop_to_use_as_input_pattern");
+        .expect("Failed to replace common pattern in output_file_pattern");
 
     let output_file = replace_placeholders_in_path_pattern(
         &output_file_pattern,
@@ -135,12 +135,6 @@ fn main() {
     let vehicle_file_pattern = global_config
         .replace_common_pattern(
             &args.vehicle_file_pattern
-            // global_config
-            //     .global_parameters
-            //     .get("vehicle_file_pattern")
-            //     .expect("Failed to get vehicle_file_pattern from global config")
-            //     .as_str()
-            //     .expect("vehicle_file_pattern must be a string"),
         )
         .expect("Failed to replace common pattern in vehicle_file_pattern");
 
@@ -176,13 +170,6 @@ fn main() {
         );
         info!("Successfully replaced activity times in population");
     }
-
-    // let pop_with_correct_times = Population::from_file(&pop_with_correct_times_path, &mut garage);
-
-    // replace_activity_times_and_add_dummy_coords_to_acts(
-    //     &mut pop_to_be_changed,
-    //     pop_with_correct_times,
-    // );
 
     if args.add_access_egress_legs_if_necessary {
         info!("Adding access/egress legs to population where necessary");

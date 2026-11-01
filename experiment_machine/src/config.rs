@@ -22,6 +22,11 @@ impl GlobalConfig {
         ))
     }
 
+    pub fn try_get_global_config_parameter_as_str(&self, key: &str) -> Result<&str, String> {
+        let value = self.get_global_config_parameter(key)?;
+        value.as_str().ok_or_else(|| format!("Global parameter '{}' should be a string", key))
+    }
+
     pub fn replace_common_pattern(&self, pattern: &str) -> Result<String, String> {
         if pattern.contains("{common_output_from_runs_pattern}") {
             let actual_pattern = self
@@ -263,12 +268,14 @@ pub trait Module: Debug {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct RunRustBasedOnJavaOutput {
     pub overwrite_mode: OverwriteFiles,
+    pub pop_to_use_as_input_pattern: String,
     pub overwrites: Option<HashMap<String, Value>>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct RunManyRustItersBasedOnJavaOutput {
     pub overwrite_mode: OverwriteFiles,
+    pub pop_to_use_as_input_pattern: String,
     pub overwrites: Option<HashMap<String, Value>>,
     pub iterations: usize,
 }
@@ -276,6 +283,8 @@ pub struct RunManyRustItersBasedOnJavaOutput {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct RunJavaSingleIterBasedOnJavaOutput {
     pub overwrite_mode: OverwriteFiles,
+    pub pop_to_use_as_input_pattern: String,
+    pub original_output_config_pattern: String,
     pub overwrites: Option<HashMap<String, Value>>,
 }
 
@@ -304,12 +313,16 @@ pub struct PrepareOriginalPopulation {
     pub pop_with_correct_activity_times_pattern: Option<String>,
     pub vehicle_file_pattern: Option<String>,
     pub skip_if_existing: bool,
+    pub add_access_egress_legs_if_necessary: bool,
+    pub output_file_pattern: String,
     pub overwrites: Option<HashMap<String, Value>>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct PlotTtAndSdPerSeed {
     pub overwrites: Option<HashMap<String, Value>>,
+    pub sd_ylims: [f64; 2],
+    pub tt_ylims: [f64; 2],
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -318,12 +331,16 @@ pub struct PlotTtAndSdDiffPerSeed {
     pub secondary_input_tt_csv_path_pattern: Option<String>,
     pub secondary_input_sd_csv_path_pattern: Option<String>,
     pub minus_what: String,
+    pub sd_ylims: [f64; 2],
+    pub tt_ylims: [f64; 2],
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct PlotTtAndSdAvgdOverSeeds {
     pub overwrites: Option<HashMap<String, Value>>,
     pub seeds_to_avg_over: SeedsToAvgOver,
+    pub sd_ylims: [f64; 2],
+    pub tt_ylims: [f64; 2],
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -333,18 +350,24 @@ pub struct PlotTtAndSdAvgdOverSeedsDiff {
     pub secondary_input_sd_csv_path_pattern: Option<String>,
     pub seeds_to_avg_over: SeedsToAvgOver,
     pub minus_what: String,
+    pub sd_ylims: [f64; 2],
+    pub tt_ylims: [f64; 2],
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct PlotTtAndSdDeviationToNashBoxplotsOverBeta {
     pub overwrites: Option<HashMap<String, Value>>,
     pub seeds_to_avg_over: SeedsToAvgOver,
+    pub sd_ylims: [f64; 2],
+    pub tt_ylims: [f64; 2],
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct PlotTtAndSdDeviationToNashScatterplotsOverBeta {
     pub overwrites: Option<HashMap<String, Value>>,
     pub seeds_to_avg_over: SeedsToAvgOver,
+    pub sd_ylims: [f64; 2],
+    pub tt_ylims: [f64; 2],
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -354,6 +377,8 @@ pub struct PlotTtAndSdDeviationToDiffRunBoxplotsOverBeta {
     pub secondary_input_sd_csv_path_pattern: Option<String>,
     pub seeds_to_avg_over: SeedsToAvgOver,
     pub which_deviation: String,
+    pub sd_ylims: [f64; 2],
+    pub tt_ylims: [f64; 2],
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -363,6 +388,8 @@ pub struct PlotTtAndSdDeviationToDiffRunScatterplotsOverBeta {
     pub secondary_input_sd_csv_path_pattern: Option<String>,
     pub seeds_to_avg_over: SeedsToAvgOver,
     pub which_deviation: String,
+    pub sd_ylims: [f64; 2],
+    pub tt_ylims: [f64; 2],
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -372,12 +399,12 @@ pub struct ReformatOriginalExtractedMeasurements {
     pub overwrites: Option<HashMap<String, Value>>,
 }
 
-fn get_delete_output_dir_if_existing_extra_str_arg(overwrite_mode: OverwriteFiles) -> Option<Vec<String>> {
+fn get_delete_output_dir_if_existing_extra_str_arg(overwrite_mode: OverwriteFiles) -> String {
     let delete_output_dir_if_existing = match overwrite_mode {
         OverwriteFiles::DeleteDirectoryIfExists => "true".to_string(),
         _ => "false".to_string(),
     };
-    Some(vec![delete_output_dir_if_existing])
+    delete_output_dir_if_existing
 }
 
 fn get_betas_to_use_as_space_sep_str(config: &Config) -> Result<String, String> {
@@ -429,7 +456,10 @@ impl Module for RunRustBasedOnJavaOutput {
         )
     }
     fn get_extra_str_args(&self, _config: &Config, _global_config: &GlobalConfig) -> Result<Option<Vec<String>>, String> {
-        Ok(get_delete_output_dir_if_existing_extra_str_arg(self.overwrite_mode))
+        Ok(Some(vec![
+            get_delete_output_dir_if_existing_extra_str_arg(self.overwrite_mode),
+            self.pop_to_use_as_input_pattern.clone(),
+        ]))
     }
 
     fn get_expset_config_overwrites(&self) -> Option<HashMap<String, Value>> {
@@ -448,12 +478,11 @@ impl Module for RunManyRustItersBasedOnJavaOutput {
         )
     }
     fn get_extra_str_args(&self, _config: &Config, _global_config: &GlobalConfig) -> Result<Option<Vec<String>>, String> {
-        let delete_output_dir_if_existing = match self.overwrite_mode {
-            OverwriteFiles::DeleteDirectoryIfExists => "true".to_string(),
-            _ => "false".to_string(),
-        };
+        let delete_output_dir_if_existing = get_delete_output_dir_if_existing_extra_str_arg(
+            self.overwrite_mode);
         Ok(Some(vec![delete_output_dir_if_existing,
-                     self.iterations.to_string()]))
+                     self.iterations.to_string(),
+                     self.pop_to_use_as_input_pattern.clone()]))
     }
 
     fn get_expset_config_overwrites(&self) -> Option<HashMap<String, Value>> {
@@ -473,7 +502,9 @@ impl Module for RunJavaSingleIterBasedOnJavaOutput {
     }
 
     fn get_extra_str_args(&self, _config: &Config, _global_config: &GlobalConfig) -> Result<Option<Vec<String>>, String> {
-        Ok(get_delete_output_dir_if_existing_extra_str_arg(self.overwrite_mode))
+        Ok(Some(vec![get_delete_output_dir_if_existing_extra_str_arg(self.overwrite_mode),
+                     self.pop_to_use_as_input_pattern.clone(),
+                     self.original_output_config_pattern.clone()]))
     }
 
     fn get_expset_config_overwrites(&self) -> Option<HashMap<String, Value>> {
@@ -575,6 +606,8 @@ impl Module for PrepareOriginalPopulation {
     /// 2. `pop_to_be_changed_pattern` (read from module field)
     /// 3. `pop_with_correct_activity_times_pattern` (read from module field)
     /// 4. `vehicle_file_pattern` (read from module field)
+    /// 5. `add_access_egress_legs_if_necessary` (read from module field)
+    /// 6. `output_file_pattern` (read from module field)
     fn get_extra_str_args(&self, _config: &Config, _global_config: &GlobalConfig) -> Result<Option<Vec<String>>, String> {
         let skip_if_existing_str = if self.skip_if_existing { "true" } else { "false" }.to_string();
         let pop_to_be_changed_pattern = self.pop_to_be_changed_pattern.clone().ok_or("pop_to_be_changed_pattern must be set")?;
@@ -585,6 +618,8 @@ impl Module for PrepareOriginalPopulation {
             pop_to_be_changed_pattern,
             pop_with_correct_activity_times_pattern,
             vehicle_file_pattern,
+            self.add_access_egress_legs_if_necessary.to_string(),
+            self.output_file_pattern.clone()
         ]))
     }
 
@@ -614,10 +649,16 @@ impl Module for PlotTtAndSdPerSeed {
     /// The extra string arguments for this module are:
     /// 1. `tt_csv_input_path_pattern` (read from expset-configs globals, or from the module's overwrites, if existing)
     /// 2. `sd_csv_input_path_pattern` (read from expset-configs globals, or from the module's overwrites, if existing)
+    /// 3. `sd_ybotlim` (read from module field `sd_ylims`)
+    /// 4. `sd_ytoplim` (read from module field `sd_ylims`)
+    /// 5. `tt_ybotlim` (read from module field `tt_ylims`)
+    /// 6. `tt_ytoplim` (read from module field `tt_ylims`)
     fn get_extra_str_args(&self, config: &Config, global_config: &GlobalConfig) -> Result<Option<Vec<String>>, String> {
         let (tt_csv_input_path_pattern, sd_csv_input_path_pattern) =
             get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
-        Ok(Some(vec![tt_csv_input_path_pattern, sd_csv_input_path_pattern]))
+        Ok(Some(vec![tt_csv_input_path_pattern, sd_csv_input_path_pattern,
+                     self.sd_ylims[0].to_string(), self.sd_ylims[1].to_string(),
+                     self.tt_ylims[0].to_string(), self.tt_ylims[1].to_string()]))
     }
 
     fn get_expset_config_overwrites(&self) -> Option<HashMap<String, Value>> {
@@ -641,6 +682,10 @@ impl Module for PlotTtAndSdDiffPerSeed {
     /// 3. `secondary_input_tt_csv_path_pattern` (read from module field)
     /// 4. `secondary_input_sd_csv_path_pattern` (read from module field)
     /// 5. `minus_what` (read from module field)
+    /// 6. `sd_ybotlim` (read from module field `sd_ylims`)
+    /// 7. `sd_ytoplim` (read from module field `sd_ylims`)
+    /// 8. `tt_ybotlim` (read from module field `tt_ylims`)
+    /// 9. `tt_ytoplim` (read from module field `tt_ylims`)
     fn get_extra_str_args(&self, config: &Config, global_config: &GlobalConfig) -> Result<Option<Vec<String>>, String> {
         let (tt_csv_input_path_pattern, sd_csv_input_path_pattern) =
             get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
@@ -661,6 +706,10 @@ impl Module for PlotTtAndSdDiffPerSeed {
             secondary_input_tt_csv_path_pattern,
             secondary_input_sd_csv_path_pattern,
             self.minus_what.clone(),
+            self.sd_ylims[0].to_string(),
+            self.sd_ylims[1].to_string(),
+            self.tt_ylims[0].to_string(),
+            self.tt_ylims[1].to_string(),
         ]))
     }
 
@@ -684,6 +733,10 @@ impl Module for PlotTtAndSdAvgdOverSeeds {
     /// 2. `sd_csv_input_path_pattern` (read from expset-configs globals, or from the module's overwrites, if existing)
     /// 3. `seeds_to_use_as_space_sep_str` (read from expset-config param sweep,
     ///     based on the module's `seeds_to_avg_over` field, and converted to a space-separated string)
+    /// 4. `sd_ybotlim` (read from module field `sd_ylims`)
+    /// 5. `sd_ytoplim` (read from module field `sd_ylims`)
+    /// 6. `tt_ybotlim` (read from module field `tt_ylims`)
+    /// 7. `tt_ytoplim` (read from module field `tt_ylims`)
     fn get_extra_str_args(&self, config: &Config, global_config: &GlobalConfig) -> Result<Option<Vec<String>>, String> {
         let (tt_csv_input_path_pattern, sd_csv_input_path_pattern) =
             get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
@@ -692,6 +745,10 @@ impl Module for PlotTtAndSdAvgdOverSeeds {
             tt_csv_input_path_pattern,
             sd_csv_input_path_pattern,
             seeds_to_use_as_space_sep_str,
+            self.sd_ylims[0].to_string(),
+            self.sd_ylims[1].to_string(),
+            self.tt_ylims[0].to_string(),
+            self.tt_ylims[1].to_string(),
         ]))
     }
 
@@ -729,6 +786,10 @@ impl Module for PlotTtAndSdAvgdOverSeedsDiff {
     /// 5. `seeds_to_use_as_space_sep_str` (read from expset-config param sweep,
     ///     based on the module's `seeds_to_avg_over` field, and converted to a space-separated string)
     /// 6. `minus_what` (read from module field)
+    /// 7. `sd_ybotlim` (read from module field `sd_ylims`)
+    /// 8. `sd_ytoplim` (read from module field `sd_ylims`)
+    /// 9. `tt_ybotlim` (read from module field `tt_ylims`)
+    /// 10. `tt_ytoplim` (read from module field `tt_ylims`)
     fn get_extra_str_args(&self, config: &Config, global_config: &GlobalConfig) -> Result<Option<Vec<String>>, String> {
         let (tt_csv_input_path_pattern, sd_csv_input_path_pattern) =
             get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
@@ -753,6 +814,10 @@ impl Module for PlotTtAndSdAvgdOverSeedsDiff {
             secondary_input_sd_csv_path_pattern,
             seeds_to_use_as_space_sep_str,
             self.minus_what.clone(),
+            self.sd_ylims[0].to_string(),
+            self.sd_ylims[1].to_string(),
+            self.tt_ylims[0].to_string(),
+            self.tt_ylims[1].to_string(),
         ]))
     }
 
@@ -788,6 +853,10 @@ impl Module for PlotTtAndSdDeviationToNashBoxplotsOverBeta {
     /// 3. `seeds_to_use_as_space_sep_str` (read from expset-config param sweep,
     ///     based on the module's `seeds_to_avg_over` field, and converted to a space-separated string)
     /// 4. `betas_to_use_as_space_sep_str` (read from expset-config param sweep, and converted to a space-separated string)
+    /// 5. `sd_ybotlim` (read from module field `sd_ylims`)
+    /// 6. `sd_ytoplim` (read from module field `sd_ylims`)
+    /// 7. `tt_ybotlim` (read from module field `tt_ylims`)
+    /// 8. `tt_ytoplim` (read from module field `tt_ylims`)
     fn get_extra_str_args(&self, config: &Config, global_config: &GlobalConfig) -> Result<Option<Vec<String>>, String> {
         let (tt_csv_input_path_pattern, sd_csv_input_path_pattern) =
             get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
@@ -798,6 +867,10 @@ impl Module for PlotTtAndSdDeviationToNashBoxplotsOverBeta {
             sd_csv_input_path_pattern,
             seeds_to_use_as_space_sep_str,
             betas_to_use_as_space_sep_str,
+            self.sd_ylims[0].to_string(),
+            self.sd_ylims[1].to_string(),
+            self.tt_ylims[0].to_string(),
+            self.tt_ylims[1].to_string(),
         ]))
     }
 
@@ -839,6 +912,10 @@ impl Module for PlotTtAndSdDeviationToNashScatterplotsOverBeta {
     /// 3. `seeds_to_use_as_space_sep_str` (read from expset-config param sweep,
     ///     based on the module's `seeds_to_avg_over` field, and converted to a space-separated string)
     /// 4. `betas_to_use_as_space_sep_str` (read from expset-config param sweep, and converted to a space-separated string)
+    /// 5. `sd_ybotlim` (read from module field `sd_ylims`)
+    /// 6. `sd_ytoplim` (read from module field `sd_ylims`)
+    /// 7. `tt_ybotlim` (read from module field `tt_ylims`)
+    /// 8. `tt_ytoplim` (read from module field `tt_ylims`)
     fn get_extra_str_args(&self, config: &Config, global_config: &GlobalConfig) -> Result<Option<Vec<String>>, String> {
         let (tt_csv_input_path_pattern, sd_csv_input_path_pattern) =
             get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
@@ -849,6 +926,10 @@ impl Module for PlotTtAndSdDeviationToNashScatterplotsOverBeta {
             sd_csv_input_path_pattern,
             seeds_to_use_as_space_sep_str,
             betas_to_use_as_space_sep_str,
+            self.sd_ylims[0].to_string(),
+            self.sd_ylims[1].to_string(),
+            self.tt_ylims[0].to_string(),
+            self.tt_ylims[1].to_string(),
         ]))
     }
 
@@ -893,6 +974,10 @@ impl Module for PlotTtAndSdDeviationToDiffRunBoxplotsOverBeta {
     ///     based on the module's `seeds_to_avg_over` field, and converted to a space-separated string)
     /// 6. `betas_to_use_as_space_sep_str` (read from expset-config param sweep, and converted to a space-separated string)
     /// 7. `which_deviation` (read from module field)
+    /// 8. `sd_ybotlim` (read from module field `sd_ylims`)
+    /// 9. `sd_ytoplim` (read from module field `sd_ylims`)
+    /// 10. `tt_ybotlim` (read from module field `tt_ylims`)
+    /// 11. `tt_ytoplim` (read from module field `tt_ylims`)
     fn get_extra_str_args(&self, config: &Config, global_config: &GlobalConfig) -> Result<Option<Vec<String>>, String> {
         let (tt_csv_input_path_pattern, sd_csv_input_path_pattern) =
             get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
@@ -916,6 +1001,10 @@ impl Module for PlotTtAndSdDeviationToDiffRunBoxplotsOverBeta {
             seeds_to_use_as_space_sep_str,
             betas_to_use_as_space_sep_str,
             self.which_deviation.clone(),
+            self.sd_ylims[0].to_string(),
+            self.sd_ylims[1].to_string(),
+            self.tt_ylims[0].to_string(),
+            self.tt_ylims[1].to_string(),
         ]))
     }
 
@@ -959,6 +1048,10 @@ impl Module for PlotTtAndSdDeviationToDiffRunScatterplotsOverBeta {
     ///     based on the module's `seeds_to_avg_over` field, and converted to a space-separated string)
     /// 6. `betas_to_use_as_space_sep_str` (read from expset-config param sweep, and converted to a space-separated string)
     /// 7. `which_deviation` (read from module field)
+    /// 8. `sd_ybotlim` (read from module field `sd_ylims`)
+    /// 9. `sd_ytoplim` (read from module field `sd_ylims`)
+    /// 10. `tt_ybotlim` (read from module field `tt_ylims`)
+    /// 11. `tt_ytoplim` (read from module field `tt_ylims`)
     fn get_extra_str_args(&self, config: &Config, global_config: &GlobalConfig) -> Result<Option<Vec<String>>, String> {
         let (tt_csv_input_path_pattern, sd_csv_input_path_pattern) =
             get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
@@ -982,6 +1075,10 @@ impl Module for PlotTtAndSdDeviationToDiffRunScatterplotsOverBeta {
             seeds_to_use_as_space_sep_str,
             betas_to_use_as_space_sep_str,
             self.which_deviation.clone(),
+            self.sd_ylims[0].to_string(),
+            self.sd_ylims[1].to_string(),
+            self.tt_ylims[0].to_string(),
+            self.tt_ylims[1].to_string(),
         ]))
     }
 
@@ -1112,6 +1209,8 @@ mod tests {
                     pop_to_be_changed_pattern: None,
                     pop_with_correct_activity_times_pattern: None,
                     vehicle_file_pattern: None,
+                    output_file_pattern: "somePattern".to_string(),
+                    add_access_egress_legs_if_necessary: false,
                     skip_if_existing: false,
                     overwrites: Some(HashMap::from_iter([(
                         "max_parallel_jobs".to_string(),
@@ -1120,11 +1219,14 @@ mod tests {
                 }),
                 Box::new(RunRustBasedOnJavaOutput {
                     overwrite_mode: OverwriteFiles::DeleteDirectoryIfExists,
+                    pop_to_use_as_input_pattern: "SomePattern".to_string(),
                     overwrites: None,
                 }),
                 Box::new(PlotTtAndSdAvgdOverSeeds {
                     overwrites: None,
                     seeds_to_avg_over: SeedsToAvgOver::UseRandomSeeds,
+                    sd_ylims: [0.0, 1.0],
+                    tt_ylims: [0.0, 1.0],
                 }),
             ],
         };

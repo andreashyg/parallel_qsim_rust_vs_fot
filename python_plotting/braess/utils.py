@@ -5,45 +5,46 @@ import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
 
-from setup import NASH_TT_POINTS, NASH_SD_POINTS, COLORS, LABELS, FONT_SIZE, LEGEND_FONT_SIZE, \
-    TOP_COLOUR, get_file_name_end_and_common_plots_patterns_from_global_config
+from setup import (
+    PlotParameters,
+    get_file_name_end_and_common_plots_patterns_from_global_config,
+)
 
 
-def get_interpolated_nash_vals(at_xvals: pd.Index, mode: str, for_path: Optional[int] = None):
+def get_interpolated_nash_vals(plot_params: PlotParameters, at_xvals: pd.Index, mode: str,
+                               for_path: Optional[int] = None):
     """
     Returns an array with the interpolated values of NASH_TT_POINTS or NASH_SD_POINTS, at the provided x values.
     """
     if mode == "tt":
-        return np.interp(at_xvals, NASH_TT_POINTS[:, 0], NASH_TT_POINTS[:, 1])
+        return np.interp(at_xvals, plot_params.nash_tt_points[:, 0], plot_params.nash_tt_points[:, 1])
     elif mode == "sd":
         if for_path is None:
             raise ValueError("for_path must be provided in mode sd")
         return np.interp(
             at_xvals,
-            NASH_SD_POINTS[for_path, :, 0],
-            NASH_SD_POINTS[for_path, :, 1]
+            plot_params.nash_sd_points[for_path, :, 0],
+            plot_params.nash_sd_points[for_path, :, 1]
         )
     else:
         raise ValueError("Mode must be either tt or sd")
 
 
-def plot_nash_lines(ax: plt.Axes, mode: str):
+def plot_nash_lines(ax: plt.Axes, mode: str, plot_params: PlotParameters):
+    sd_points = plot_params.nash_sd_points
+
     if mode == "tt":
-        ax.plot(NASH_TT_POINTS[:, 0], NASH_TT_POINTS[:, 1], color="black", label="Nash Flow")
+        ax.plot(plot_params.nash_tt_points[:, 0], plot_params.nash_tt_points[:, 1],
+                color="black", label="Nash Flow")
     elif mode == "sd":
-        for i in range(NASH_SD_POINTS.shape[0]):
-            ax.plot(NASH_SD_POINTS[i, :, 0], NASH_SD_POINTS[i, :, 1], color=COLORS[i])
+        for i in range(sd_points.shape[0]):
+            ax.plot(plot_params.nash_sd_points[i, :, 0], plot_params.nash_sd_points[i, :, 1],
+                    color=plot_params.COLORS[i])
     else:
         raise ValueError("Mode must be either tt or sd")
 
 
-def plot_extracted_sd_over_time(ax: plt.Axes, sd_df: pd.DataFrame, ybotlim: Optional[float] = None,
-                                ytoplim: Optional[float] = None):
-    if ybotlim is None:
-        ybotlim = 0  # default value if not provided
-    if ytoplim is None:
-        ytoplim = 45  # default value if not provided
-
+def plot_extracted_sd_over_time(ax: plt.Axes, sd_df: pd.DataFrame, plot_params: PlotParameters):
     sd_df_copy = sd_df.copy()
 
     sd_df_copy["time"] = pd.concat(
@@ -54,48 +55,44 @@ def plot_extracted_sd_over_time(ax: plt.Axes, sd_df: pd.DataFrame, ybotlim: Opti
             # prepend a 0 to the cumulative flow to make it start at 0 instead of 1, for better comparison with NASH lines
             sd_df_copy[f"sum_departures_path_{i}"]], ignore_index=True)
 
-        sd_df_copy.plot(x="time", y=f"sum_departures_path_{i}", kind="scatter", ax=ax, label=LABELS[i], color=COLORS[i],
-                        s=50, alpha=0.5)
+        sd_df_copy.plot(x="time", y=f"sum_departures_path_{i}", kind="scatter", ax=ax, label=plot_params.LABELS[i],
+                        color=plot_params.COLORS[i], s=50, alpha=0.5)
 
-    ax.set_xlabel("time [s]", fontsize=FONT_SIZE)
-    ax.set_ylabel("cumulative flow [vol]", fontsize=FONT_SIZE)
-    ax.xaxis.set_tick_params(labelsize=FONT_SIZE)
-    ax.yaxis.set_tick_params(labelsize=FONT_SIZE)
+    ax.set_xlabel("time [s]", fontsize=plot_params.FONT_SIZE)
+    ax.set_ylabel("cumulative flow [vol]", fontsize=plot_params.FONT_SIZE)
+    ax.xaxis.set_tick_params(labelsize=plot_params.FONT_SIZE)
+    ax.yaxis.set_tick_params(labelsize=plot_params.FONT_SIZE)
     ax.set_xlim(left=0, right=100)
-    ax.set_ylim(bottom=ybotlim, top=ytoplim)
+    ax.set_ylim(bottom=plot_params.ybotlim, top=plot_params.ytoplim)
     ax.grid(True)
-    ax.legend(fontsize=LEGEND_FONT_SIZE)
+    ax.legend(fontsize=plot_params.LEGEND_FONT_SIZE)
 
 
-def plot_extracted_tt_over_time(ax: plt.Axes, tt_df: pd.DataFrame, per_path: bool = True,
-                                ybotlim: Optional[float] = None,
-                                ytoplim: Optional[float] = None):
-    if ybotlim is None:
-        ybotlim = 0  # default value if not provided
-    if ytoplim is None:
-        ytoplim = 110  # default value if not provided
+def plot_extracted_tt_over_time(ax: plt.Axes, tt_df: pd.DataFrame, per_path: bool,
+                                plot_params: PlotParameters):
     if per_path:
 
         markers = ['o', 's', '^']  # Different markers for each path
         for i in range(3):
-            tt_df.plot(x="departure_time", y=f"avg_travel_time_path_{i}", kind="scatter", ax=ax, label=LABELS[i],
-                       color=COLORS[i], s=50, alpha=0.5, marker=markers[i])
+            tt_df.plot(x="departure_time", y=f"avg_travel_time_path_{i}", kind="scatter", ax=ax,
+                       label=plot_params.LABELS[i],
+                       color=plot_params.COLORS[i], s=50, alpha=0.5, marker=markers[i])
     else:
-        tt_df.plot(x="departure_time", y="avg_travel_time", kind="scatter", ax=ax, label="avg. path", color=TOP_COLOUR,
+        tt_df.plot(x="departure_time", y="avg_travel_time", kind="scatter", ax=ax, label="avg. path",
+                   color=plot_params.TOP_COLOUR,
                    s=50, alpha=0.5)
 
-    ax.set_xlabel("departure time [s]", fontsize=FONT_SIZE)
-    ax.set_ylabel("travel time [s]", fontsize=FONT_SIZE)
-    ax.xaxis.set_tick_params(labelsize=FONT_SIZE)
-    ax.yaxis.set_tick_params(labelsize=FONT_SIZE)
+    ax.set_xlabel("departure time [s]", fontsize=plot_params.FONT_SIZE)
+    ax.set_ylabel("travel time [s]", fontsize=plot_params.FONT_SIZE)
+    ax.xaxis.set_tick_params(labelsize=plot_params.FONT_SIZE)
+    ax.yaxis.set_tick_params(labelsize=plot_params.FONT_SIZE)
     ax.set_xlim(left=0, right=100)
-    ax.set_ylim(bottom=ybotlim, top=ytoplim)
+    ax.set_ylim(bottom=plot_params.ybotlim, top=plot_params.ytoplim)
     ax.grid(True)
-    ax.legend(fontsize=LEGEND_FONT_SIZE)
+    ax.legend(fontsize=plot_params.LEGEND_FONT_SIZE)
 
 
-def plot_boxplot_over_beta(df: pd.DataFrame, ax: plt.Axes, mode: str, betas: List[int], ybotlim: Optional[float] = None,
-                           ytoplim: Optional[float] = None):
+def plot_boxplot_over_beta(df: pd.DataFrame, ax: plt.Axes, mode: str, betas: List[int], plot_params: PlotParameters):
     if mode == "tt":
         ylabel = "avg. travel time deviation [s]"
     elif mode == "sd":
@@ -105,19 +102,19 @@ def plot_boxplot_over_beta(df: pd.DataFrame, ax: plt.Axes, mode: str, betas: Lis
 
     bplot = ax.boxplot(x=df,
                        patch_artist=True)
-    ax.set_xlabel("time step size [s]", fontsize=FONT_SIZE)
-    ax.set_ylabel(ylabel, fontsize=FONT_SIZE)
+    ax.set_xlabel("time step size [s]", fontsize=plot_params.FONT_SIZE)
+    ax.set_ylabel(ylabel, fontsize=plot_params.FONT_SIZE)
     ax.xaxis.set_ticks(range(1, len(betas) + 1), labels=["$2^{-" + f"{beta}" + "}$" for beta in range(len(betas))])
-    ax.xaxis.set_tick_params(labelsize=FONT_SIZE)
-    ax.yaxis.set_tick_params(labelsize=FONT_SIZE)
-    ax.set_ylim(bottom=ybotlim, top=ytoplim)
+    ax.xaxis.set_tick_params(labelsize=plot_params.FONT_SIZE)
+    ax.yaxis.set_tick_params(labelsize=plot_params.FONT_SIZE)
+    ax.set_ylim(bottom=plot_params.ybotlim, top=plot_params.ytoplim)
 
     for patch in bplot['boxes']:
-        patch.set_facecolor(TOP_COLOUR)
+        patch.set_facecolor(plot_params.TOP_COLOUR)
         patch.set_edgecolor('black')
 
 
-def plot_scatter_over_beta(s: pd.Series, ax: plt.Axes, mode: str, betas: List[int], ytoplim: Optional[float] = None):
+def plot_scatter_over_beta(s: pd.Series, ax: plt.Axes, mode: str, betas: List[int], plot_params: PlotParameters):
     if mode == "tt":
         ylabel = "avg. travel time deviation [s]"
     elif mode == "sd":
@@ -125,22 +122,24 @@ def plot_scatter_over_beta(s: pd.Series, ax: plt.Axes, mode: str, betas: List[in
     else:
         raise ValueError("Mode must be either tt or sd")
 
-    ax.scatter(x=range(len(betas)), y=s.values, color=TOP_COLOUR, s=100)
+    ax.scatter(x=range(len(betas)), y=s.values, color=plot_params.TOP_COLOUR, s=100)
 
     ax.xaxis.set_ticks(range(len(betas)), labels=["$2^{-" + f"{beta}" + "}$" for beta in range(len(betas))],
-                       fontsize=FONT_SIZE)
-    ax.xaxis.set_tick_params(labelsize=FONT_SIZE)
-    ax.yaxis.set_tick_params(labelsize=FONT_SIZE)
+                       fontsize=plot_params.FONT_SIZE)
+    ax.xaxis.set_tick_params(labelsize=plot_params.FONT_SIZE)
+    ax.yaxis.set_tick_params(labelsize=plot_params.FONT_SIZE)
     ax.grid(True)
-    ax.set_xlabel("time step size [s]", fontsize=FONT_SIZE)
-    ax.set_ylabel(ylabel, fontsize=FONT_SIZE)
-    ax.set_ylim(bottom=0, top=ytoplim)
+    ax.set_xlabel("time step size [s]", fontsize=plot_params.FONT_SIZE)
+    ax.set_ylabel(ylabel, fontsize=plot_params.FONT_SIZE)
+    ax.set_ylim(bottom=0, top=plot_params.ytoplim)
 
 
-def plot_textbox(ax: plt.Axes, text: str, x: float, y: float, bbox_props: Optional[dict] = None):
+def plot_textbox(ax: plt.Axes, text: str, x: float, y: float, plot_params: PlotParameters,
+                 bbox_props: Optional[dict] = None, ):
     if bbox_props is None:
         bbox_props = dict(boxstyle="round,pad=0.3", facecolor="white", edgecolor="black", alpha=0.5)
-    ax.text(x, y, text, transform=ax.transAxes, fontsize=0.5 * FONT_SIZE, verticalalignment='top', bbox=bbox_props)
+    ax.text(x, y, text, transform=ax.transAxes, fontsize=0.5 * plot_params.FONT_SIZE, verticalalignment='top',
+            bbox=bbox_props)
 
 
 def get_value_count_df_from_series(value_counts_series: pd.Series, val_col_name: str = "Value",
@@ -164,7 +163,8 @@ def save_value_count_table_as_csv(value_counts: pd.Series, output_path: str, val
     df.to_csv(output_path, index=False)
 
 
-def plot_value_count_table(ax: plt.Axes, value_counts: pd.Series, xscale: float = 0.6, yscale: float = 2.7,
+def plot_value_count_table(ax: plt.Axes, value_counts: pd.Series, plot_params: PlotParameters,
+                           xscale: float = 0.6, yscale: float = 2.7,
                            val_col_name: str = "Value", count_col_name: str = "Count",
                            percent_col_name: str = "%") -> None:
     """
@@ -186,7 +186,7 @@ def plot_value_count_table(ax: plt.Axes, value_counts: pd.Series, xscale: float 
         alpha=1.0)
 
     table.auto_set_font_size(False)
-    table.set_fontsize(0.5 * FONT_SIZE)
+    table.set_fontsize(0.5 * plot_params.FONT_SIZE)
     table.scale(xscale, yscale)
 
 
@@ -266,7 +266,8 @@ def get_elementwise_avg_df(csv_path_template: str, seeds_to_use: List[int], mode
     return mean_df
 
 
-def compute_deviation_to_reference_df(csv_path_template: str, betas: List, seeds: List[int], mode: str,
+def compute_deviation_to_reference_df(plot_params: PlotParameters, csv_path_template: str, betas: List,
+                                      seeds: List[int], mode: str,
                                       reference_values_path: Optional[str] = None) -> pd.DataFrame:
     """
     Load CSV files for different beta and seed combinations, compute the mean absolute
@@ -340,7 +341,8 @@ def compute_deviation_to_reference_df(csv_path_template: str, betas: List, seeds
                         times_to_get_nash = times_to_get_nash[
                             0:-1]  # remove last time step, since it has no corresponding nash value
 
-                        ref_series = get_interpolated_nash_vals(times_to_get_nash, mode, for_path=path_idx)
+                        ref_series = get_interpolated_nash_vals(plot_params=plot_params, at_xvals=times_to_get_nash,
+                                                                mode=mode, for_path=path_idx)
 
                         # also remove last time step from data_to_check, since it has no corresponding nash value
                         data_to_check = data_to_check[0:-1]
@@ -387,7 +389,7 @@ def compute_deviation_to_reference_df(csv_path_template: str, betas: List, seeds
 
                 if reference_values_path is None:
                     # Calculate reference values (from Nash values, between which the function is linear)
-                    ref_series = get_interpolated_nash_vals(df.index, mode)
+                    ref_series = get_interpolated_nash_vals(plot_params=plot_params, at_xvals=df.index, mode=mode)
                 else:
                     if "{seed}" in reference_values_path:
                         # if there is a seed placeholder in the reference values path, that means that we want to
@@ -422,7 +424,8 @@ def compute_deviation_to_reference_df(csv_path_template: str, betas: List, seeds
     return result
 
 
-def compute_deviation_to_reference_series_but_avg_first(csv_path_template: str, betas: List, seeds: List[int],
+def compute_deviation_to_reference_series_but_avg_first(plot_params: PlotParameters, csv_path_template: str,
+                                                        betas: List, seeds: List[int],
                                                         mode: str,
                                                         reference_values_path: Optional[str] = None) -> pd.Series:
     """
@@ -490,7 +493,8 @@ def compute_deviation_to_reference_series_but_avg_first(csv_path_template: str, 
                     times_to_get_nash = times_to_get_nash[
                         0:-1]  # remove last time step, since it has no corresponding nash value
 
-                    reference_series = get_interpolated_nash_vals(times_to_get_nash, mode, for_path=path_idx)
+                    reference_series = get_interpolated_nash_vals(plot_params=plot_params, at_xvals=times_to_get_nash,
+                                                                  mode=mode, for_path=path_idx)
 
                     # also remove last time step from data_to_check, since it has no corresponding nash value
                     data_to_check = data_to_check[0:-1]
@@ -540,7 +544,8 @@ def compute_deviation_to_reference_series_but_avg_first(csv_path_template: str, 
 
             if reference_values_path is None:
                 # Calculate reference values (from Nash values, between which the function is linear)
-                reference_series = get_interpolated_nash_vals(averaged_df.index, mode)
+                reference_series = get_interpolated_nash_vals(plot_params=plot_params, at_xvals=averaged_df.index,
+                                                              mode=mode)
             else:
 
                 if "{seed}" in reference_values_path:
@@ -649,7 +654,7 @@ class ExperimentSet:
     def replace_placeholders_in_arbitrary_pattern(self, pattern: str, beta: int | str, read_from_random: int | str,
                                                   use_random: Optional[int | str]) -> str:
         # this depends on whether use_random is None or not, because then the file name ends with _use_random_seed_{use_random} or not
-        # the actual file name end pattern is read from global_config.yaml
+        # the actual file name end pattern is read from the global config
         file_name_end_pattern = self.get_file_name_end_pattern(use_random)
 
         plot_pattern_with_file_name_end_pattern = self.safe_replace_placeholders(pattern,

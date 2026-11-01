@@ -3,7 +3,7 @@ import sys
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from setup import FIG_SIZE, get_file_name_end_and_common_plots_patterns_from_global_config
+from setup import PlotParameters, get_file_name_end_and_common_plots_patterns_from_global_config
 from utils import plot_nash_lines, plot_extracted_sd_over_time, plot_extracted_tt_over_time, ExperimentSet
 
 # This is the pattern for the paths to the plots created by this script.
@@ -12,7 +12,13 @@ plot_type_specific_sd_path_pattern = "{common_plots_pattern}/perSeed/sdPerPathOv
 
 if __name__ == '__main__':
     (_, beta, read_random, use_random, experiment_set_name, base_output_dir,
-     input_tt_csv_path_pattern, input_sd_csv_path_pattern, global_config_path) = sys.argv
+     input_tt_csv_path_pattern, input_sd_csv_path_pattern, global_config_path,
+     sd_ybotlim, sd_ytoplim, tt_ybotlim, tt_ytoplim) = sys.argv
+
+    sd_ybotlim = float(sd_ybotlim)
+    sd_ytoplim = float(sd_ytoplim)
+    tt_ybotlim = float(tt_ybotlim)
+    tt_ytoplim = float(tt_ytoplim)
 
     (FILE_NAME_END_PATTERN_WITH_BETA_RR_UR,
      FILE_NAME_END_PATTERN_WITH_BETA_RR,
@@ -45,11 +51,13 @@ if __name__ == '__main__':
     sd_path = experiment_set.get_path_to_sd_csv_to_read(beta, read_random, use_random)
 
     ### TT
-    fig_tt, ax_tt = plt.subplots(figsize=FIG_SIZE)
-    plot_nash_lines(ax_tt, mode="tt")
+    tt_plot_parameters = PlotParameters.load_from_global_config(experiment_set.global_config_path, ybotlim=tt_ybotlim,
+                                                                ytoplim=tt_ytoplim)  # 0., 110.0
+    fig_tt, ax_tt = plt.subplots(figsize=tt_plot_parameters.FIG_SIZE)
+    plot_nash_lines(ax_tt, mode="tt", plot_params=tt_plot_parameters)
     # read tt data
     tt_df = pd.read_csv(tt_path)
-    plot_extracted_tt_over_time(ax_tt, tt_df)
+    plot_extracted_tt_over_time(ax_tt, tt_df, per_path=True, plot_params=tt_plot_parameters)
 
     experiment_set.create_plot_dirs(beta, read_random, use_random)
 
@@ -57,12 +65,15 @@ if __name__ == '__main__':
         experiment_set.get_tt_plot_path(beta, read_random, use_random))
 
     ### SD
-    fig_sd, ax_sd = plt.subplots(figsize=FIG_SIZE)
-    plot_nash_lines(ax_sd, mode="sd")
+    sd_plot_parameters = PlotParameters.load_from_global_config(experiment_set.global_config_path, ybotlim=sd_ybotlim,
+                                                                ytoplim=sd_ytoplim)  # 0.0, 45.0
+    fig_sd, ax_sd = plt.subplots(figsize=sd_plot_parameters.FIG_SIZE)
+    plot_nash_lines(ax_sd, mode="sd", plot_params=sd_plot_parameters)
+
     # read sd data
     sd_df = pd.read_csv(sd_path)
 
-    plot_extracted_sd_over_time(ax_sd, sd_df)
+    plot_extracted_sd_over_time(ax_sd, sd_df, plot_params=sd_plot_parameters)
 
     fig_sd.savefig(
         experiment_set.get_sd_plot_path(beta, read_random, use_random))

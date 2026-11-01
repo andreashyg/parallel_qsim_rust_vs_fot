@@ -2,7 +2,7 @@ import sys
 
 from matplotlib import pyplot as plt
 
-from setup import BOXPLOT_FIG_SIZE, get_file_name_end_and_common_plots_patterns_from_global_config
+from setup import PlotParameters, get_file_name_end_and_common_plots_patterns_from_global_config
 from utils import plot_boxplot_over_beta, compute_deviation_to_reference_df, ExperimentSet
 
 plot_type_specific_tt_path_pattern = "{common_plots_pattern}/deviations{which_deviation}/ttAvgDeviation{which_deviation}Boxplots/ttAvgDeviation{which_deviation}Boxplot.pdf"
@@ -12,11 +12,17 @@ if __name__ == '__main__':
     (_, experiment_set_name, read_random, use_random, base_output_dir,
      which_deviation, main_input_tt_csv_path_pattern, main_input_sd_csv_path_pattern,
      secondary_input_tt_csv_path_pattern, secondary_input_sd_csv_path_pattern, betas_to_use_str,
-     global_config_path) = sys.argv[0:13]
+     global_config_path,
+     sd_ybotlim, sd_ytoplim, tt_ybotlim, tt_ytoplim) = sys.argv[0:16]
 
-    seeds_to_use = [int(s) for s in sys.argv[13:]]
+    seeds_to_use = [int(s) for s in sys.argv[16:]]
 
     betas_to_use = [int(b) for b in betas_to_use_str.split(" ")]
+
+    sd_ybotlim = float(sd_ybotlim)
+    sd_ytoplim = float(sd_ytoplim)
+    tt_ybotlim = float(tt_ybotlim)
+    tt_ytoplim = float(tt_ytoplim)
 
     (FILE_NAME_END_PATTERN_WITH_BETA_RR_UR,
      FILE_NAME_END_PATTERN_WITH_BETA_RR,
@@ -64,23 +70,29 @@ if __name__ == '__main__':
                                                           read_random, use_random, secondary=True)
 
     ### TT
-    fig_tt, ax_tt = plt.subplots(figsize=BOXPLOT_FIG_SIZE)
+    tt_plot_parameters = PlotParameters.load_from_global_config(experiment_set.global_config_path, ybotlim=tt_ybotlim,
+                                                                ytoplim=tt_ytoplim)  # 0.35)
+    fig_tt, ax_tt = plt.subplots(figsize=tt_plot_parameters.BOXPLOT_FIG_SIZE)
 
-    tt_df = compute_deviation_to_reference_df(tt_path_1, betas=betas_to_use, seeds=seeds_to_use, mode="tt",
+    tt_df = compute_deviation_to_reference_df(tt_plot_parameters, tt_path_1, betas=betas_to_use, seeds=seeds_to_use,
+                                              mode="tt",
                                               reference_values_path=tt_path_2)
 
-    plot_boxplot_over_beta(tt_df, ax_tt, "tt", betas_to_use, ytoplim=0.35)
+    plot_boxplot_over_beta(tt_df, ax_tt, "tt", betas_to_use, plot_params=tt_plot_parameters)
 
     experiment_set.create_plot_dirs("{beta}", read_random, use_random)
 
     fig_tt.savefig(experiment_set.get_tt_plot_path("{beta}", read_random, use_random))
 
     ### SD
-    fig_sd, ax_sd = plt.subplots(figsize=BOXPLOT_FIG_SIZE)
+    sd_plot_parameters = PlotParameters.load_from_global_config(experiment_set.global_config_path, ybotlim=sd_ybotlim,
+                                                                ytoplim=sd_ytoplim)  # 0.05)
+    fig_sd, ax_sd = plt.subplots(figsize=sd_plot_parameters.BOXPLOT_FIG_SIZE)
 
-    sd_df = compute_deviation_to_reference_df(sd_path_1, betas=betas_to_use, seeds=seeds_to_use, mode="sd",
+    sd_df = compute_deviation_to_reference_df(sd_plot_parameters, sd_path_1, betas=betas_to_use, seeds=seeds_to_use,
+                                              mode="sd",
                                               reference_values_path=sd_path_2)
 
-    plot_boxplot_over_beta(sd_df, ax_sd, "sd", betas_to_use, ytoplim=0.05)
+    plot_boxplot_over_beta(sd_df, ax_sd, "sd", betas_to_use, plot_params=sd_plot_parameters)
 
     fig_sd.savefig(experiment_set.get_sd_plot_path("{beta}", read_random, use_random))

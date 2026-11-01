@@ -2,7 +2,7 @@ import sys
 
 from matplotlib import pyplot as plt
 
-from setup import SCATTERPLOT_FIG_SIZE, get_file_name_end_and_common_plots_patterns_from_global_config
+from setup import PlotParameters, get_file_name_end_and_common_plots_patterns_from_global_config
 from utils import plot_scatter_over_beta, compute_deviation_to_reference_series_but_avg_first, ExperimentSet
 
 plot_type_specific_tt_path_pattern = "{common_plots_pattern}/deviationsToNash/ttAvgFirstDeviationToNashScatterplots/ttAvgFirstDeviationToNashScatterplot.pdf"
@@ -10,11 +10,17 @@ plot_type_specific_sd_path_pattern = "{common_plots_pattern}/deviationsToNash/sd
 
 if __name__ == '__main__':
     (_, experiment_set_name, read_random, use_random, base_output_dir,
-     input_tt_csv_path_pattern, input_sd_csv_path_pattern, betas_to_use_str, global_config_path) = sys.argv[
-        0:10]
-    seeds_to_use = [int(s) for s in sys.argv[10:]]
+     input_tt_csv_path_pattern, input_sd_csv_path_pattern, betas_to_use_str, global_config_path,
+     sd_ybotlim, sd_ytoplim, tt_ybotlim, tt_ytoplim) = sys.argv[
+        0:13]
+    seeds_to_use = [int(s) for s in sys.argv[13:]]
 
     betas_to_use = [int(b) for b in betas_to_use_str.split(" ")]
+
+    sd_ybotlim = float(sd_ybotlim)
+    sd_ytoplim = float(sd_ytoplim)
+    tt_ybotlim = float(tt_ybotlim)
+    tt_ytoplim = float(tt_ytoplim)
 
     (FILE_NAME_END_PATTERN_WITH_BETA_RR_UR,
      FILE_NAME_END_PATTERN_WITH_BETA_RR,
@@ -58,21 +64,27 @@ if __name__ == '__main__':
     experiment_set.create_plot_dirs("{beta}", read_random, use_random)
 
     ### TT
+    tt_plot_parameters = PlotParameters.load_from_global_config(experiment_set.global_config_path, ybotlim=tt_ybotlim,
+                                                                ytoplim=tt_ytoplim)  # 0.0, 1.05
 
-    fig_tt_avg, ax_tt_avg = plt.subplots(figsize=SCATTERPLOT_FIG_SIZE)
-    tt_avg_series = compute_deviation_to_reference_series_but_avg_first(tt_path, betas=betas_to_use, seeds=seeds_to_use,
+    fig_tt_avg, ax_tt_avg = plt.subplots(figsize=tt_plot_parameters.SCATTERPLOT_FIG_SIZE)
+    tt_avg_series = compute_deviation_to_reference_series_but_avg_first(tt_plot_parameters, tt_path, betas=betas_to_use,
+                                                                        seeds=seeds_to_use,
                                                                         mode="tt")
 
-    plot_scatter_over_beta(tt_avg_series, ax_tt_avg, "tt", betas_to_use, ytoplim=1.05)
+    plot_scatter_over_beta(tt_avg_series, ax_tt_avg, "tt", betas_to_use, plot_params=tt_plot_parameters
+                           )
 
     fig_tt_avg.savefig(experiment_set.get_tt_plot_path("{beta}", read_random, use_random))
 
     ### SD
-
-    fig_sd_avg, ax_sd_avg = plt.subplots(figsize=SCATTERPLOT_FIG_SIZE)
-    sd_avg_series = compute_deviation_to_reference_series_but_avg_first(sd_path, betas=betas_to_use, seeds=seeds_to_use,
+    sd_plot_parameters = PlotParameters.load_from_global_config(experiment_set.global_config_path, ybotlim=sd_ybotlim,
+                                                                ytoplim=sd_ytoplim)  # 0.0, 0.45
+    fig_sd_avg, ax_sd_avg = plt.subplots(figsize=sd_plot_parameters.SCATTERPLOT_FIG_SIZE)
+    sd_avg_series = compute_deviation_to_reference_series_but_avg_first(sd_plot_parameters, sd_path, betas=betas_to_use,
+                                                                        seeds=seeds_to_use,
                                                                         mode="sd")
 
-    plot_scatter_over_beta(sd_avg_series, ax_sd_avg, "sd", betas_to_use, ytoplim=0.45)
+    plot_scatter_over_beta(sd_avg_series, ax_sd_avg, "sd", betas_to_use, plot_params=sd_plot_parameters)
 
     fig_sd_avg.savefig(experiment_set.get_sd_plot_path("{beta}", read_random, use_random))

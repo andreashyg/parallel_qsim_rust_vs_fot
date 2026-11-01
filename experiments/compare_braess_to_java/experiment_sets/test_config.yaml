@@ -16,12 +16,15 @@ modules:
     pop_with_correct_activity_times_pattern: None
     vehicle_file_pattern: None
     skip_if_existing: false
+    output_file_pattern: "somePattern"
+    add_access_egress_legs_if_necessary: false
     overwrites:
       max_parallel_jobs: 1  # this seems to take a lot of memory, so we don't want to run too many in parallel
 
   - run_rust_based_on_java_output:
     type: RunRustBasedOnJavaOutput
     overwrite_mode: DeleteDirectoryIfExists
+    pop_to_use_as_input_pattern: "SomePattern"
   - plot_tt_and_sd_avgd_over_seeds:
     type: PlotTtAndSdAvgdOverSeeds
     #    output_tt_plot_path_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/plots/avg_over_rust_seeds/tt_per_path_over_deptime/tt_per_path_over_deptime_beta{beta}_read_from_random_{read_from_random}.pdf"
@@ -29,3 +32,4 @@ modules:
     #    input_tt_csv_path_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/average_route_tts_per_deptime_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.csv"
     #    input_sd_csv_path_pattern: "{base_output_dir}/{replanning_variant}/{experiment_set_name}/analysis/extracted_data/summed_deps_per_time_beta{beta}_read_from_random_{read_from_random}_use_random_seed_{use_random_seed}.csv"
     seeds_to_avg_over: UseRandomSeeds
+    sd_ylims: [ 0.0, 1.0 ]

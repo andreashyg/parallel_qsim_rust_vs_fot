@@ -34,6 +34,8 @@ prepare_original_population_case() {
   local pop_to_be_changed_pattern="$8"
   local pop_with_correct_activity_times_pattern="${9}"
   local vehicle_file_pattern="${10}"
+  local add_access_egress_legs_if_necessary="${11}"
+  local output_file_pattern="${12}"
 
   local skip_if_existing_array=()
   if [[ "$skip_if_existing" == "true" ]]; then
@@ -43,6 +45,11 @@ prepare_original_population_case() {
   local pop_with_correct_activity_times_pattern_array=()
   if [[ "$pop_with_correct_activity_times_pattern" != "None" ]]; then
     pop_with_correct_activity_times_pattern_array+=(--pop-with-correct-activity-times-pattern "${pop_with_correct_activity_times_pattern}")
+  fi
+
+  local add_access_egress_legs_if_necessary_array=()
+  if [[ "$add_access_egress_legs_if_necessary" == "true" ]]; then
+    add_access_egress_legs_if_necessary_array+=(--add-access-egress-legs-if-necessary)
   fi
 
   echo "Preparing original population with parameters: replanning_variant=deprecated, beta=$beta, java_seed_index=$java_seed_index"
@@ -60,6 +67,8 @@ prepare_original_population_case() {
     --pop-to-be-changed-pattern "${pop_to_be_changed_pattern}" \
     "${pop_with_correct_activity_times_pattern_array[@]}" \
     --vehicle-file-pattern "${vehicle_file_pattern}" \
+    "${add_access_egress_legs_if_necessary_array[@]}" \
+    --output-file-pattern "${output_file_pattern}" \
     "${skip_if_existing_array[@]}"
   then
     echo "Failed to replace activity times." >&2

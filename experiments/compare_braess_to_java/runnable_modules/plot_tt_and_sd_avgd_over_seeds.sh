@@ -14,7 +14,10 @@ plot_avgd_over_seeds_case() {
   local input_tt_csv_path_pattern="$7"
   local input_sd_csv_path_pattern="$8"
   local seeds_to_use_array_string="${9}"
-
+  local sd_ybotlim="${10}"
+  local sd_ytoplim="${11}"
+  local tt_ybotlim="${12}"
+  local tt_ytoplim="${13}"
 
   read -a seeds_to_use <<< "$seeds_to_use_array_string"
 
@@ -24,6 +27,7 @@ plot_avgd_over_seeds_case() {
   if ! ~/miniforge3/envs/rust-vs-fot-plots/bin/python3 python_plotting/braess/tt_and_sd_avg_over_seeds.py \
     "$beta" "$experiment_set_name" "$java_seed_index" "$rust_seed" \
     "$base_output_dir" "$input_tt_csv_path_pattern" "$input_sd_csv_path_pattern" "$global_config_path" \
+    "$sd_ybotlim" "$sd_ytoplim" "$tt_ybotlim" "$tt_ytoplim" \
     "${seeds_to_use[@]}"
   then
     echo "Plotting failed, continuing with next case." >&2

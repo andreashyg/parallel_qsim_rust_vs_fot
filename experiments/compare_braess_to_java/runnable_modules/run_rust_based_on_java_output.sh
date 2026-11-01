@@ -13,6 +13,7 @@ run_experiment_case() {
   local experiment_set_name="$5"
   local base_output_dir="$6"
   local delete_output_dir_if_existing="$7"
+  local pop_to_use_as_input_pattern="$8"
 
   echo "Running rust simulation with parameters: replanning_variant=deprecated, beta=${beta}, java_seed_index=${java_seed_index}, rust_seed=${rust_seed}"
 
@@ -29,6 +30,7 @@ run_experiment_case() {
     --experiment-set-name "$experiment_set_name" \
     --base-output-dir "$base_output_dir" \
     --global-config-path "$global_config_path" \
+    --pop-to-use-as-input-pattern "$pop_to_use_as_input_pattern" \
     "${delete_output_dir_arg[@]}"
   then
     echo "Experiment failed, continuing with next case." >&2

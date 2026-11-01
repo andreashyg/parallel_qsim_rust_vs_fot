@@ -13,6 +13,11 @@ plot_per_seed_case() {
   local base_output_dir="$6"
   local input_tt_csv_path_pattern="$7"
   local input_sd_csv_path_pattern="$8"
+  local sd_ybotlim="$9"
+  local sd_ytoplim="${10}"
+  local tt_ybotlim="${11}"
+  local tt_ytoplim="${12}"
+
 
   echo "Plotting average travel times and summed departures per seed for parameters: replanning_variant=deprecated, beta=$beta, read_from_random=$java_seed_index, use_random_seed=$rust_seed"
 
@@ -20,7 +25,8 @@ plot_per_seed_case() {
   # Plot the average travel times and summed departures.
   if ! ~/miniforge3/envs/rust-vs-fot-plots/bin/python3 python_plotting/braess/tt_and_sd_single_seed.py \
     "$beta" "$java_seed_index" "$rust_seed" "${experiment_set_name}" "${base_output_dir}" \
-    "${input_tt_csv_path_pattern}" "${input_sd_csv_path_pattern}" "${global_config_path}"
+    "${input_tt_csv_path_pattern}" "${input_sd_csv_path_pattern}" "${global_config_path}" \
+    "$sd_ybotlim" "$sd_ytoplim" "$tt_ybotlim" "$tt_ytoplim"
   then
     echo "Plotting failed, continuing with next case." >&2
     record_failure plotting "deprecated" "$beta" "$java_seed_index" "$rust_seed"

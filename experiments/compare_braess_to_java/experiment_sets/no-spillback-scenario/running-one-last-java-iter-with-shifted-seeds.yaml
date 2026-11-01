@@ -1,0 +1,104 @@
+# Setup
+globals:
+  experiment_set_name: running-one-last-java-iter-with-shifted-seeds
+  base_output_dir: ./../../runs-svn/Abschlussarbeiten/2026/andreas-hygrell-rust-vs-fot/compare-braess-to-java/no-spillback-scenario
+
+  max_parallel_jobs: 8
+  tt_csv_path_pattern: "{common_extracted_data_pattern}/averageRouteTtsPerDeptime{file_name_end}.csv"
+  sd_csv_path_pattern: "{common_extracted_data_pattern}/summedDepsPerTime{file_name_end}.csv"
+
+param_sweep:
+  betas: [ 1, 2, 4, 8 ] #, 16, 32, 64 ]
+  # only take the first run of the original java runs, but recreate it 20 times with different use_random_seeds
+  read_from_random_seed_indices: [ 1 ]
+  use_random_seeds: [ 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161 ]
+
+# What to actually run in this experiment set:
+modules:
+  #   run one last iteration in java based on the output of the original java runs, but with different use_random_seeds
+  #   Note: we are only taking the first run of the original java runs, but recreate it 20 times with different use_random_seeds
+  - run_one_last_java_iter:
+    type: RunJavaSingleIterBasedOnJavaOutput
+    overwrite_mode: DeleteDirectoryIfExists
+    pop_to_use_as_input_pattern: "{original_dir_to_read_from}/2026-10-19-23-8-29_original_settings_but_only_leg_scoring_and_brain_1_to_beta_8/beta{beta}/random{read_from_random}/beta{beta}random{read_from_random}.output_plans.xml.zst"
+    original_output_config_pattern: "{original_dir_to_read_from}/2026-10-19-23-8-29_original_settings_but_only_leg_scoring_and_brain_1_to_beta_8/beta{beta}/random{read_from_random}/beta{beta}random{read_from_random}.output_config.xml"
+    overwrites:
+      max_parallel_jobs: 4  # Java is already multi-threaded, so we don't need to/cannot run many in parallel
+
+  # extract measurements from the events files from the runs
+  - extract_measurements_from_events:
+    type: ExtractMeasurementsFromEvents
+    input_file_stem_pattern: "{common_output_from_runs_pattern}/beta{beta}random{read_from_random}.output_events"
+    input_file_format: xml.zst
+    num_parts: 0
+
+  # plot the measurements from the runs
+  - plot_tt_and_sd_per_seed:
+    type: PlotTtAndSdPerSeed
+    sd_ylims: [ 0.0, 45.0 ]
+    tt_ylims: [ 0.0, 110.0 ]
+
+  - plot_tt_and_sd_avgd_over_seeds:
+    type: PlotTtAndSdAvgdOverSeeds
+    sd_ylims: [ 0.0, 45.0 ]
+    tt_ylims: [ 0.0, 110.0 ]
+    seeds_to_avg_over: UseRandomSeeds
+
+  - plot_tt_and_sd_deviation_to_nash_boxplots:
+    type: PlotTtAndSdDeviationToNashBoxplotsOverBeta
+    seeds_to_avg_over: UseRandomSeeds
+    sd_ylims: [ 0.0, 3.5 ]
+    tt_ylims: [ 0.0, 8.5 ]
+
+  - plot_tt_and_sd_deviation_to_nash_scatterplots:
+    type: PlotTtAndSdDeviationToNashScatterplotsOverBeta
+    seeds_to_avg_over: UseRandomSeeds
+    sd_ylims: [ 0.0, 0.45 ]
+    tt_ylims: [ 0.0, 1.05 ]
+
+  #  Plot the differences to the original java runs
+  - plot_tt_and_sd_diff_to_original_java_per_seed:
+    type: PlotTtAndSdDiffPerSeed
+    minus_what: "OriginalScenarioOutput"
+    sd_ylims: [ -1.0, 1.0 ]
+    tt_ylims: [ -3.3, 4.7 ]
+    # Note: cannot use placeholder {file_name_end} here, since the original java runs don't have a use_random_seed,
+    # but the automatic replacement would think so, since the experiment set has use_random_seed parameters otherwise.
+    secondary_input_tt_csv_path_pattern: "{base_output_dir}/analyzing-java-output-only-leg-scoring-and-brain-1/analysis/extractedData/averageRouteTtsPerDeptimeBeta{beta}ReadFromRandom{read_from_random}.csv"
+    secondary_input_sd_csv_path_pattern: "{base_output_dir}/analyzing-java-output-only-leg-scoring-and-brain-1/analysis/extractedData/summedDepsPerTimeBeta{beta}ReadFromRandom{read_from_random}.csv"
+  - plot_tt_and_sd_avgd_over_seeds_diff_to_original_java:
+    type: PlotTtAndSdAvgdOverSeedsDiff
+    minus_what: "OriginalScenarioOutput"
+    sd_ylims: [ -1.0, 1.0 ]
+    tt_ylims: [ -3.3, 4.7 ]
+    # Note: cannot use placeholder {file_name_end} here, since the original java runs don't have a use_random_seed,
+    # but the automatic replacement would think so, since the experiment set has use_random_seed parameters otherwise.
+    secondary_input_tt_csv_path_pattern: "{base_output_dir}/analyzing-java-output-only-leg-scoring-and-brain-1/analysis/extractedData/averageRouteTtsPerDeptimeBeta{beta}ReadFromRandom{read_from_random}.csv"
+    secondary_input_sd_csv_path_pattern: "{base_output_dir}/analyzing-java-output-only-leg-scoring-and-brain-1/analysis/extractedData/summedDepsPerTimeBeta{beta}ReadFromRandom{read_from_random}.csv"
+    seeds_to_avg_over: UseRandomSeeds
+
+  # Plot deviation box- and scatterplots of the rust runs (for different rust seeds) w.r.t. the original java runs
+  # (instead of comparing to the nash flow values)
+  - plot_tt_and_sd_deviation_to_java_boxplots:
+    type: PlotTtAndSdDeviationToDiffRunBoxplotsOverBeta
+    sd_ylims: [ -0.05, 0.05 ]
+    tt_ylims: [ 0.0, 0.35 ]
+    # "which_deviation" is used in the plot path pattern to denote what is being compared (can e.g. be to_original_java or so)
+    which_deviation: "ToOriginalScenarioOutput"
+    # Note: cannot use placeholder {file_name_end} here, since the original java runs don't have a use_random_seed,
+    # but the automatic replacement would think so, since the experiment set has use_random_seed parameters otherwise.
+    secondary_input_tt_csv_path_pattern: "{base_output_dir}/analyzing-java-output-only-leg-scoring-and-brain-1/analysis/extractedData/averageRouteTtsPerDeptimeBeta{beta}ReadFromRandom{read_from_random}.csv"
+    secondary_input_sd_csv_path_pattern: "{base_output_dir}/analyzing-java-output-only-leg-scoring-and-brain-1/analysis/extractedData/summedDepsPerTimeBeta{beta}ReadFromRandom{read_from_random}.csv"
+    seeds_to_avg_over: UseRandomSeeds
+
+  - plot_tt_and_sd_deviation_to_java_scatterplots:
+    type: PlotTtAndSdDeviationToDiffRunScatterplotsOverBeta
+    # "which_deviation" is used in the plot path pattern to denote what is being compared (can e.g. be to_original_java or so)
+    which_deviation: "ToOriginalScenarioOutput"
+    sd_ylims: [ 0.0, 0.055 ]
+    tt_ylims: [ 0.0, 0.19 ]
+    # Note: cannot use placeholder {file_name_end} here, since the original java runs don't have a use_random_seed,
+    # but the automatic replacement would think so, since the experiment set has use_random_seed parameters otherwise.
+    secondary_input_tt_csv_path_pattern: "{base_output_dir}/analyzing-java-output-only-leg-scoring-and-brain-1/analysis/extractedData/averageRouteTtsPerDeptimeBeta{beta}ReadFromRandom{read_from_random}.csv"
+    secondary_input_sd_csv_path_pattern: "{base_output_dir}/analyzing-java-output-only-leg-scoring-and-brain-1/analysis/extractedData/summedDepsPerTimeBeta{beta}ReadFromRandom{read_from_random}.csv"
+    seeds_to_avg_over: UseRandomSeeds

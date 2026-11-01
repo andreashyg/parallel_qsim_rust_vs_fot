@@ -3,16 +3,17 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/../failure_handling.sh"
+source "${SCRIPT_DIR}/../failure_handling.sh"  # FIXME this could break!
 
 # function to read config file entries into a variable.
-# Read the config file at experiments/compare_braess_to_java/experiment_sets/global_config.yaml
+# Read the global config file
 # The first argument is the name of the variable to read into, the second argument is the key in the config file.
 read_config_file_entry() {
   local -n var_to_change="$1"
   local key="$2"
+  local global_config_path="$3"
 
-  mapfile -t var_to_change < <(yq -r ".global_parameters.${key} | if type == \"array\" then .[] else . end" "$SCRIPT_DIR/../experiment_sets/global_config.yaml")
+  mapfile -t var_to_change < <(yq -r ".global_parameters.${key} | if type == \"array\" then .[] else . end" "$global_config_path")
 }
 
 run_callback_for_parameter_arrays_parallel() {
@@ -69,7 +70,7 @@ run_callback_for_parameter_arrays_parallel() {
   printf -v module_q '%q' "$module_file"
 
   local joblog_path_pattern
-  read_config_file_entry joblog_path_pattern joblog_path_pattern
+  read_config_file_entry joblog_path_pattern joblog_path_pattern "$global_config_path"
 
   joblog_path="${joblog_path_pattern//\{experiment_set_name\}/$experiment_set_name}"
   joblog_path="${joblog_path//\{base_output_dir\}/$base_output_dir}"

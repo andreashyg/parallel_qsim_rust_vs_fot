@@ -1,0 +1,35 @@
+# Setup
+globals:
+  experiment_set_name: testing-replanning-for-64
+  base_output_dir: ./../../runs-svn/Abschlussarbeiten/2026/andreas-hygrell-rust-vs-fot/compare-braess-to-java/no-spillback-scenario
+  max_parallel_jobs: 8
+  # the following two patterns are used in multiple modules, so they are defined here to avoid repetition.
+  # they don't need to be overwritten in modules, since I will only read from this in the original experiment set itself,
+  # except for when doing comparisons (but there I specify the secondary path pattern explicitly anyway).
+  # If needed, it is however possible to overwrite by adding it to the optional overwrites fields in the modules.
+  tt_csv_path_pattern: "{common_extracted_data_pattern}/averageRouteTtsPerDeptime{file_name_end}.csv"
+  sd_csv_path_pattern: "{common_extracted_data_pattern}/summedDepsPerTime{file_name_end}.csv"
+
+param_sweep:
+  betas: [ 64 ]
+  read_from_random_seed_indices: [ 1 ]
+  use_random_seeds: [ 42 ] #, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61 ]
+
+# What to actually run in this experiment set:
+modules:
+  #  # Replace activity times in the population with the correct ones, and add access/egress legs
+  #  - replace_activity_times_and_add_access_egress_legs_in_population:
+  #    type: PrepareOriginalPopulation
+  #    skip_if_existing: true
+  #    overwrites:
+  #      max_parallel_jobs: 1  # this seems to take a lot of memory, so we don't want to run too many in parallel
+
+  # Run rust experiments based on the output of the original java runs
+  # Note: in this experiment set, we do 20 rust runs (with seeds 42..61), but in turn, only for java seed 1, so 20 runs for each beta.
+  - run_many_rust_iters_based_on_java_output:
+    type: RunManyRustItersBasedOnJavaOutput
+    iterations: 500
+    pop_to_use_as_input_pattern: "{original_dir_to_read_from}/2026-10-21-23-11-32_original_settings_but_only_leg_scoring_and_brain_1_only_beta_64/beta{beta}/random{read_from_random}/ITERS/it.0/beta{beta}random{read_from_random}.0.plans.xml.zst"
+    overwrite_mode: DeleteDirectoryIfExists
+    overwrites:
+      max_parallel_jobs: 4

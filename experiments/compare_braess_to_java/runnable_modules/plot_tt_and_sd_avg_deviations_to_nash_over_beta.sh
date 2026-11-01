@@ -15,6 +15,10 @@ plot_deviation_boxplots_over_beta_case() {
   local input_sd_csv_path_pattern="$8"
   local seeds_to_use_array_string="${9}"
   local betas_to_use_array_string="${10}"
+  local sd_ybotlim="${11}"
+  local sd_ytoplim="${12}"
+  local tt_ybotlim="${13}"
+  local tt_ytoplim="${14}"
 
   read -a seeds_to_use <<< "$seeds_to_use_array_string"
 
@@ -27,6 +31,7 @@ plot_deviation_boxplots_over_beta_case() {
   if ! ~/miniforge3/envs/rust-vs-fot-plots/bin/python3 python_plotting/braess/tt_and_sd_dev_boxplots_to_nash_over_beta.py \
     "${experiment_set_name}" "${java_seed_index}" "${rust_seed}" "$base_output_dir" \
     "$input_tt_csv_path_pattern" "$input_sd_csv_path_pattern" "$betas_to_use_array_string" "$global_config_path" \
+    "$sd_ybotlim" "$sd_ytoplim" "$tt_ybotlim" "$tt_ytoplim" \
     "${seeds_to_use[@]}"
   then
     echo "Plotting failed, continuing with next case." >&2
@@ -48,7 +53,10 @@ plot_deviation_scatterplots_over_beta_case() {
   local input_sd_csv_path_pattern="$8"
   local seeds_to_use_array_string="${9}"
   local betas_to_use_array_string="${10}"
-
+  local sd_ybotlim="${11}"
+  local sd_ytoplim="${12}"
+  local tt_ybotlim="${13}"
+  local tt_ytoplim="${14}"
 
   read -a seeds_to_use <<< "$seeds_to_use_array_string"
 
@@ -58,6 +66,7 @@ plot_deviation_scatterplots_over_beta_case() {
   if ! ~/miniforge3/envs/rust-vs-fot-plots/bin/python3 python_plotting/braess/tt_and_sd_dev_scatterplots_to_nash_over_beta.py \
     "${experiment_set_name}" "${java_seed_index}" "${rust_seed}" "$base_output_dir" \
     "$input_tt_csv_path_pattern" "$input_sd_csv_path_pattern" "$betas_to_use_array_string" "${global_config_path}" \
+    "$sd_ybotlim" "$sd_ytoplim" "$tt_ybotlim" "$tt_ytoplim" \
     "${seeds_to_use[@]}"
   then
     echo "Plotting failed, continuing with next case." >&2

@@ -1,0 +1,45 @@
+# Setup
+globals:
+  experiment_set_name: analyzing-java-output-only-leg-scoring-and-brain-1
+  base_output_dir: ./../../runs-svn/Abschlussarbeiten/2026/andreas-hygrell-rust-vs-fot/compare-braess-to-java/with-spillback-scenario
+  max_parallel_jobs: 8
+  # For clarity, add the reformatted_original_java_data to the pattern, so it is clear that these are not the extracted
+  # measurements
+  tt_csv_path_pattern: "{common_extracted_data_pattern}/averageRouteTtsPerDeptime{file_name_end}.csv"
+  sd_csv_path_pattern: "{common_extracted_data_pattern}/summedDepsPerTime{file_name_end}.csv"
+param_sweep:
+  betas: [ 1, 2, 4, 8 ]
+  read_from_random_seed_indices: [ 1 ]
+  use_random_seeds: [ None ]
+
+# What to actually run in this experiment set:
+modules:
+
+  # extract measurements from the events files from the original java runs with added dummy coordinates.
+  - extract_measurements_from_events:
+    type: ExtractMeasurementsFromEvents
+    input_file_stem_pattern: "{original_dir_to_read_from}/2026-10-22-4-32-38_original_settings_but_only_leg_scoring_and_brain_1_to_8/beta{beta}/random{read_from_random}/beta{beta}random{read_from_random}.output_events"
+    input_file_format: xml.zst
+    num_parts: 0
+
+  # plot the measurements from the original java runs (specifically, the reformatted measurements)
+  - plot_tt_and_sd_per_seed:
+    type: PlotTtAndSdPerSeed
+    sd_ylims: [ 0.0, 110.0 ]
+    tt_ylims: [ 0.0, 240.0 ]
+  - plot_tt_and_sd_avgd_over_seeds:
+    type: PlotTtAndSdAvgdOverSeeds
+    sd_ylims: [ 0.0, 110.0 ]
+    tt_ylims: [ 0.0, 240.0 ]
+    seeds_to_avg_over: ReadFromRandomSeedIndices
+  - plot_tt_and_sd_deviation_to_nash_boxplots:
+    type: PlotTtAndSdDeviationToNashBoxplotsOverBeta
+    seeds_to_avg_over: ReadFromRandomSeedIndices
+    sd_ylims: [ 0.0, 9.5 ]
+    tt_ylims: [ 0.0, 38.5 ]
+  - plot_tt_and_sd_deviation_to_nash_scatterplots:
+    type: PlotTtAndSdDeviationToNashScatterplotsOverBeta
+    seeds_to_avg_over: ReadFromRandomSeedIndices
+    sd_ylims: [ 0.0, 9.45 ]
+    tt_ylims: [ 0.0, 35.05 ]
+

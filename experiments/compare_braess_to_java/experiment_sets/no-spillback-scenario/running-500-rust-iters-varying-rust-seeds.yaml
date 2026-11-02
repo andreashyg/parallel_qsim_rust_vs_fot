@@ -61,8 +61,6 @@ modules:
     seeds_to_avg_over: UseRandomSeeds
     sd_ylims: [ 0.0, 0.85 ]
     tt_ylims: [ 0.0, 1.05 ]
-    overwrites:
-      resume: False
 
   #  Plot the differences to the original java runs
   - plot_tt_and_sd_diff_to_original_java_per_seed:

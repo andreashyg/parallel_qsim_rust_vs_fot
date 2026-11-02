@@ -2,7 +2,7 @@
 globals:
   experiment_set_name: running-one-rust-iter-varying-rust-seeds-without-legs
   base_output_dir: ./../../runs-svn/Abschlussarbeiten/2026/andreas-hygrell-rust-vs-fot/compare-braess-to-java/no-spillback-scenario
-  max_parallel_jobs: 8
+  max_parallel_jobs: 0
   # the following two patterns are used in multiple modules, so they are defined here to avoid repetition.
   # they don't need to be overwritten in modules, since I will only read from this in the original experiment set itself,
   # except for when doing comparisons (but there I specify the secondary path pattern explicitly anyway).
@@ -35,7 +35,7 @@ modules:
     output_file_pattern: "{base_output_dir}/{experiment_set_name}/popsWithAddedLegs/beta{beta}/beta{beta}random{read_from_random}.output_plans.xml.zst"
     add_access_egress_legs_if_necessary: true
     overwrites:
-      max_parallel_jobs: 1  # this seems to take a lot of memory, so we don't want to run too many in parallel
+      max_parallel_jobs: 2  # this seems to take a lot of memory, so we don't want to run too many in parallel
 
   # Run rust experiments based on the output of the original java runs
   # Note: in this experiment set, we do 20 rust runs (with seeds 42..61), but in turn, only for java seed 1, so 20 runs for each beta.

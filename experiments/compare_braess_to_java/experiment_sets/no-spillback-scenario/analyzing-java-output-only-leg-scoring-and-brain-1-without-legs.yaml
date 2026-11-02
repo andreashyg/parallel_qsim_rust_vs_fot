@@ -2,7 +2,7 @@
 globals:
   experiment_set_name: analyzing-java-output-only-leg-scoring-and-brain-1-without-legs
   base_output_dir: ./../../runs-svn/Abschlussarbeiten/2026/andreas-hygrell-rust-vs-fot/compare-braess-to-java/no-spillback-scenario
-  max_parallel_jobs: 8
+  max_parallel_jobs: 0
   # For clarity, add the reformatted_original_java_data to the pattern, so it is clear that these are not the extracted
   # measurements
   tt_csv_path_pattern: "{common_extracted_data_pattern}/averageRouteTtsPerDeptime{file_name_end}.csv"

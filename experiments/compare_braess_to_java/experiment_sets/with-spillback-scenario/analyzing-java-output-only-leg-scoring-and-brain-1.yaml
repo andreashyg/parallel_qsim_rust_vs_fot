@@ -8,8 +8,8 @@ globals:
   tt_csv_path_pattern: "{common_extracted_data_pattern}/averageRouteTtsPerDeptime{file_name_end}.csv"
   sd_csv_path_pattern: "{common_extracted_data_pattern}/summedDepsPerTime{file_name_end}.csv"
 param_sweep:
-  betas: [ 1, 2, 4, 8 ]
-  read_from_random_seed_indices: [ 1 ]
+  betas: [ 1, 2, 4, 8, 16, 32, 64 ]
+  read_from_random_seed_indices: [ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20 ]
   use_random_seeds: [ None ]
 
 # What to actually run in this experiment set:
@@ -18,7 +18,7 @@ modules:
   # extract measurements from the events files from the original java runs with added dummy coordinates.
   - extract_measurements_from_events:
     type: ExtractMeasurementsFromEvents
-    input_file_stem_pattern: "{original_dir_to_read_from}/2026-10-22-4-32-38_original_settings_but_only_leg_scoring_and_brain_1_to_8/beta{beta}/random{read_from_random}/beta{beta}random{read_from_random}.output_events"
+    input_file_stem_pattern: "{original_dir_to_read_from}/2026-11-1_original_settings_but_only_leg_scoring_and_brain_1/beta{beta}/random{read_from_random}/beta{beta}random{read_from_random}.output_events"
     input_file_format: xml.zst
     num_parts: 0
 

@@ -1,3 +1,4 @@
+use crate::simulation::config::ActivityScoring;
 use crate::simulation::config::Config;
 use crate::simulation::id::Id;
 use crate::simulation::replanning::routing::utils::calc_distance;
@@ -16,6 +17,7 @@ const SECONDS_PER_DAY: f64 = 86_400.0;
 #[derive(Debug, Clone, Copy)]
 struct ActivityScoringParams {
     typical_duration_s: f64,
+    activity_scoring: ActivityScoring,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -33,6 +35,9 @@ struct AgentScoringParams {
     marginal_utility_of_performing_s: f64,
     marginal_utility_of_money: f64,
     aborted_plan_score_h: f64,
+    /// `None` takes the marginal utility of traveling by `pt`.
+    marginal_utility_of_waiting_pt_s: Option<f64>,
+    utility_of_line_switch: f64,
 }
 
 /// Scores the event-reconstructed plan of one person.
@@ -44,6 +49,8 @@ pub struct CharyparNagelScoringFunction {
     activity_params: BTreeMap<String, ActivityScoringParams>,
     mode_params: BTreeMap<String, ModeScoringParams>,
     agent_params: BTreeMap<String, AgentScoringParams>,
+    /// The transit passenger modes, whose legs after the first in a trip count as line switches.
+    passenger_modes: BTreeSet<String>,
     network: Arc<Network>,
     qsim_end_time_s: f64,
 }
@@ -59,6 +66,7 @@ impl CharyparNagelScoringFunction {
                     params.activity_type.clone(),
                     ActivityScoringParams {
                         typical_duration_s: params.typical_duration_s,
+                        activity_scoring: params.activity_scoring,
                     },
                 )
             })
@@ -93,6 +101,10 @@ impl CharyparNagelScoringFunction {
                         marginal_utility_of_performing_s: params.performing / SECONDS_PER_HOUR,
                         marginal_utility_of_money: params.marginal_utility_of_money,
                         aborted_plan_score_h: params.aborted_plan_score,
+                        marginal_utility_of_waiting_pt_s: params
+                            .waiting_pt
+                            .map(|waiting_pt| waiting_pt / SECONDS_PER_HOUR),
+                        utility_of_line_switch: params.utility_of_line_switch,
                     },
                 )
             })
@@ -102,6 +114,7 @@ impl CharyparNagelScoringFunction {
             activity_params,
             mode_params,
             agent_params,
+            passenger_modes: config.transit().passenger_modes.iter().cloned().collect(),
             network,
             qsim_end_time_s: f64::from(config.qsim().end_time),
         }
@@ -199,6 +212,10 @@ impl CharyparNagelScoringFunction {
                 )
             })?;
 
+        if params.activity_scoring == ActivityScoring::Ignore {
+            return Ok(0.0);
+        }
+
         if !duration_s.is_finite() {
             return Err(format!(
                 "Cannot score person {} activity {}: duration must be finite, got {duration_s}.",
@@ -225,8 +242,8 @@ impl CharyparNagelScoringFunction {
             params.typical_duration_s,
             agent_params.marginal_utility_of_performing_s,
         );
-        // A very short typical duration makes the zero-utility duration underflow to 0, so a
-        // duration of 0 (or below) can no longer be scored.
+        // An extreme ratio of duration to typical duration overflows the argument of the
+        // logarithm, so such a duration can no longer be scored.
         if !score.is_finite() {
             return Err(format!(
                 "Cannot score person {} activity {}: score is not finite for duration {duration_s} s and typical duration {} s.",
@@ -252,6 +269,7 @@ impl CharyparNagelScoringFunction {
             .enumerate()
         {
             let mut seen_modes_in_trip = BTreeSet::new();
+            let mut transit_legs_in_trip = 0;
             for (leg_index, leg) in trip.legs(&plan.elements).enumerate() {
                 score += self.score_leg(
                     person_id,
@@ -262,6 +280,17 @@ impl CharyparNagelScoringFunction {
                     &mut seen_modes_in_trip,
                     &mut seen_modes_in_plan,
                 )?;
+                if self.passenger_modes.contains(leg.mode.external()) {
+                    transit_legs_in_trip += 1;
+                    if transit_legs_in_trip > 1 {
+                        require_finite(
+                            person_id,
+                            agent_params.utility_of_line_switch,
+                            "utility of line switch",
+                        )?;
+                        score += agent_params.utility_of_line_switch;
+                    }
+                }
             }
         }
 
@@ -338,6 +367,7 @@ impl CharyparNagelScoringFunction {
                 * params.monetary_distance_cost_rate
                 * agent_params.marginal_utility_of_money;
         }
+        score += self.wait_score(person_id, trip_index, leg_index, leg, params, agent_params)?;
         if seen_modes_in_trip.insert(mode.to_string()) {
             score += params.constant;
         }
@@ -356,6 +386,59 @@ impl CharyparNagelScoringFunction {
         }
 
         Ok(score)
+    }
+
+    /// Like MATSim, the time from the departure until boarding counts as waiting instead of
+    /// traveling for legs with a transit route. With the default marginal utility of waiting, both
+    /// cost the same for `pt`, so the score does not change. A boarding before the departure,
+    /// possible with the planned boarding time of teleported transit, is not rejected, as in
+    /// MATSim.
+    fn wait_score(
+        &self,
+        person_id: &Id<InternalPerson>,
+        trip_index: usize,
+        leg_index: usize,
+        leg: &InternalLeg,
+        params: &ModeScoringParams,
+        agent_params: &AgentScoringParams,
+    ) -> Result<f64, String> {
+        let Some(InternalRoute::Pt(route)) = &leg.route else {
+            return Ok(0.0);
+        };
+        let context = || {
+            format!(
+                "Cannot score person {} trip {trip_index} leg {leg_index}",
+                person_id.external()
+            )
+        };
+        let boarding_s = route
+            .description
+            .boarding_time
+            .ok_or_else(|| format!("{}: boarding time is missing.", context()))?
+            .as_duration()
+            .as_secs_f64();
+        let departure_s = required_time(person_id, leg.dep_time, "departure")?;
+        let waiting_s = match agent_params.marginal_utility_of_waiting_pt_s {
+            Some(waiting_s) => waiting_s,
+            None => {
+                self.mode_params
+                    .get("pt")
+                    .ok_or_else(|| {
+                        format!(
+                            "{}: the marginal utility of waiting for transit falls back to that of \
+                             traveling by pt, but no scoring parameters are configured for mode pt.",
+                            context()
+                        )
+                    })?
+                    .marginal_utility_of_traveling_s
+            }
+        };
+        require_finite(
+            person_id,
+            waiting_s,
+            "marginal utility of waiting for transit",
+        )?;
+        Ok((boarding_s - departure_s) * (waiting_s - params.marginal_utility_of_traveling_s))
     }
 
     fn leg_distance(
@@ -479,19 +562,18 @@ fn is_aborted(plan: &InternalPlan) -> bool {
     })
 }
 
-/// Scores the duration of one activity like MATSim's `ActivityUtilityParameters` with priority 1:
-/// `zeroUtilityDuration = typicalDuration * exp(-10h / typicalDuration)`, logarithmic above it and
-/// linear (with the slope of the logarithm at that point) below it.
+/// Scores the duration of one activity like MATSim's `ActivityUtilityParameters` with priority 1 and
+/// MATSim's default `typicalDurationScoreComputation = relative` (`SameRelativeScore`):
+/// `zeroUtilityDuration = typicalDuration * exp(-1)`, logarithmic above it and linear (with the
+/// slope of the logarithm at that point) below it. An activity of typical duration thus scores
+/// `beta_performing * typicalDuration`. MATSim's deprecated `uniform` computation
+/// (`typicalDuration * exp(-10h / typicalDuration)`) is not supported.
 fn score_activity(duration_s: f64, typical_duration_s: f64, beta_performing_s: f64) -> f64 {
-    // exp(-10h / typicalDuration) underflows to 0 for very short typical durations. Since
-    // ln(d / (t * exp(-x))) = ln(d / t) + x, the logarithmic branch is evaluated in that form,
-    // which is mathematically identical but never divides by an underflowed zero-utility duration.
-    let zero_utility_exponent = 10.0 * SECONDS_PER_HOUR / typical_duration_s;
-    let zero_utility_duration_s = typical_duration_s * (-zero_utility_exponent).exp();
+    // Since ln(d / (t * exp(-1))) = ln(d / t) + 1, the logarithmic branch is evaluated in that
+    // form, which is mathematically identical and keeps the score at the typical duration exact.
+    let zero_utility_duration_s = typical_duration_s * (-1.0_f64).exp();
     if duration_s >= zero_utility_duration_s {
-        beta_performing_s
-            * typical_duration_s
-            * ((duration_s / typical_duration_s).ln() + zero_utility_exponent)
+        beta_performing_s * typical_duration_s * ((duration_s / typical_duration_s).ln() + 1.0)
     } else {
         let slope = beta_performing_s * typical_duration_s / zero_utility_duration_s;
         -slope * (zero_utility_duration_s - duration_s)
@@ -505,7 +587,9 @@ mod tests {
     use crate::simulation::config::{ActivityParameter, AgentParameter, ModeParameter};
     use crate::simulation::scenario::Coordinate;
     use crate::simulation::scenario::network::{Link, Node};
-    use crate::simulation::scenario::population::{InternalGenericRoute, InternalNetworkRoute};
+    use crate::simulation::scenario::population::{
+        InternalGenericRoute, InternalNetworkRoute, InternalPtRoute, InternalPtRouteDescription,
+    };
     use crate::simulation::time::SimTime;
     use macros::deterministic_id_test;
     use nohash_hasher::IntSet;
@@ -515,11 +599,11 @@ mod tests {
     fn activity_score_is_linear_below_zero_utility_duration() {
         let typical = 3_600.0;
         let beta = 6.0 / SECONDS_PER_HOUR;
-        // MATSim: typical * exp(-10h / typical) = typical * exp(-10) for a typical duration of 1h.
-        let zero = typical * (-10.0_f64).exp();
+        // MATSim: typical * exp(-1) for its default relative typical duration score computation.
+        let zero = typical * (-1.0_f64).exp();
 
         assert!(score_activity(zero, typical, beta).abs() < 1e-9);
-        assert!((score_activity(typical, typical, beta) - 60.0).abs() < 1e-9);
+        assert!((score_activity(typical, typical, beta) - 6.0).abs() < 1e-9);
         assert!(score_activity(zero / 2.0, typical, beta) < 0.0);
         assert!(score_activity(zero * 2.0, typical, beta) > 0.0);
     }
@@ -528,31 +612,80 @@ mod tests {
     fn activity_score_matches_matsim_zero_utility_duration_for_other_typical_durations() {
         let typical = 8.0 * SECONDS_PER_HOUR;
         let beta = 6.0 / SECONDS_PER_HOUR;
-        // MATSim: typical * exp(-10h / 8h), i.e. not the exp(-1) of a 10h typical duration.
-        let zero = typical * (-10.0_f64 / 8.0).exp();
+        // MATSim's relative computation: typical * exp(-1), not the deprecated uniform
+        // typical * exp(-10h / 8h), which would score 60 instead of 48 at the typical duration.
+        let zero = typical * (-1.0_f64).exp();
 
         assert!(score_activity(zero, typical, beta).abs() < 1e-9);
         // Slope of the logarithm at the zero-utility duration.
         let slope = beta * typical / zero;
         assert!((score_activity(0.0, typical, beta) + slope * zero).abs() < 1e-9);
-        assert!(
-            (score_activity(typical, typical, beta) - beta * typical * 10.0 / 8.0).abs() < 1e-9
-        );
+        assert!((score_activity(typical, typical, beta) - 48.0).abs() < 1e-9);
     }
 
-    #[test]
-    fn activity_score_does_not_divide_by_an_underflowed_zero_utility_duration() {
-        // exp(-36000) underflows to 0, but the logarithmic branch stays finite.
-        let score = score_activity(60.0, 1.0, 6.0 / SECONDS_PER_HOUR);
-        assert!(score.is_finite() && score > 0.0, "{score}");
+    #[deterministic_id_test]
+    fn activity_score_is_zero_when_activity_scoring_is_ignore_and_no_mode_params_given() {
+        let scorer_wo_act_scoring = make_scorer(
+            vec![
+                ("home", 12.0 * SECONDS_PER_HOUR, ActivityScoring::Ignore),
+                ("work", 8.0 * SECONDS_PER_HOUR, ActivityScoring::Ignore),
+            ],
+            Vec::new(),
+            Network::new(),
+        );
+
+        // Verify that the scorer with activity scoring enabled does not return zero for the same plans.
+        let scorer_w_act_scoring = make_scorer(
+            vec![
+                (
+                    "home",
+                    12.0 * SECONDS_PER_HOUR,
+                    ActivityScoring::ConsiderFullActivity,
+                ),
+                (
+                    "work",
+                    8.0 * SECONDS_PER_HOUR,
+                    ActivityScoring::ConsiderFullActivity,
+                ),
+            ],
+            Vec::new(),
+            Network::new(),
+        );
+
+        let person = Id::create("person");
+
+        let plan = plan(vec![
+            activity("home", None, Some(6 * 3_600)),
+            activity("work", Some(6 * 3_600), Some(18 * 3_600)),
+            activity("home", Some(18 * 3_600), None),
+        ]);
+
+        let score_wo_act_scoring = scorer_wo_act_scoring
+            .score(&person, "person", &plan)
+            .unwrap();
+
+        let score_w_act_scoring = scorer_w_act_scoring
+            .score(&person, "person", &plan)
+            .unwrap();
+
+        assert_eq!(0.0, score_wo_act_scoring);
+        assert_ne!(0.0, score_w_act_scoring);
     }
 
     #[deterministic_id_test]
     fn scores_overnight_different_boundary_and_single_activities() {
         let scorer = make_scorer(
             vec![
-                ("home", 12.0 * SECONDS_PER_HOUR),
-                ("work", 8.0 * SECONDS_PER_HOUR),
+                (
+                    "home",
+                    12.0 * SECONDS_PER_HOUR,
+                    ActivityScoring::ConsiderFullActivity,
+                ),
+                (
+                    "work",
+                    8.0 * SECONDS_PER_HOUR,
+                    ActivityScoring::ConsiderFullActivity,
+                ),
             ],
             Vec::new(),
             Network::new(),
@@ -564,8 +697,8 @@ mod tests {
             activity("home", Some(18 * 3_600), None),
         ]);
         let overnight_score = scorer.score(&person, "person", &overnight).unwrap();
-        // The wrapped duration is 12h = typical duration, so the score is beta * typical * 10h / typical = 6 * 10.
-        assert_approx_eq(60.0, overnight_score);
+        // The wrapped duration is 12h = typical duration, so the score is beta * typical = 6 * 12.
+        assert_approx_eq(72.0, overnight_score);
 
         let different = plan(vec![
             activity("home", None, Some(6 * 3_600)),
@@ -610,8 +743,16 @@ mod tests {
         let walk = mode("walk", -3.0, 0.0, 0.0, 1.0);
         let scorer = make_scorer(
             vec![
-                ("home", 12.0 * SECONDS_PER_HOUR),
-                ("work", 8.0 * SECONDS_PER_HOUR),
+                (
+                    "home",
+                    12.0 * SECONDS_PER_HOUR,
+                    ActivityScoring::ConsiderFullActivity,
+                ),
+                (
+                    "work",
+                    8.0 * SECONDS_PER_HOUR,
+                    ActivityScoring::ConsiderFullActivity,
+                ),
             ],
             vec![car, walk],
             Network::new(),
@@ -643,7 +784,18 @@ mod tests {
         );
 
         let time_only_scorer = make_scorer(
-            vec![("home", SECONDS_PER_DAY), ("work", SECONDS_PER_DAY)],
+            vec![
+                (
+                    "home",
+                    SECONDS_PER_DAY,
+                    ActivityScoring::ConsiderFullActivity,
+                ),
+                (
+                    "work",
+                    SECONDS_PER_DAY,
+                    ActivityScoring::ConsiderFullActivity,
+                ),
+            ],
             vec![mode("car", -6.0, 0.0, 0.0, 2.0)],
             Network::new(),
         );
@@ -660,6 +812,47 @@ mod tests {
             time_only_scorer
                 .score_trips(&person, &two_trips, params)
                 .unwrap(),
+        );
+    }
+
+    /// Like MATSim, the time until boarding counts as waiting instead of traveling, and each
+    /// transit leg after the first in a trip is a line switch.
+    #[deterministic_id_test]
+    fn scores_waiting_for_transit_and_line_switches() {
+        let scorer = make_scorer(
+            vec![],
+            vec![
+                mode("pt", -6.0, 0.0, 0.0, 0.0),
+                mode("walk", -3.0, 0.0, 0.0, 0.0),
+            ],
+            Network::new(),
+        );
+        let person = Id::create("person");
+        // One trip with two rides, after 10 and 5 minutes of waiting.
+        let trip_plan = plan(vec![
+            activity("home", None, Some(0)),
+            generic_leg("walk", 600, None),
+            activity("pt interaction", Some(600), Some(600)),
+            pt_leg(600, 1_800, 1_200),
+            activity("pt interaction", Some(2_400), Some(2_400)),
+            pt_leg(2_400, 900, 2_700),
+            activity("work", Some(3_300), None),
+        ]);
+        let mut params = *scorer.agent_params.get("person").unwrap();
+
+        // By default, waiting costs as much as riding.
+        let traveling = -0.5 + (1_800.0 + 900.0) * -6.0 / SECONDS_PER_HOUR;
+        let line_switch = -1.0;
+        assert_approx_eq(
+            traveling + line_switch,
+            scorer.score_trips(&person, &trip_plan, &params).unwrap(),
+        );
+
+        params.marginal_utility_of_waiting_pt_s = Some(-12.0 / SECONDS_PER_HOUR);
+        let waiting = (600.0 + 300.0) * (-12.0 + 6.0) / SECONDS_PER_HOUR;
+        assert_approx_eq(
+            traveling + line_switch + waiting,
+            scorer.score_trips(&person, &trip_plan, &params).unwrap(),
         );
     }
 
@@ -685,7 +878,18 @@ mod tests {
         unused.daily_utility_constant = 100.0;
 
         let mut scorer = make_scorer(
-            vec![("home", SECONDS_PER_DAY), ("work", SECONDS_PER_DAY)],
+            vec![
+                (
+                    "home",
+                    SECONDS_PER_DAY,
+                    ActivityScoring::ConsiderFullActivity,
+                ),
+                (
+                    "work",
+                    SECONDS_PER_DAY,
+                    ActivityScoring::ConsiderFullActivity,
+                ),
+            ],
             vec![car, walk, unused],
             Network::new(),
         );
@@ -740,8 +944,16 @@ mod tests {
         let (network, start, middle, end) = network();
         let scorer = make_scorer(
             vec![
-                ("home", 12.0 * SECONDS_PER_HOUR),
-                ("work", 8.0 * SECONDS_PER_HOUR),
+                (
+                    "home",
+                    12.0 * SECONDS_PER_HOUR,
+                    ActivityScoring::ConsiderFullActivity,
+                ),
+                (
+                    "work",
+                    8.0 * SECONDS_PER_HOUR,
+                    ActivityScoring::ConsiderFullActivity,
+                ),
             ],
             vec![mode("car", 0.0, -1.0, 0.0, 0.0)],
             network,
@@ -778,7 +990,11 @@ mod tests {
     #[deterministic_id_test]
     fn adds_end_time_abort_penalty_to_completed_prefix() {
         let scorer = make_scorer(
-            vec![("home", 12.0 * SECONDS_PER_HOUR)],
+            vec![(
+                "home",
+                12.0 * SECONDS_PER_HOUR,
+                ActivityScoring::ConsiderFullActivity,
+            )],
             vec![mode("car", -6.0, 0.0, 0.0, 0.0)],
             Network::new(),
         );
@@ -806,7 +1022,11 @@ mod tests {
     #[deterministic_id_test]
     fn reports_missing_mode_and_required_distance_with_person_context() {
         let scorer = make_scorer(
-            vec![("home", 12.0 * SECONDS_PER_HOUR)],
+            vec![(
+                "home",
+                12.0 * SECONDS_PER_HOUR,
+                ActivityScoring::ConsiderFullActivity,
+            )],
             vec![mode("car", 0.0, -1.0, 0.0, 0.0)],
             Network::new(),
         );
@@ -845,17 +1065,20 @@ mod tests {
     }
 
     fn make_scorer(
-        activity_params: Vec<(&str, f64)>,
+        activity_params: Vec<(&str, f64, ActivityScoring)>,
         mode_params: Vec<ModeParameter>,
         network: Network,
     ) -> CharyparNagelScoringFunction {
         let mut config = Config::default();
         config.scoring_mut().activity_params = activity_params
             .into_iter()
-            .map(|(activity_type, typical_duration_s)| ActivityParameter {
-                activity_type: activity_type.to_string(),
-                typical_duration_s,
-            })
+            .map(
+                |(activity_type, typical_duration_s, activity_scoring)| ActivityParameter {
+                    activity_type: activity_type.to_string(),
+                    typical_duration_s,
+                    activity_scoring,
+                },
+            )
             .collect();
         config.scoring_mut().mode_params = mode_params;
         config.scoring_mut().agent_params = vec![AgentParameter::default()];
@@ -900,6 +1123,32 @@ mod tests {
             start_s.map(SimTime::from_secs),
             end_s.map(SimTime::from_secs),
             None,
+        ))
+    }
+
+    fn pt_leg(departure_s: u64, travel_time_s: u64, boarding_s: u64) -> InternalPlanElement {
+        let route = InternalPtRoute {
+            generic_delegate: InternalGenericRoute::new(
+                Id::create("start"),
+                Id::create("end"),
+                Some(Duration::from_secs(travel_time_s)),
+                Some(0.0),
+                None,
+            ),
+            description: InternalPtRouteDescription {
+                transit_route_id: Id::create("route"),
+                boarding_time: Some(SimTime::from_secs(boarding_s)),
+                transit_line_id: Id::create("line"),
+                access_facility_id: Id::create("access"),
+                egress_facility_id: Id::create("egress"),
+            },
+        };
+        InternalPlanElement::Leg(InternalLeg::new(
+            InternalRoute::Pt(route),
+            "pt",
+            "pt",
+            Duration::from_secs(travel_time_s),
+            Some(SimTime::from_secs(departure_s)),
         ))
     }
 

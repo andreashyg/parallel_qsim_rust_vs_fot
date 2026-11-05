@@ -1,6 +1,8 @@
 use crate::simulation::Identifiable;
 use crate::simulation::agents::agent::SimulationAgent;
-use crate::simulation::agents::{SimulationAgentLogic, SimulationAgentState};
+use crate::simulation::agents::{
+    ActivityAgent, LegAgent, NextPhase, StuckAgent, TeleportationLogic,
+};
 use crate::simulation::controller::ThreadLocalComputationalEnvironment;
 use crate::simulation::engines::activity_engine::{ActivityEngine, ActivityEngineBuilder};
 use crate::simulation::engines::leg_engine::LegEngine;
@@ -9,8 +11,8 @@ use crate::simulation::framework_events::MobsimEvent;
 use crate::simulation::messaging::messages::InternalSyncMessage;
 use crate::simulation::messaging::sim_communication::SimCommunicator;
 use crate::simulation::messaging::sim_communication::message_broker::NetMessageBroker;
-use crate::simulation::population::agent_source::DynAgentSource;
-use crate::simulation::scenario::{MobsimInput, MobsimScenarioPartition};
+use crate::simulation::population::agent_source::{AgentSet, DynAgentSource};
+use crate::simulation::scenario::{MobsimInput, MobsimScenarioPartition, PopulationShard};
 use crate::simulation::time::{SimClock, SimTime, Tick};
 use std::fmt::Debug;
 use std::fmt::Formatter;
@@ -19,6 +21,11 @@ use tracing::info;
 pub struct Simulation<C: SimCommunicator> {
     activity_engine: ActivityEngine,
     leg_engine: LegEngine<C>,
+    // Agents that followed an activity with another activity. The activity engine has already run
+    // in that step, so they start in the next one.
+    pending_activities: Vec<ActivityAgent>,
+    // Agents that gave up. They stay here until they are materialized after mobsim.
+    stuck_agents: Vec<StuckAgent>,
     comp_env: ThreadLocalComputationalEnvironment,
     start_tick: Tick,
     end_tick: Tick,
@@ -78,8 +85,20 @@ where
             .activity_engine
             .drain()
             .into_iter()
-            .chain(self.leg_engine.drain())
-            .chain(agents_changing_engine)
+            .map(SimulationAgent::Activity)
+            .chain(
+                self.leg_engine
+                    .drain()
+                    .into_iter()
+                    .map(SimulationAgent::Leg),
+            )
+            .chain(agents_changing_engine.into_iter().map(SimulationAgent::Leg))
+            .chain(
+                self.pending_activities
+                    .drain(..)
+                    .map(SimulationAgent::Activity),
+            )
+            .chain(self.stuck_agents.drain(..).map(SimulationAgent::Stuck))
             .collect::<Vec<_>>();
 
         // Note that agents who just ended a leg but haven't started the last activity yet are considered stuck.
@@ -90,18 +109,20 @@ where
     fn emit_stuck_events(&mut self, time: SimTime, agents: &[SimulationAgent]) {
         let mut events = agents
             .iter()
-            .filter_map(|agent| match agent.state() {
-                SimulationAgentState::ACTIVITY if agent.next_leg().is_none() => None,
-                SimulationAgentState::LEG => Some(
+            .filter_map(|agent| match agent {
+                SimulationAgent::Activity(activity) if !activity.has_next_leg() => None,
+                // These agents have already emitted their event when they got stuck.
+                SimulationAgent::Stuck(_) => None,
+                SimulationAgent::Leg(leg) => Some(
                     PersonStuckEventBuilder::default()
                         .time(time)
                         .person(agent.id().clone())
-                        .link(agent.curr_link_id().cloned())
-                        .leg_mode(Some(agent.curr_leg().mode.clone()))
+                        .link(leg.curr_link_id().cloned())
+                        .leg_mode(Some(leg.mode().clone()))
                         .build()
                         .unwrap(),
                 ),
-                SimulationAgentState::ACTIVITY | SimulationAgentState::STUCK => Some(
+                SimulationAgent::Activity(_) => Some(
                     PersonStuckEventBuilder::default()
                         .time(time)
                         .person(agent.id().clone())
@@ -121,11 +142,51 @@ where
 
     /// Performs a sim step for the activity engine and the leg engine.
     /// If an agent switches from leg engine to activity engine (i.e., ends a leg), the activity starts in the next time step.
+    /// This is the only place where agents change their phase: engines return the agents whose
+    /// phase has ended, and the agents choose what follows.
     #[hotpath::measure]
-    fn do_sim_step(&mut self, now: Tick, agents: Vec<SimulationAgent>) -> Vec<SimulationAgent> {
-        let agents_act_to_leg = self.activity_engine.do_step(now, agents);
-        let agents_leg_to_act = self.leg_engine.do_step(now, agents_act_to_leg);
-        agents_leg_to_act
+    fn do_sim_step(&mut self, now: Tick, finished_legs: Vec<LegAgent>) -> Vec<LegAgent> {
+        let now_time = self.clock.tick_to_time(now);
+
+        let mut activities = std::mem::take(&mut self.pending_activities);
+        activities.reserve(finished_legs.len());
+        let mut legs = Vec::new();
+
+        for agent in finished_legs {
+            match agent.finish_leg(now_time) {
+                // most of the calls will go here, since normally a leg follows an activity
+                NextPhase::Activity(agent) => activities.push(agent),
+                NextPhase::Leg(agent) => legs.push(agent),
+                NextPhase::Stuck(agent) => self.receive_stuck_agent(agent, now_time),
+            }
+        }
+
+        // Perform the activity step
+        let finished_activities = self.activity_engine.do_step(now, activities);
+        legs.reserve(finished_activities.len());
+        for agent in finished_activities {
+            match agent.finish_activity(now_time) {
+                NextPhase::Leg(agent) => legs.push(agent),
+                NextPhase::Activity(agent) => self.pending_activities.push(agent),
+                NextPhase::Stuck(agent) => self.receive_stuck_agent(agent, now_time),
+            }
+        }
+
+        // Perform the leg step
+        self.leg_engine.do_step(now, legs)
+    }
+
+    fn receive_stuck_agent(&mut self, agent: StuckAgent, now: SimTime) {
+        self.comp_env.events_manager_borrow_mut().process_event(
+            &PersonStuckEventBuilder::default()
+                .time(now)
+                .person(agent.id().clone())
+                .link(agent.stuck_link().cloned())
+                .leg_mode(agent.stuck_mode().cloned())
+                .build()
+                .unwrap(),
+        );
+        self.stuck_agents.push(agent);
     }
 
     /// Returns the messages this partition received but never processed. Must be called by all partitions after [`Simulation::run`],
@@ -137,14 +198,38 @@ where
     }
 
     pub(crate) fn is_local_route(
-        agent: &SimulationAgent,
+        agent: &dyn TeleportationLogic,
         message_broker: &NetMessageBroker<C>,
     ) -> bool {
-        let leg = agent.curr_leg();
-        let route = leg.route.as_ref().unwrap();
-        let to = message_broker.rank_for_link(route.end_link());
+        let to = message_broker.rank_for_link(agent.destination_link());
         message_broker.rank() == to
     }
+}
+
+/// Asks the agent sources one after the other. Every person of `population` must end up with exactly
+/// one agent, and every transit departure that starts on the partition with its driver.
+fn create_agents(
+    sources: &[DynAgentSource],
+    population: &mut PopulationShard,
+    partition: &MobsimScenarioPartition,
+) -> AgentSet {
+    let mut agents = AgentSet::default();
+    for source in sources {
+        for (id, agent) in source.create_agents(population, partition) {
+            assert!(
+                !agents.contains_key(&id),
+                "Two agent sources created an agent with id {id}."
+            );
+            agents.insert(id, agent);
+        }
+    }
+    assert!(
+        population.population.persons.is_empty(),
+        "No agent source created agents for {} persons, e.g. {}.",
+        population.population.persons.len(),
+        population.population.persons.keys().next().unwrap()
+    );
+    agents
 }
 
 impl<C: SimCommunicator + 'static> Debug for Simulation<C> {
@@ -161,7 +246,7 @@ pub struct SimulationBuilder<C: SimCommunicator> {
     input: MobsimInput,
     net_message_broker: NetMessageBroker<C>,
     comp_env: ThreadLocalComputationalEnvironment,
-    agent_source: DynAgentSource,
+    agent_sources: Vec<DynAgentSource>,
 }
 
 impl<C: SimCommunicator> SimulationBuilder<C> {
@@ -169,28 +254,31 @@ impl<C: SimCommunicator> SimulationBuilder<C> {
         input: MobsimInput,
         net_message_broker: NetMessageBroker<C>,
         comp_env: ThreadLocalComputationalEnvironment,
-        agent_source: DynAgentSource,
+        agent_sources: Vec<DynAgentSource>,
     ) -> Self {
         SimulationBuilder {
             input,
             net_message_broker,
             comp_env,
-            agent_source,
+            agent_sources,
         }
     }
 
     pub fn build(self) -> Simulation<C> {
-        let clock = SimClock::new(self.input.partition.scenario.config.qsim().ticks_per_second);
+        let MobsimInput {
+            partition,
+            mut population,
+        } = self.input;
+        let clock = SimClock::new(partition.scenario.config.qsim().ticks_per_second);
 
-        let agents = self
-            .agent_source
-            .create_agents(self.input.population, &self.input.partition);
+        let agents = create_agents(&self.agent_sources, &mut population, &partition);
 
         let MobsimScenarioPartition {
             scenario,
             network_partition,
+            transit_sim_schedule,
             ..
-        } = self.input.partition;
+        } = partition;
 
         let activity_engine = ActivityEngineBuilder::new(
             agents.into_values().collect(),
@@ -202,14 +290,18 @@ impl<C: SimCommunicator> SimulationBuilder<C> {
         let leg_engine = LegEngine::new(
             network_partition,
             scenario.garage.clone(),
+            transit_sim_schedule,
             self.net_message_broker,
             scenario.config.qsim(),
+            scenario.config.transit(),
             self.comp_env.clone(),
         );
 
         Simulation {
             activity_engine,
             leg_engine,
+            pending_activities: Vec::new(),
+            stuck_agents: Vec::new(),
             comp_env: self.comp_env,
             start_tick: clock.secs_to_tick(scenario.config.qsim().start_time as u64),
             end_tick: clock.secs_to_tick(scenario.config.qsim().end_time as u64),

@@ -19,13 +19,18 @@ pub(crate) fn write_to_xml(garage: &Garage, path: &Path) {
         .values()
         .map(|t| IOVehicleType {
             id: t.id.external().to_owned(),
+            attributes: IOAttributes::from_internal_none_if_empty(&t.attributes),
             description: None,
             capacity: None,
             length: Some(IODimension { meter: t.length }),
             width: Some(IODimension { meter: t.width }),
-            maximum_velocity: Some(IOVelocity {
-                meter_per_second: t.max_v,
-            }),
+            maximum_velocity: if t.max_v == f64::MAX {
+                None
+            } else {
+                Some(IOVelocity {
+                    meter_per_second: t.max_v,
+                })
+            },
             engine_information: None,
             cost_information: None,
             passenger_car_equivalents: Some(IOPassengerCarEquivalents { pce: t.pce }),
@@ -33,25 +38,63 @@ pub(crate) fn write_to_xml(garage: &Garage, path: &Path) {
                 network_mode: t.net_mode.external().to_owned(),
             }),
             flow_efficiency_factor: Some(IOFowEfficiencyFactor { factor: t.fef }),
-            attributes: None,
         })
         .collect();
 
+    // Sorted by id, so that the file does not depend on the order of the map.
+    let mut vehicles: Vec<_> = garage
+        .vehicles
+        .values()
+        .map(|vehicle| IOVehicle {
+            id: vehicle.id.external().to_owned(),
+            vehicle_type: vehicle.vehicle_type.external().to_owned(),
+            attributes: IOAttributes::from_internal_none_if_empty(&vehicle.attributes),
+        })
+        .collect();
+    vehicles.sort_by(|a, b| a.id.cmp(&b.id));
+
     let io_vehicles = IOVehicleDefinitions {
+        xmlns: matsim_namespace(),
+        xmlns_xsi: xsi_namespace(),
+        schema_location: vehicles_schema_location(),
         veh_types,
-        vehicles: vec![],
+        vehicles,
     };
 
-    xml::write_to_file(
-        &io_vehicles,
-        path,
-        "<!DOCTYPE network SYSTEM \"http://www.matsim.org/files/dtd http://www.matsim.org/files/dtd/vehicleDefinitions_v2.0.xsd\">",
+    // The format is defined by an XML schema, not by a DTD. The schema is referenced by the
+    // namespace attributes of the root element, as MATSim does.
+    xml::write_to_file(&io_vehicles, path, "")
+}
+
+fn matsim_namespace() -> String {
+    String::from("http://www.matsim.org/files/dtd")
+}
+
+fn xsi_namespace() -> String {
+    String::from("http://www.w3.org/2001/XMLSchema-instance")
+}
+
+fn vehicles_schema_location() -> String {
+    String::from(
+        "http://www.matsim.org/files/dtd http://www.matsim.org/files/dtd/vehicleDefinitions_v2.0.xsd",
     )
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Clone)]
 #[serde(rename = "vehicleDefinitions")]
 pub struct IOVehicleDefinitions {
+    // The namespace declarations, which the schema requires. They are not read, but always written
+    // with the values of vehicleDefinitions_v2.0.xsd.
+    #[serde(rename = "@xmlns", skip_deserializing, default = "matsim_namespace")]
+    pub xmlns: String,
+    #[serde(rename = "@xmlns:xsi", skip_deserializing, default = "xsi_namespace")]
+    pub xmlns_xsi: String,
+    #[serde(
+        rename = "@xsi:schemaLocation",
+        skip_deserializing,
+        default = "vehicles_schema_location"
+    )]
+    pub schema_location: String,
     #[serde(rename = "vehicleType")]
     pub veh_types: Vec<IOVehicleType>,
     #[serde(rename = "vehicle", default)]
@@ -73,18 +116,29 @@ pub struct IOVehicle {
 pub struct IOVehicleType {
     #[serde(rename = "@id")]
     pub id: String,
-    pub description: Option<String>,
-    pub capacity: Option<IOCapacity>,
-    pub length: Option<IODimension>,
-    pub width: Option<IODimension>,
-    pub maximum_velocity: Option<IOVelocity>,
-    pub engine_information: Option<IOEngineInformation>,
-    pub cost_information: Option<IOCostInformation>,
-    pub passenger_car_equivalents: Option<IOPassengerCarEquivalents>,
-    pub network_mode: Option<IONetworkMode>,
-    pub flow_efficiency_factor: Option<IOFowEfficiencyFactor>,
+    // The schema requires the attributes to be the first child.
     #[serde(rename = "attributes", skip_serializing_if = "Option::is_none")]
     pub attributes: Option<IOAttributes>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub capacity: Option<IOCapacity>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub length: Option<IODimension>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub width: Option<IODimension>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub maximum_velocity: Option<IOVelocity>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub engine_information: Option<IOEngineInformation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cost_information: Option<IOCostInformation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub passenger_car_equivalents: Option<IOPassengerCarEquivalents>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub network_mode: Option<IONetworkMode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub flow_efficiency_factor: Option<IOFowEfficiencyFactor>,
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Clone)]
@@ -277,6 +331,8 @@ mod test {
             "./test_output/simulation/vehicles/io/test_to_from_file_xml/vehicles.xml",
         );
         let mut garage = Garage::new();
+        let mut attributes = InternalAttributes::default();
+        attributes.insert("doorOperationMode", "serial");
 
         garage.add_veh_type(InternalVehicleType {
             id: Id::create("some-type"),
@@ -286,12 +342,17 @@ mod test {
             pce: 20.0,
             fef: 0.3,
             net_mode: Id::<String>::create("some network type 🚕"),
-            attributes: InternalAttributes::default(),
+            attributes,
         });
         garage.add_veh_by_type(&Id::create("some-person"), &Id::get_from_ext("some-type"));
 
         to_file(&garage, file);
         let loaded_garage = from_file(file);
         assert_eq!(garage.vehicle_types, loaded_garage.vehicle_types);
+
+        // The schema is referenced by the namespace, not by a DTD.
+        let content = std::fs::read_to_string(file).unwrap();
+        assert!(content.contains("<vehicleDefinitions xmlns=\"http://www.matsim.org/files/dtd\""));
+        assert!(!content.contains("<!DOCTYPE"));
     }
 }

@@ -12,9 +12,22 @@ use crate::simulation::scenario::population::{
     InternalActivity, InternalGenericRoute, InternalLeg, InternalNetworkRoute, InternalPlan,
     InternalPlanElement, InternalPtRoute, InternalPtRouteDescription, InternalRoute,
 };
+use crate::simulation::scenario::transit::{
+    RouteIndex, TransitLine, TransitRoute, TransitStopFacility,
+};
 use crate::simulation::scenario::vehicles::InternalVehicle;
 use crate::simulation::time::SimTime;
 use std::time::Duration;
+
+/// A passenger boards a transit vehicle at stop `access`, at `time`. The vehicle serves a departure
+/// on `route` of `line`.
+pub(crate) struct TransitBoarding {
+    pub(crate) line: Id<TransitLine>,
+    pub(crate) route: Id<TransitRoute>,
+    pub(crate) route_index: RouteIndex,
+    pub(crate) access: Id<TransitStopFacility>,
+    pub(crate) time: SimTime,
+}
 
 pub struct PartialPlan {
     elements: Vec<InternalPlanElement>,
@@ -157,6 +170,26 @@ impl PartialPlan {
         self.with_current_leg(PersonLeavesVehicleEvent::TYPE, |_| {});
     }
 
+    /// The passenger boards a transit vehicle. Its leg then gets a PT route, like the
+    /// `DefaultTransitPassengerRoute` of MATSim's `EventsToLegs`.
+    pub(crate) fn transit_boarding(&mut self, boarding: TransitBoarding) {
+        self.with_current_leg(PersonEntersVehicleEvent::TYPE, |leg| {
+            leg.partial_route.handle_transit_boarding(boarding)
+        });
+    }
+
+    /// The passenger leaves the transit vehicle it boarded at stop `egress`. `distance` returns the
+    /// distance of the ride from its boarding.
+    pub(crate) fn transit_alighting(
+        &mut self,
+        egress: Id<TransitStopFacility>,
+        distance: impl FnOnce(&TransitBoarding) -> f64,
+    ) {
+        self.with_current_leg(PersonLeavesVehicleEvent::TYPE, |leg| {
+            leg.partial_route.handle_transit_alighting(egress, distance)
+        });
+    }
+
     pub(crate) fn vehicle_enters_traffic(&mut self, event: &VehicleEntersTrafficEvent) {
         self.with_current_leg(VehicleEntersTrafficEvent::TYPE, |leg| {
             leg.partial_route.handle_vehicle_enters_traffic(event)
@@ -296,7 +329,7 @@ impl Default for PartialLeg {
 impl PartialLeg {
     fn handle_person_departure(&mut self, event: &PersonDepartureEvent) {
         self.mode = Some(event.leg_mode.clone());
-        self.routing_mode = Some(event.routing_mode.clone());
+        self.routing_mode = event.routing_mode.clone();
         self.dep_time = Some(event.time);
     }
 
@@ -361,6 +394,9 @@ struct PartialRoute {
     vehicle: Option<Id<InternalVehicle>>,
     pt_description: Option<InternalPtRouteDescription>,
 
+    // PT Route Type, while the passenger rides a transit vehicle
+    transit_boarding: Option<TransitBoarding>,
+
     //TODO These values are currently unused
     relative_position_on_departure_link: Option<f64>,
     relative_position_on_arrival_link: Option<f64>,
@@ -380,6 +416,7 @@ impl Default for PartialRoute {
             distance: None,
             vehicle: None,
             pt_description: None,
+            transit_boarding: None,
             relative_position_on_departure_link: None,
             relative_position_on_arrival_link: None,
             route: Vec::default(),
@@ -405,6 +442,33 @@ impl PartialRoute {
         self.route_type = Some(PartialRouteTypes::Network);
 
         self.vehicle = Some(event.vehicle.clone());
+    }
+
+    fn handle_transit_boarding(&mut self, boarding: TransitBoarding) {
+        if let Some(route_type) = self.route_type {
+            panic!("Caught a transit boarding on a {route_type:?} Route Type!")
+        }
+        self.route_type = Some(PartialRouteTypes::Pt);
+        self.transit_boarding = Some(boarding);
+    }
+
+    fn handle_transit_alighting(
+        &mut self,
+        egress: Id<TransitStopFacility>,
+        distance: impl FnOnce(&TransitBoarding) -> f64,
+    ) {
+        let boarding = self
+            .transit_boarding
+            .take()
+            .unwrap_or_else(|| panic!("Caught a transit alighting without a boarding!"));
+        self.distance = Some(distance(&boarding));
+        self.pt_description = Some(InternalPtRouteDescription {
+            transit_route_id: boarding.route,
+            boarding_time: Some(boarding.time),
+            transit_line_id: boarding.line,
+            access_facility_id: boarding.access,
+            egress_facility_id: egress,
+        });
     }
 
     fn handle_vehicle_enters_traffic(&mut self, event: &VehicleEntersTrafficEvent) {
@@ -435,11 +499,11 @@ impl PartialRoute {
         self.route_type = Some(PartialRouteTypes::Pt);
         self.distance = Some(event.distance);
         self.pt_description = Some(InternalPtRouteDescription {
-            transit_route_id: event.route.external().to_string(),
+            transit_route_id: event.route.clone(),
             boarding_time: Some(event.boarding_time),
-            transit_line_id: event.line.external().to_string(),
-            access_facility_id: event.access_facility.external().to_string(),
-            egress_facility_id: event.egress_facility.external().to_string(),
+            transit_line_id: event.line.clone(),
+            access_facility_id: event.access_facility.clone(),
+            egress_facility_id: event.egress_facility.clone(),
         });
     }
 
@@ -557,7 +621,7 @@ mod tests {
                 .person(Id::create("person"))
                 .link(Id::create("start"))
                 .leg_mode(Id::create(mode))
-                .routing_mode(Id::create(mode))
+                .routing_mode(Some(Id::create(mode)))
                 .build()
                 .unwrap(),
         );
@@ -764,14 +828,14 @@ mod tests {
         assert_eq!(route.start_link().external(), "start");
         assert_eq!(route.end_link().external(), "end");
         assert_eq!(route.generic_delegate().distance(), Some(1_234.0));
-        assert_eq!(route.description.transit_route_id, "route");
-        assert_eq!(route.description.transit_line_id, "line");
+        assert_eq!(route.description.transit_route_id.external(), "route");
+        assert_eq!(route.description.transit_line_id.external(), "line");
         assert_eq!(
             route.description.boarding_time,
             Some(SimTime::from_secs(12))
         );
-        assert_eq!(route.description.access_facility_id, "access");
-        assert_eq!(route.description.egress_facility_id, "egress");
+        assert_eq!(route.description.access_facility_id.external(), "access");
+        assert_eq!(route.description.egress_facility_id.external(), "egress");
     }
 
     #[deterministic_id_test]

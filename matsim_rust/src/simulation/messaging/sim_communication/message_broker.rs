@@ -1,7 +1,6 @@
-use crate::simulation::agents::SimulationAgentLogic;
 use crate::simulation::id::Id;
 use crate::simulation::messaging::messages::{
-    InternalSyncMessage, TeleportationMessage, VehicleMessage,
+    InternalSyncMessage, TeleportationMessage, TransitVehicleMessage, VehicleMessage,
 };
 use crate::simulation::messaging::sim_communication::SimCommunicator;
 use crate::simulation::network::sim_network::{SimNetworkPartition, StorageUpdate};
@@ -79,7 +78,7 @@ where
         now: impl Into<Tick>,
     ) {
         let now = now.into();
-        let link_id = teleportation_message.agent().curr_link_id().unwrap();
+        let link_id = teleportation_message.agent().destination_link();
         let partition = *self.link_mapping.get(link_id).unwrap();
         let rank = self.rank();
         let message = self
@@ -87,6 +86,23 @@ where
             .entry(partition)
             .or_insert_with(|| InternalSyncMessage::new(now, rank, partition));
         message.add_teleportation(teleportation_message);
+    }
+
+    /// Sends a transit vehicle to partition `to`. The schedule knows the partition of each stop, so
+    /// no link needs to be looked up.
+    pub(crate) fn add_transit_vehicle(
+        &mut self,
+        transit_vehicle: TransitVehicleMessage,
+        to: u32,
+        now: impl Into<Tick>,
+    ) {
+        let now = now.into();
+        let rank = self.rank();
+        let message = self
+            .out_messages
+            .entry(to)
+            .or_insert_with(|| InternalSyncMessage::new(now, rank, to));
+        message.add_transit_vehicle(transit_vehicle);
     }
 
     pub fn add_cap_update(&mut self, cap: StorageUpdate, now: impl Into<Tick>) {
@@ -100,6 +116,7 @@ where
             link_id: cap.link_id,
             from_part: rank,
             released: cap.released,
+            available_at: cap.available_at,
         });
     }
 
@@ -196,7 +213,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::simulation::agents::{AgentEvent, EnvironmentalEventObserver};
     use crate::simulation::config;
     use crate::simulation::id::Id;
     use crate::simulation::messaging::messages::VehicleMessage;
@@ -206,7 +222,7 @@ mod tests {
     use crate::simulation::network::sim_network::StorageUpdate;
     use crate::simulation::scenario::Coordinate;
     use crate::simulation::scenario::network::{Link, Network, Node};
-    use crate::simulation::time::SimTime;
+    use crate::simulation::time::{SimTime, Tick};
     use crate::simulation::vehicles::SimulationVehicle;
     use crate::test_utils::create_agent;
     use macros::deterministic_id_test;
@@ -273,7 +289,8 @@ mod tests {
                 assert_eq!(0, msg.time());
                 assert_eq!(1, msg.vehicles().len());
                 let (mut vehicle, attachments) = msg.vehicles_mut().remove(0).into_parts();
-                vehicle.notify_event(&mut AgentEvent::LeftLink(), SimTime::default());
+                let next_link = vehicle.peek_next_route_element().unwrap().clone();
+                vehicle.move_over_node(&mut Default::default(), &next_link, SimTime::default());
                 broker.add_veh(VehicleMessage::with_attachments(vehicle, attachments), 1);
             } else {
                 for msg in result_0 {
@@ -427,6 +444,7 @@ mod tests {
                     StorageUpdate {
                         link_id: Id::create("4"),
                         released: 42.0,
+                        available_at: Tick::zero(),
                         from_part: 1,
                     },
                     0,
@@ -445,6 +463,45 @@ mod tests {
                     assert!(msg.storage_capacities().is_empty(), "{msg:?}");
                 }
             }
+        });
+    }
+
+    #[deterministic_id_test]
+    fn send_recv_keeps_distinct_future_storage_release_ticks() {
+        execute_test(|broker| {
+            if broker.rank() == 2 {
+                for (released, at) in [(1., 10), (2.5, 20), (0.5, 20)] {
+                    broker.add_cap_update(
+                        StorageUpdate {
+                            link_id: Id::create("4"),
+                            from_part: 1,
+                            released,
+                            available_at: Tick::new(at),
+                        },
+                        0,
+                    );
+                }
+            }
+            let messages = broker.send_recv(0);
+            let updates: Vec<_> = messages
+                .iter()
+                .flat_map(|msg| msg.storage_capacities())
+                .collect();
+            if broker.rank() == 1 {
+                assert_eq!(3, updates.len());
+                assert_eq!(
+                    vec![(1., 10), (2.5, 20), (0.5, 20)],
+                    updates
+                        .iter()
+                        .map(|cap| (cap.released, cap.available_at.value()))
+                        .collect::<Vec<_>>()
+                );
+                assert!(updates.iter().all(|cap| cap.from_part == 2));
+            } else {
+                assert!(updates.is_empty());
+            }
+            let next = broker.send_recv(1);
+            assert!(next.iter().all(|msg| msg.storage_capacities().is_empty()));
         });
     }
 

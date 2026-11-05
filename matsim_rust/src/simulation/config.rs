@@ -549,9 +549,65 @@ pub struct Vehicles {
     pub path: Option<PathBuf>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Transit {
     pub schedule_path: Option<PathBuf>,
+    /// Transit vehicles and their types. Only needed if `simulation` is
+    /// [`TransitSimulation::ScheduleBasedTeleportation`].
+    #[serde(default)]
+    pub vehicles_path: Option<PathBuf>,
+    #[serde(default)]
+    pub simulation: TransitSimulation,
+    /// Leg modes whose legs ride transit vehicles if `simulation` is
+    /// [`TransitSimulation::ScheduleBasedTeleportation`], like MATSim's `transit.transitModes`.
+    #[serde(default = "default_transit_passenger_modes")]
+    pub passenger_modes: Vec<String>,
+}
+
+impl Default for Transit {
+    fn default() -> Self {
+        Self {
+            schedule_path: None,
+            vehicles_path: None,
+            simulation: TransitSimulation::default(),
+            passenger_modes: default_transit_passenger_modes(),
+        }
+    }
+}
+
+fn default_transit_passenger_modes() -> Vec<String> {
+    vec!["pt".to_string()]
+}
+
+/// How the mobsim moves passengers of transit legs.
+#[derive(PartialEq, Eq, Debug, Clone, Copy, Serialize, Deserialize, Default)]
+pub enum TransitSimulation {
+    /// Transit legs are teleported with the travel time of their route.
+    #[default]
+    Teleported,
+    /// Transit vehicles jump from stop to stop according to the schedule, without using the
+    /// network, and passengers board and alight them. There are no vehicle blocks (`Umlauf`), so
+    /// each departure gets a vehicle of its own.
+    ScheduleBasedTeleportation,
+}
+
+impl TransitSimulation {
+    /// Whether each departure needs a vehicle of its own. Without vehicle blocks (`Umlauf`), a
+    /// vehicle cannot serve several departures one after the other.
+    pub fn needs_vehicle_per_departure(self) -> bool {
+        match self {
+            Self::Teleported => false,
+            Self::ScheduleBasedTeleportation => true,
+        }
+    }
+}
+
+fn parse_transit_simulation(value: &str) -> TransitSimulation {
+    match value.to_lowercase().replace(['-', '_'], "").as_str() {
+        "teleported" => TransitSimulation::Teleported,
+        "schedulebasedteleportation" => TransitSimulation::ScheduleBasedTeleportation,
+        _ => panic!("Invalid transit simulation: {}", value),
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -597,6 +653,14 @@ register_override!("vehicles.path", |config, value| {
 
 register_override!("transit.schedule_path", |config, value| {
     config.transit_mut().schedule_path = Some(PathBuf::from(value));
+});
+
+register_override!("transit.vehicles_path", |config, value| {
+    config.transit_mut().vehicles_path = Some(PathBuf::from(value));
+});
+
+register_override!("transit.simulation", |config, value| {
+    config.transit_mut().simulation = parse_transit_simulation(value);
 });
 
 register_override!("facilities.path", |config, value| {
@@ -667,6 +731,8 @@ pub struct Output {
     pub logging: Logging,
     #[serde(default)]
     pub write_events: WriteEvents,
+    #[serde(default)]
+    pub compression_type: CompressionType,
 }
 
 impl Default for Output {
@@ -677,6 +743,7 @@ impl Default for Output {
             profiling: Profiling::None,
             logging: Logging::Info,
             write_events: WriteEvents::File,
+            compression_type: CompressionType::Proto,
         }
     }
 }
@@ -695,6 +762,10 @@ register_override!("output.write_events", |config, value| {
         "file" => WriteEvents::File,
         _ => panic!("Invalid write_events: {}", value),
     };
+});
+
+register_override!("output.compression_type", |config, value| {
+    config.output_mut().compression_type = parse_compression_type(value);
 });
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -900,11 +971,20 @@ register_override!(
     }
 );
 
+#[derive(Serialize, Deserialize, Clone, Debug, Copy, PartialEq, Eq, Default)]
+pub enum ActivityScoring {
+    #[default]
+    ConsiderFullActivity,
+    Ignore,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct ActivityParameter {
     pub activity_type: String,
     #[serde(default = "f64_value_1_0")]
     pub typical_duration_s: f64,
+    #[serde(default)]
+    pub activity_scoring: ActivityScoring,
 }
 
 impl ActivityParameter {
@@ -912,6 +992,7 @@ impl ActivityParameter {
         Self {
             activity_type: activity_type.to_string(),
             typical_duration_s: 1.0,
+            activity_scoring: ActivityScoring::ConsiderFullActivity,
         }
     }
 }
@@ -959,6 +1040,11 @@ pub struct AgentParameter {
     pub waiting: f64,                   // utils/hour
     pub marginal_utility_of_money: f64, // utils/money
     pub aborted_plan_score: f64,        // utils/hour
+    /// The marginal utility of waiting for a transit vehicle, in utils/hour. Without a value, it
+    /// is the marginal utility of traveling by `pt`, so that waiting costs as much as riding, like
+    /// MATSim's `waitingPt`.
+    pub waiting_pt: Option<f64>, // utils/hour
+    pub utility_of_line_switch: f64,    // utils
 }
 
 impl Default for AgentParameter {
@@ -971,6 +1057,8 @@ impl Default for AgentParameter {
             waiting: -0.0,
             marginal_utility_of_money: 1.0,
             aborted_plan_score: -18.0,
+            waiting_pt: None,
+            utility_of_line_switch: -1.0,
         }
     }
 }
@@ -984,6 +1072,14 @@ pub struct QSim {
     pub sample_size: f64,
     pub stuck_threshold: u32,
     pub main_modes: Vec<String>,
+    pub traffic_dynamics: TrafficDynamics,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TrafficDynamics {
+    #[default]
+    Queue,
+    KinematicWaves,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -1058,7 +1154,6 @@ pub struct Controller {
     pub last_iteration: u32,
     pub write_events_interval: u32,
     pub write_plans_interval: u32,
-    pub compression_type: CompressionType,
 }
 
 impl Controller {
@@ -1081,6 +1176,7 @@ pub struct Simulation {
     pub sample_size: f64,
     pub stuck_threshold: u32,
     pub main_modes: Vec<String>,
+    pub traffic_dynamics: TrafficDynamics,
 }
 
 impl From<&Simulation> for QSim {
@@ -1092,6 +1188,7 @@ impl From<&Simulation> for QSim {
             sample_size: value.sample_size,
             stuck_threshold: value.stuck_threshold,
             main_modes: value.main_modes.clone(),
+            traffic_dynamics: value.traffic_dynamics,
         }
     }
 }
@@ -1103,7 +1200,6 @@ impl From<&Simulation> for Controller {
             last_iteration: value.last_iteration,
             write_events_interval: value.write_events_interval,
             write_plans_interval: value.write_plans_interval,
-            compression_type: CompressionType::Proto,
         }
     }
 }
@@ -1122,6 +1218,14 @@ register_override!("qsim.ticks_per_second", |config, value| {
 
 register_override!("qsim.sample_size", |config, value| {
     config.qsim_mut().sample_size = value.parse().unwrap();
+});
+
+register_override!("qsim.traffic_dynamics", |config, value| {
+    config.qsim_mut().traffic_dynamics = match value.to_ascii_lowercase().as_str() {
+        "queue" => TrafficDynamics::Queue,
+        "kinematicwaves" | "kinematic-waves" => TrafficDynamics::KinematicWaves,
+        _ => panic!("Invalid qsim.traffic_dynamics: {value}"),
+    };
 });
 
 register_override!("qsim.stuck_threshold", |config, value| {
@@ -1151,10 +1255,6 @@ register_override!("controller.write_events_interval", |config, value| {
 
 register_override!("controller.write_plans_interval", |config, value| {
     config.controller_mut().write_plans_interval = value.parse().unwrap();
-});
-
-register_override!("controller.compression_type", |config, value| {
-    config.controller_mut().compression_type = parse_compression_type(value);
 });
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
@@ -1385,6 +1485,7 @@ impl Default for QSim {
             sample_size: 1.0,
             stuck_threshold: 10,
             main_modes: vec![],
+            traffic_dynamics: TrafficDynamics::Queue,
         }
     }
 }
@@ -1396,7 +1497,6 @@ impl Default for Controller {
             last_iteration: 1000,
             write_events_interval: 50,
             write_plans_interval: 50,
-            compression_type: CompressionType::Proto,
         }
     }
 }
@@ -1416,6 +1516,7 @@ impl Default for Simulation {
             sample_size: qsim.sample_size,
             stuck_threshold: qsim.stuck_threshold,
             main_modes: qsim.main_modes,
+            traffic_dynamics: qsim.traffic_dynamics,
         }
     }
 }
@@ -1559,12 +1660,17 @@ pub struct MetisOptions {
     pub vertex_weight: Vec<VertexWeight>,
     #[serde(default = "edge_weight_constant")]
     pub edge_weight: EdgeWeight,
-    #[serde(default = "f32_value_0_03")]
+    /// The largest weight of a partition relative to the mean weight of all partitions, as METIS's load imbalance:
+    /// 1.03 allows partitions 3 % heavier than the mean. Must be at least 1.
+    #[serde(default = "f32_value_1_03")]
     pub imbalance_factor: f32,
     #[serde(default = "u32_value_100")]
     pub iteration_number: u32,
     #[serde(default = "bool_value_false")]
     pub contiguous: bool,
+    /// Makes METIS try to minimize the maximum number of neighbors of a partition.
+    #[serde(default = "bool_value_true")]
+    pub min_conn: bool,
 }
 
 #[derive(PartialEq, Debug, ValueEnum, Clone, Copy, Serialize, Deserialize)]
@@ -1586,9 +1692,10 @@ impl Default for MetisOptions {
         MetisOptions {
             vertex_weight: vec![],
             edge_weight: EdgeWeight::Constant,
-            imbalance_factor: 0.03,
+            imbalance_factor: 1.03,
             iteration_number: 10,
             contiguous: true,
+            min_conn: true,
         }
     }
 }
@@ -1614,22 +1721,29 @@ impl MetisOptions {
         self
     }
 
+    /// METIS's `ufactor`: the allowed excess over the mean weight in thousandths, at least 1.
     pub fn ufactor(&self) -> usize {
-        let val = (self.imbalance_factor * 1000.) as usize;
-        if val == 0 {
-            return 1;
-        };
-        val
+        assert!(
+            self.imbalance_factor >= 1.,
+            "imbalance_factor must be at least 1, e.g. 1.03 to allow partitions 3 % heavier than the mean, but is {}",
+            self.imbalance_factor
+        );
+        (((self.imbalance_factor - 1.) * 1000.).round() as usize).max(1)
     }
 
     pub fn set_contiguous(mut self, contiguous: bool) -> Self {
         self.contiguous = contiguous;
         self
     }
+
+    pub fn set_min_conn(mut self, min_conn: bool) -> Self {
+        self.min_conn = min_conn;
+        self
+    }
 }
 
-fn f32_value_0_03() -> f32 {
-    0.03
+fn f32_value_1_03() -> f32 {
+    1.03
 }
 
 fn f64_value_1_0() -> f64 {
@@ -1648,6 +1762,10 @@ fn bool_value_false() -> bool {
     false
 }
 
+fn bool_value_true() -> bool {
+    true
+}
+
 fn default_vertex_weight() -> Vec<VertexWeight> {
     vec![InLinkCapacity]
 }
@@ -1658,6 +1776,37 @@ fn default_profiling_level() -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn traffic_dynamics_defaults_round_trips_and_overrides() {
+        use super::{Config, QSim, TrafficDynamics};
+        let defaults: QSim = serde_yaml::from_str("{}").unwrap();
+        assert_eq!(TrafficDynamics::Queue, defaults.traffic_dynamics);
+        let waves: QSim = serde_yaml::from_str("traffic_dynamics: KinematicWaves").unwrap();
+        assert_eq!(TrafficDynamics::KinematicWaves, waves.traffic_dynamics);
+        let parsed: QSim = serde_yaml::from_str(&serde_yaml::to_string(&waves).unwrap()).unwrap();
+        assert_eq!(waves, parsed);
+        let mut config = Config::default();
+        config.apply_overrides(&[("qsim.traffic_dynamics".into(), "KinematicWaves".into())]);
+        assert_eq!(
+            TrafficDynamics::KinematicWaves,
+            config.qsim().traffic_dynamics
+        );
+        config.apply_overrides(&[("qsim.traffic_dynamics".into(), "Queue".into())]);
+        assert_eq!(TrafficDynamics::Queue, config.qsim().traffic_dynamics);
+    }
+
+    #[test]
+    fn deprecated_simulation_preserves_traffic_dynamics() {
+        let mut config: super::Config = serde_yaml::from_str(
+            "modules:\n  simulation:\n    type: Simulation\n    traffic_dynamics: KinematicWaves\n",
+        )
+        .unwrap();
+        config.ensure_defaults();
+        assert_eq!(
+            super::TrafficDynamics::KinematicWaves,
+            config.qsim().traffic_dynamics
+        );
+    }
     use crate::simulation::config;
     use crate::simulation::config::Output;
     use crate::simulation::config::OverwriteFiles;
@@ -1665,12 +1814,15 @@ mod tests {
     use crate::simulation::config::Profiling;
     use crate::simulation::config::WriteEvents;
     use crate::simulation::config::{
-        ActivityParameter, AgentParameter, CommandLineArgs, CompressionType, ComputationalSetup,
-        Config, Controller, EdgeWeight, MetisOptions, ModeParameter, NonMainModeLinks,
-        PartitionMethod, Partitioning, QSim, Replanning, Routing, Scoring, ScoringMode,
-        StrategySetting, TeleportedParams, TravelTimeCalculator, VertexWeight, parse_key_val,
+        ActivityParameter, ActivityScoring, AgentParameter, CommandLineArgs, CompressionType,
+        ComputationalSetup, Config, Controller, EdgeWeight, MetisOptions, ModeParameter,
+        NonMainModeLinks, PartitionMethod, Partitioning, QSim, Replanning, Routing, Scoring,
+        ScoringMode, StrategySetting, TeleportedParams, TravelTimeCalculator, VertexWeight,
+        parse_key_val,
     };
-    use crate::simulation::config::{Ids, Network, Population, Transit, Vehicles};
+    use crate::simulation::config::{
+        Ids, Network, Population, Transit, TransitSimulation, Vehicles,
+    };
     use crate::simulation::config::{Logging, ModalLinkSelection, RoutingMode};
     use crate::simulation::replanning::{
         KEEP_LAST_SELECTED_STRATEGY_NAME, WORST_SCORE_STRATEGY_NAME,
@@ -1690,6 +1842,7 @@ mod tests {
                 imbalance_factor: 1.02,
                 iteration_number: 100,
                 contiguous: true,
+                min_conn: true,
             }),
             non_main_mode_links: NonMainModeLinks::Include,
         };
@@ -1709,19 +1862,20 @@ mod tests {
             sample_size: 0.1,
             stuck_threshold: 1,
             main_modes: vec!["bike".to_string()],
+            traffic_dynamics: config::TrafficDynamics::Queue,
         };
         let controller = Controller {
             first_iteration: 2,
             last_iteration: 4,
             write_events_interval: 3,
             write_plans_interval: 5,
-            compression_type: CompressionType::Zst,
         };
 
         config.set_partitioning(partitioning);
         config.set_computational_setup(computational_setup);
         config.set_qsim(qsim);
         config.set_controller(controller);
+        config.output_mut().compression_type = CompressionType::Zst;
 
         let yaml = serde_yaml::to_string(&config).expect("Failed to serialize yaml");
 
@@ -1739,6 +1893,7 @@ mod tests {
                 imbalance_factor: 1.02,
                 iteration_number: 100,
                 contiguous: true,
+                min_conn: true,
             })
         );
         assert_eq!(
@@ -1759,7 +1914,7 @@ mod tests {
         assert_eq!(parsed_config.controller().write_events_interval, 3);
         assert_eq!(parsed_config.controller().write_plans_interval, 5);
         assert_eq!(
-            parsed_config.controller().compression_type,
+            parsed_config.output().compression_type,
             CompressionType::Zst
         );
         assert_eq!(parsed_config.qsim().start_time, 0);
@@ -1771,14 +1926,13 @@ mod tests {
     }
 
     #[test]
-    fn controller_defaults_include_iteration_range_and_compression() {
+    fn controller_defaults_include_iteration_range() {
         let config = Config::default();
 
         assert_eq!(config.controller().first_iteration, 0);
         assert_eq!(config.controller().last_iteration, 1000);
         assert_eq!(config.controller().write_events_interval, 50);
         assert_eq!(config.controller().write_plans_interval, 50);
-        assert_eq!(config.controller().compression_type, CompressionType::Proto);
     }
 
     #[test]
@@ -1804,10 +1958,6 @@ mod tests {
         assert_eq!(parsed_config.controller().last_iteration, 4);
         assert_eq!(parsed_config.controller().write_events_interval, 3);
         assert_eq!(parsed_config.controller().write_plans_interval, 5);
-        assert_eq!(
-            parsed_config.controller().compression_type,
-            CompressionType::Proto
-        );
         assert_eq!(parsed_config.qsim().start_time, 1);
         assert_eq!(parsed_config.qsim().end_time, 42);
         assert_eq!(parsed_config.qsim().ticks_per_second, 10);
@@ -1887,6 +2037,7 @@ mod tests {
                 imbalance_factor: 1.1,
                 iteration_number: 100,
                 contiguous: false,
+                min_conn: true,
             })
         );
     }
@@ -2066,6 +2217,8 @@ mod tests {
                 waiting: -3.0
                 marginal_utility_of_money: 2.0
                 aborted_plan_score: -24.0
+                waiting_pt: -9.0
+                utility_of_line_switch: -0.5
             fraction_of_iterations_to_start_score_msa: 0.75
         "#;
 
@@ -2076,6 +2229,7 @@ mod tests {
             activity_params: vec![ActivityParameter {
                 activity_type: "home".to_string(),
                 typical_duration_s: 43_200.0,
+                activity_scoring: ActivityScoring::ConsiderFullActivity,
             }],
             mode_params: vec![ModeParameter {
                 mode: "car".to_string(),
@@ -2094,6 +2248,8 @@ mod tests {
                 waiting: -3.0,
                 marginal_utility_of_money: 2.0,
                 aborted_plan_score: -24.0,
+                waiting_pt: Some(-9.0),
+                utility_of_line_switch: -0.5,
             }],
             fraction_of_iterations_to_start_score_msa: Some(0.75),
         };
@@ -2204,36 +2360,24 @@ mod tests {
 
     #[test]
     fn test_imbalance_factor() {
-        assert_eq!(
-            MetisOptions::default().set_imbalance_factor(0.03).ufactor(),
-            30
-        );
-        assert_eq!(
+        let ufactor = |factor| {
             MetisOptions::default()
-                .set_imbalance_factor(0.001)
-                .ufactor(),
-            1
-        );
-        assert_eq!(
-            MetisOptions::default()
-                .set_imbalance_factor(0.00001)
-                .ufactor(),
-            1
-        );
-        assert_eq!(
-            MetisOptions::default()
-                .set_imbalance_factor(0.00000)
-                .ufactor(),
-            1
-        );
-        assert_eq!(
-            MetisOptions::default().set_imbalance_factor(-1.).ufactor(),
-            1
-        );
-        assert_eq!(
-            MetisOptions::default().set_imbalance_factor(1.1).ufactor(),
-            1100
-        );
+                .set_imbalance_factor(factor)
+                .ufactor()
+        };
+        assert_eq!(30, MetisOptions::default().ufactor());
+        assert_eq!(30, ufactor(1.03));
+        assert_eq!(100, ufactor(1.1));
+        assert_eq!(1100, ufactor(2.1));
+        assert_eq!(1, ufactor(1.001));
+        assert_eq!(1, ufactor(1.0001));
+        assert_eq!(1, ufactor(1.));
+    }
+
+    #[test]
+    #[should_panic(expected = "imbalance_factor must be at least 1")]
+    fn imbalance_factor_below_one_is_rejected() {
+        MetisOptions::default().set_imbalance_factor(0.03).ufactor();
     }
 
     fn write_temp_config(yaml: &str) -> NamedTempFile {
@@ -2307,6 +2451,58 @@ modules:
         let config = Config::default();
 
         assert_eq!(None, config.transit().schedule_path);
+        assert_eq!(None, config.transit().vehicles_path);
+        assert_eq!(TransitSimulation::Teleported, config.transit().simulation);
+        assert_eq!(vec!["pt".to_string()], config.transit().passenger_modes);
+    }
+
+    #[test]
+    fn read_schedule_based_transit_from_yaml_with_default_passenger_modes() {
+        let yaml = r#"
+modules:
+  transit:
+    type: Transit
+    schedule_path: schedule.xml.gz
+    vehicles_path: transitVehicles.xml.gz
+    simulation: ScheduleBasedTeleportation
+"#;
+
+        let parsed_config: Config = serde_yaml::from_str(yaml).expect("failed to parse config");
+
+        let transit = parsed_config.transit();
+        assert_eq!(
+            Some(PathBuf::from("transitVehicles.xml.gz")),
+            transit.vehicles_path
+        );
+        assert_eq!(
+            TransitSimulation::ScheduleBasedTeleportation,
+            transit.simulation
+        );
+        assert_eq!(vec!["pt".to_string()], transit.passenger_modes);
+    }
+
+    #[test]
+    fn override_transit_simulation_and_vehicles_path() {
+        let mut config = base_config();
+        config.apply_overrides(&[
+            (
+                "transit.simulation".to_string(),
+                "schedule_based_teleportation".to_string(),
+            ),
+            (
+                "transit.vehicles_path".to_string(),
+                "transitVehicles.xml".to_string(),
+            ),
+        ]);
+
+        assert_eq!(
+            TransitSimulation::ScheduleBasedTeleportation,
+            config.transit().simulation
+        );
+        assert_eq!(
+            Some(PathBuf::from("transitVehicles.xml")),
+            config.transit().vehicles_path
+        );
     }
 
     #[test]
@@ -2541,6 +2737,7 @@ modules:
         });
         config.set_transit(Transit {
             schedule_path: Some("schedule".into()),
+            ..Transit::default()
         });
         config.set_ids(Ids {
             path: Some("ids".into()),
@@ -2552,6 +2749,7 @@ modules:
             profiling: Profiling::None,
             logging: Logging::Info,
             write_events: WriteEvents::None,
+            compression_type: CompressionType::Proto,
         });
         config.set_partitioning(Partitioning {
             num_parts: 1,
@@ -2609,7 +2807,6 @@ modules:
                 "controller.write_plans_interval".to_string(),
                 "9".to_string(),
             ),
-            ("controller.compression_type".to_string(), "zst".to_string()),
             ("qsim.start_time".to_string(), "1".to_string()),
             ("qsim.end_time".to_string(), "2".to_string()),
             ("qsim.ticks_per_second".to_string(), "10".to_string()),
@@ -2622,7 +2819,6 @@ modules:
         assert_eq!(config.controller().last_iteration, 34);
         assert_eq!(config.controller().write_events_interval, 7);
         assert_eq!(config.controller().write_plans_interval, 9);
-        assert_eq!(config.controller().compression_type, CompressionType::Zst);
         assert_eq!(config.qsim().start_time, 1);
         assert_eq!(config.qsim().end_time, 2);
         assert_eq!(config.qsim().ticks_per_second, 10);
@@ -2681,6 +2877,15 @@ modules:
 
         config.apply_overrides(&[("output.write_events".to_string(), "none".to_string())]);
         assert_eq!(config.output().write_events, WriteEvents::None);
+    }
+
+    #[test]
+    fn override_output_compression_type() {
+        let mut config = base_config();
+        assert_eq!(config.output().compression_type, CompressionType::Proto);
+
+        config.apply_overrides(&[("output.compression_type".to_string(), "zst".to_string())]);
+        assert_eq!(config.output().compression_type, CompressionType::Zst);
     }
 
     #[test]

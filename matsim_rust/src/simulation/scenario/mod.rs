@@ -6,9 +6,10 @@ pub mod transit;
 pub mod trip_structure_utils;
 pub mod vehicles;
 
-use crate::simulation::config::Config;
+use crate::simulation::config::{Config, TransitSimulation};
 use crate::simulation::network::LinkStorageCapacities;
 use crate::simulation::network::sim_network::SimNetworkPartition;
+use crate::simulation::pt::schedule::TransitSimSchedule;
 use crate::simulation::{id, io};
 use facilities::ActivityFacilities;
 use network::Network;
@@ -160,6 +161,8 @@ pub struct Scenario {
     pub garage: Garage,
     pub population: Population,
     pub transit_schedule: TransitSchedule,
+    /// Transit vehicles and their types, separate from the vehicles of persons.
+    pub transit_garage: Garage,
     pub facilities: ActivityFacilities,
     pub config: Arc<Config>,
 }
@@ -184,12 +187,16 @@ impl Scenario {
         // reference them.
         let facilities = Self::load_facilities(&config);
         let population = Self::load_population(&config, &mut garage);
+        // Transit vehicles are loaded after the population, so that the internal ids of the
+        // persons' vehicles do not depend on whether transit vehicles are loaded.
+        let transit_garage = Self::load_transit_garage(&config);
 
         Scenario {
             network,
             garage,
             population,
             transit_schedule,
+            transit_garage,
             facilities,
             config,
         }
@@ -212,6 +219,15 @@ impl Scenario {
 
     fn load_garage(config: &Config) -> Garage {
         if let Some(path) = &config.vehicles().path {
+            let garage_in_path = io::resolve_path(config.context(), path);
+            Garage::from_file(&garage_in_path)
+        } else {
+            Garage::default()
+        }
+    }
+
+    fn load_transit_garage(config: &Config) -> Garage {
+        if let Some(path) = &config.transit().vehicles_path {
             let garage_in_path = io::resolve_path(config.context(), path);
             Garage::from_file(&garage_in_path)
         } else {
@@ -252,7 +268,10 @@ impl Scenario {
 pub struct ScenarioCore {
     pub network: Arc<Network>,
     pub garage: Arc<Garage>,
+    /// The transit schedule with all data of its files, also with teleported transit.
     pub transit_schedule: Arc<TransitSchedule>,
+    /// The transit vehicles, which the controller writes to the output with the schedule.
+    pub transit_garage: Arc<Garage>,
     /// Activity facilities, prepared by `prepare_for_sim` before the controller shares them.
     pub facilities: Arc<ActivityFacilities>,
     pub config: Arc<Config>,
@@ -262,6 +281,10 @@ pub struct ScenarioCore {
 #[derive(Debug)]
 pub struct ControllerScenario {
     pub core: ScenarioCore,
+    /// What the mobsim adds to `core.transit_schedule`: drivers, vehicles and the partitions of the
+    /// stops. Empty unless transit is simulated [schedule based](TransitSimulation::ScheduleBasedTeleportation).
+    /// Like the network partitions, it is only handed to the mobsim partitions.
+    pub transit_sim_schedule: Arc<TransitSimSchedule>,
     pub population: Population,
 }
 
@@ -277,6 +300,8 @@ pub struct MobsimScenarioPartition {
     pub rank: u32,
     pub scenario: ScenarioCore,
     pub network_partition: SimNetworkPartition,
+    /// Shared by all partitions, see [`ControllerScenario::transit_sim_schedule`].
+    pub transit_sim_schedule: Arc<TransitSimSchedule>,
 }
 
 /// Input for one mobsim partition run.
@@ -288,14 +313,31 @@ pub struct MobsimInput {
 
 impl From<Scenario> for ControllerScenario {
     fn from(scenario: Scenario) -> Self {
+        let transit_schedule = Arc::new(scenario.transit_schedule);
+        // Built here, after the population exists, so that the driver ids come after all person
+        // ids. With teleported transit, no driver ids are created.
+        let transit_sim_schedule = match scenario.config.transit().simulation {
+            TransitSimulation::Teleported => TransitSimSchedule::default(),
+            simulation @ TransitSimulation::ScheduleBasedTeleportation => {
+                TransitSimSchedule::build(
+                    transit_schedule.clone(),
+                    &scenario.network,
+                    &scenario.transit_garage,
+                    &scenario.population,
+                    simulation,
+                )
+            }
+        };
         Self {
             core: ScenarioCore {
                 network: Arc::new(scenario.network),
                 garage: Arc::new(scenario.garage),
-                transit_schedule: Arc::new(scenario.transit_schedule),
+                transit_schedule,
+                transit_garage: Arc::new(scenario.transit_garage),
                 facilities: Arc::new(scenario.facilities),
                 config: scenario.config,
             },
+            transit_sim_schedule: Arc::new(transit_sim_schedule),
             population: scenario.population,
         }
     }
@@ -362,6 +404,7 @@ impl ControllerScenario {
                 // Since core holds Arcs, this clone is cheap.
                 scenario: self.core.clone(),
                 network_partition,
+                transit_sim_schedule: self.transit_sim_schedule.clone(),
             },
             population: PopulationShard { population },
         }
@@ -398,18 +441,11 @@ mod tests {
     fn scenario_without_transit_config_uses_shared_empty_schedule() {
         let scenario = Scenario::load(Config::default());
 
-        assert!(scenario.transit_schedule.lines().is_empty());
-        assert!(scenario.transit_schedule.facilities().is_empty());
+        assert!(scenario.transit_schedule.is_empty());
+        assert_eq!(0, scenario.transit_schedule.facilities().count());
 
         let controller_scenario: ControllerScenario = scenario.into();
-        assert!(controller_scenario.core.transit_schedule.lines().is_empty());
-        assert!(
-            controller_scenario
-                .core
-                .transit_schedule
-                .facilities()
-                .is_empty()
-        );
+        assert!(controller_scenario.transit_sim_schedule.is_empty());
     }
 
     #[deterministic_id_test]
@@ -417,12 +453,13 @@ mod tests {
         let mut config = Config::default();
         config.set_transit(Transit {
             schedule_path: Some("./assets/pt_tutorial/transitschedule.xml".into()),
+            ..Transit::default()
         });
 
         let scenario = Scenario::load(config);
 
-        assert_eq!(1, scenario.transit_schedule.lines().len());
-        assert_eq!(4, scenario.transit_schedule.facilities().len());
+        assert_eq!(1, scenario.transit_schedule.num_lines());
+        assert_eq!(4, scenario.transit_schedule.facilities().count());
         assert_eq!(2, scenario.transit_schedule.num_routes());
         assert_eq!(
             "Blue Line",
@@ -476,6 +513,7 @@ mod tests {
             garage,
             population,
             transit_schedule: TransitSchedule::default(),
+            transit_garage: Garage::default(),
             facilities: ActivityFacilities::default(),
             config,
         }

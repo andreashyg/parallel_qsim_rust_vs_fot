@@ -1,6 +1,5 @@
 use super::link::{LocalLink, SimLink, SplitInLink, SplitOutLink};
-use crate::simulation::agents::agent::SimulationAgent;
-use crate::simulation::agents::{AgentEvent, EnvironmentalEventObserver};
+use crate::simulation::agents::LegAgent;
 use crate::simulation::controller::ThreadLocalComputationalEnvironment;
 use crate::simulation::events::{EventsManager, LinkEnterEventBuilder, LinkLeaveEventBuilder};
 use crate::simulation::id::Id;
@@ -24,6 +23,8 @@ pub struct StorageUpdate {
     pub link_id: Id<Link>,
     pub from_part: u32,
     pub released: f64,
+    /// Absolute tick when the sender's gap reaches QStart. Queue updates are immediate.
+    pub available_at: Tick,
 }
 
 #[derive(Debug)]
@@ -92,6 +93,8 @@ pub struct SimNetworkPartition {
     candidates: Vec<Candidate>,
     veh_counter: usize,
     partition: u32,
+    // See `find_neighbors`.
+    neighbors: IntSet<u32>,
     clock: SimClock,
 }
 
@@ -114,8 +117,8 @@ struct Candidate {
 #[derive(Debug, PartialEq)]
 enum FrontDecision {
     NoVehicle,
-    MoveNormally,
-    MoveAlthoughStuck,
+    MoveNormally(Id<Link>),
+    MoveAlthoughStuck(Id<Link>),
     Wait,
     Abort,
 }
@@ -164,7 +167,71 @@ impl SimNetworkPartition {
             .map(|n| (n.id.clone(), Self::create_sim_node(n, base_seed)))
             .collect();
 
-        SimNetworkPartition::build(sim_nodes, sim_links, partition, clock)
+        let neighbors = Self::find_neighbors(
+            global_network,
+            &link_ids,
+            partition,
+            &qsim_config.main_modes,
+        );
+        SimNetworkPartition::build(sim_nodes, sim_links, partition, neighbors, clock)
+    }
+
+    /// The partitions on the other side of the split links of this partition that can carry
+    /// vehicles. A partition exchanges a message with each of them in every time step and waits
+    /// for theirs.
+    ///
+    /// A split link that allows modes, but none of `main_modes`, carries no vehicles, e.g. a link
+    /// of a transit network whose vehicles are teleported. It does not make the partitions on its
+    /// two sides neighbors. Links without any mode, and all links if there are no main modes, do.
+    /// If no split link of this partition can carry vehicles, all of them count, so that the
+    /// partition still waits for others and reads their messages (e.g. teleported agents) during
+    /// the simulation, see [`NetMessageBroker::take_unprocessed_messages`].
+    ///
+    /// [`NetMessageBroker::take_unprocessed_messages`]: crate::simulation::messaging::sim_communication::message_broker::NetMessageBroker::take_unprocessed_messages
+    fn find_neighbors(
+        global_network: &Network,
+        link_ids: &[&Id<Link>],
+        partition: u32,
+        main_modes: &[String],
+    ) -> IntSet<u32> {
+        // Only look up the mode ids. A main mode without an id is allowed on no link.
+        let main_modes: IntSet<Id<String>> = main_modes
+            .iter()
+            .filter_map(|mode| Id::try_get_from_ext(mode))
+            .collect();
+        let carries_vehicles = |link: &Link| {
+            main_modes.is_empty()
+                || link.modes.is_empty()
+                || link.modes.iter().any(|mode| main_modes.contains(mode))
+        };
+        let neighbor = |link: &Link| {
+            let from_part = global_network.get_node(&link.from).partition;
+            let to_part = global_network.get_node(&link.to).partition;
+            match (from_part == partition, to_part == partition) {
+                (true, false) => Some(to_part),
+                (false, true) => Some(from_part),
+                _ => None,
+            }
+        };
+
+        let split_links: Vec<&Link> = link_ids
+            .iter()
+            .map(|id| global_network.get_link(id))
+            .filter(|link| neighbor(link).is_some())
+            .collect();
+        let neighbors: IntSet<u32> = split_links
+            .iter()
+            .filter(|link| carries_vehicles(link))
+            .filter_map(|link| neighbor(link))
+            .collect();
+        if neighbors.is_empty() {
+            split_links
+                .iter()
+                .filter_map(|link| neighbor(link))
+                .collect()
+        } else {
+            neighbors
+        }
     }
 
     #[cfg(test)]
@@ -177,7 +244,7 @@ impl SimNetworkPartition {
         Self::from_network(global_network, &storage_capacities, partition, config)
     }
 
-    pub(crate) fn drain(&mut self) -> Vec<SimulationAgent> {
+    pub(crate) fn drain(&mut self) -> Vec<LegAgent> {
         self.links
             .values_mut()
             .flat_map(|link| link.drain())
@@ -222,6 +289,7 @@ impl SimNetworkPartition {
         nodes: IntMap<Id<Node>, SimNode>,
         links: IntMap<Id<Link>, SimLink>,
         partition: u32,
+        neighbors: IntSet<u32>,
         clock: SimClock,
     ) -> Self {
         Self {
@@ -233,6 +301,7 @@ impl SimNetworkPartition {
             candidates: Vec::new(),
             veh_counter: 0,
             partition,
+            neighbors,
             clock,
         }
     }
@@ -241,18 +310,9 @@ impl SimNetworkPartition {
         self.partition
     }
 
+    /// The partitions this partition exchanges vehicles with, see [`Self::find_neighbors`].
     pub fn neighbors(&self) -> IntSet<u32> {
-        let distinct_partitions: IntSet<u32> = self
-            .links
-            .values()
-            .filter(|link| match link {
-                SimLink::Local(_) => false,
-                SimLink::In(_) => true,
-                SimLink::Out(_) => true,
-            })
-            .map(|link| link.neighbor_part())
-            .collect();
-        distinct_partitions
+        self.neighbors.clone()
     }
 
     pub fn active_nodes(&self) -> usize {
@@ -346,7 +406,7 @@ impl SimNetworkPartition {
     pub fn apply_storage_cap_updates(&mut self, storage_caps: Vec<StorageUpdate>) {
         for cap in storage_caps {
             if let SimLink::Out(link) = self.links.get_mut(&cap.link_id).unwrap() {
-                link.apply_storage_cap_update(cap.released);
+                link.apply_storage_cap_update(cap.released, cap.available_at);
             } else {
                 panic!("only expecting ids for split out links ")
             }
@@ -434,6 +494,15 @@ impl SimNetworkPartition {
         comp_env: &mut ThreadLocalComputationalEnvironment,
     ) -> MoveSingleLinkResult {
         let vehicles_end_leg = link.do_sim_step(now, comp_env);
+        Self::finish_link_step(link, active_nodes, now, vehicles_end_leg)
+    }
+
+    fn finish_link_step(
+        link: &mut LocalLink,
+        active_nodes: &mut ActiveCache<Node>,
+        now: Tick,
+        vehicles_end_leg: Vec<SimulationVehicle>,
+    ) -> MoveSingleLinkResult {
         if link.to_nodes_active() {
             active_nodes.activate(link.to.clone());
         }
@@ -458,25 +527,21 @@ impl SimNetworkPartition {
     ) -> MoveSingleLinkResult {
         // if anything has changed on the link, we want to report the updated storage capacity to the
         // upstream partition.
-        let before = link.occupied_storage();
-        let result = Self::move_local_link(&mut link.local_link, active_nodes, now, events);
-        let diff = before - link.occupied_storage();
+        let link_id = link.local_link.id.clone();
+        let from_part = link.from_part;
 
-        assert!(
-            diff.partial_cmp(&0.0).unwrap().is_ge(),
-            "The occupied storage on link {:?} cannot increase when moving vehicles.",
-            link.local_link.id
-        );
-
-        if diff > 0. {
+        // Register every new gap as capacity early, since the link might get empty and thus deactivated now.
+        let vehicles_end_leg = link.do_sim_step(now, events, |release| {
+            // Transfer every new gap before deactivation, even if the link is now empty.
+            // Its arrival is handled lazily by the upstream mirror, not by moving this link.
             storage_cap_updates.push(StorageUpdate {
-                link_id: link.local_link.id.clone(),
-                from_part: link.from_part,
-                released: diff,
-            })
-        }
-
-        result
+                link_id: link_id.clone(),
+                from_part,
+                released: release.pce,
+                available_at: release.available_at,
+            });
+        });
+        Self::finish_link_step(&mut link.local_link, active_nodes, now, vehicles_end_leg)
     }
 
     fn move_out_link(
@@ -601,7 +666,7 @@ impl SimNetworkPartition {
 
     fn evaluate_front_vehicle(
         in_id: &Id<Link>,
-        links: &IntMap<Id<Link>, SimLink>,
+        links: &mut IntMap<Id<Link>, SimLink>,
         now: Tick,
     ) -> FrontDecision {
         let in_link = links.get(in_id).unwrap();
@@ -634,10 +699,12 @@ impl SimNetworkPartition {
             );
             return FrontDecision::Abort;
         }
-        if out_link.is_available() {
-            FrontDecision::MoveNormally
-        } else if in_link.is_veh_stuck(now) {
-            FrontDecision::MoveAlthoughStuck
+        let is_stuck = in_link.is_veh_stuck(now);
+        let id = next_id.clone();
+        if links.get_mut(&id).unwrap().update_and_is_available(now) {
+            FrontDecision::MoveNormally(id)
+        } else if is_stuck {
+            FrontDecision::MoveAlthoughStuck(id)
         } else {
             FrontDecision::Wait
         }
@@ -653,7 +720,8 @@ impl SimNetworkPartition {
     ) {
         loop {
             match Self::evaluate_front_vehicle(in_link_id, links, now) {
-                FrontDecision::MoveNormally | FrontDecision::MoveAlthoughStuck => {
+                FrontDecision::MoveNormally(next_link)
+                | FrontDecision::MoveAlthoughStuck(next_link) => {
                     let in_link = links.get_mut(in_link_id).unwrap();
                     let vehicle = in_link
                         .pop_veh_and_restart_stuck_timer(now)
@@ -663,6 +731,7 @@ impl SimNetworkPartition {
                         vehicle,
                         in_link_id,
                         in_link_active,
+                        next_link,
                         links,
                         active_links,
                         comp_env,
@@ -693,6 +762,7 @@ impl SimNetworkPartition {
         mut vehicle: SimulationVehicle,
         old_link_id: &Id<Link>,
         old_link_active: bool,
+        next_link: Id<Link>,
         links: &mut IntMap<Id<Link>, SimLink>,
         active_links: &mut ActiveCache<Link>,
         comp_env: &mut ThreadLocalComputationalEnvironment,
@@ -710,9 +780,14 @@ impl SimNetworkPartition {
                 .build()
                 .unwrap(),
         );
-        vehicle.notify_event(&mut AgentEvent::LeftLink(), now_time);
-        let new_link_id = vehicle.curr_link_id().unwrap().clone();
-        let new_link = links.get_mut(&new_link_id).unwrap();
+        // Reuse the destination whose connectivity/capacity was checked before popping the
+        // vehicle. The driver is told which link it moves onto, so the network needs no second
+        // phase/role projection to discover the same destination again.
+        vehicle.move_over_node(comp_env, &next_link, now_time);
+        // A link whose to node equals its from node can be the old and the new link at once. In
+        // that case, the vehicle has just been pushed onto the old link, so it stays active.
+        let old_link_stays_active = old_link_active || next_link == *old_link_id;
+        let new_link = links.get_mut(&next_link).unwrap();
 
         // for out links, link enter event is published at receiving partition
         if let SimLink::Local(_) = new_link {
@@ -728,14 +803,10 @@ impl SimNetworkPartition {
 
         new_link.push_veh(vehicle, QStart, now);
 
-        // A link whose to node equals its from node can be the old and the new link at once. In
-        // that case, the vehicle has just been pushed onto the old link, so it stays active.
-        let old_link_stays_active = old_link_active || new_link_id == *old_link_id;
-
         // activate new link, unless it sleeps. A vehicle at the end of the queue does not change
         // when a sleeping link has to be moved.
         if !new_link.is_sleeping() {
-            active_links.activate(new_link_id);
+            active_links.activate(next_link);
         }
 
         // deactivate old link if it is not active anymore
@@ -762,6 +833,11 @@ struct MoveSingleLinkResult {
 #[cfg(test)]
 mod tests {
     use super::{Candidate, SimNetworkPartition};
+    use crate::simulation::Identifiable;
+    use crate::simulation::agents::{
+        LegAgent, LegLogic, NetworkDriverAgent, NetworkDriverLogic, NextPhase, PassengerAgent,
+        SimulationAgentLogic, TeleportationAgent, TransitDriverAgent,
+    };
     use crate::simulation::config::{MetisOptions, PartitionMethod};
     use crate::simulation::controller::ThreadLocalComputationalEnvironment;
     use crate::simulation::events::{LinkEnterEvent, LinkLeaveEvent};
@@ -772,15 +848,20 @@ mod tests {
     use crate::simulation::network::link::SimLink::Local;
     use crate::simulation::scenario::Coordinate;
     use crate::simulation::scenario::network::{Link, Network, Node};
+    use crate::simulation::scenario::population::InternalPerson;
+    use crate::simulation::scenario::vehicles::InternalVehicle;
+    use crate::simulation::time::SimTime;
     use crate::simulation::vehicles::SimulationVehicle;
     use crate::test_utils;
     use assert_approx_eq::assert_approx_eq;
     use macros::deterministic_id_test;
+    use nohash_hasher::IntSet;
     use rand::{RngExt, SeedableRng};
     use rand_xoshiro::Xoshiro256PlusPlus;
     use std::cell::RefCell;
     use std::panic::{AssertUnwindSafe, catch_unwind};
     use std::rc::Rc;
+    use std::sync::{Arc, Mutex};
 
     #[derive(Clone, Default)]
     // simple events handler that just records the events it receives.
@@ -867,6 +948,205 @@ mod tests {
 
     fn test_vehicle(id: u64, route: Vec<&str>) -> SimulationVehicle {
         SimulationVehicle::from_parts(id, 0, 100.0, 1.0, test_utils::create_agent(id, route))
+    }
+
+    /// A driver without plan logic that records the links the network moves it onto.
+    struct RecordingDriver {
+        delegate: NetworkDriverAgent,
+        route: Vec<Id<Link>>,
+        position: usize,
+        moved_onto: Arc<Mutex<Vec<String>>>,
+        // When the driver moves onto the first link, it continues on the second instead of its route.
+        diversion: Option<(Id<Link>, Id<Link>)>,
+    }
+
+    impl Identifiable<InternalPerson> for RecordingDriver {
+        fn id(&self) -> &Id<InternalPerson> {
+            self.delegate.id()
+        }
+    }
+
+    impl SimulationAgentLogic for RecordingDriver {
+        fn into_person(self: Box<Self>) -> Option<InternalPerson> {
+            self.delegate.into_person()
+        }
+    }
+
+    impl LegLogic for RecordingDriver {
+        fn mode(&self) -> &Id<String> {
+            self.delegate.mode()
+        }
+        fn routing_mode(&self) -> Option<&Id<String>> {
+            self.delegate.routing_mode()
+        }
+        fn departure_link(&self) -> &Id<Link> {
+            &self.route[0]
+        }
+        fn curr_link_id(&self) -> Option<&Id<Link>> {
+            self.route.get(self.position)
+        }
+        fn try_into_network(self: Box<Self>) -> Result<NetworkDriverAgent, LegAgent> {
+            Ok(self)
+        }
+        fn try_into_teleportation(self: Box<Self>) -> Result<TeleportationAgent, LegAgent> {
+            Err(self)
+        }
+        fn try_into_passenger(self: Box<Self>) -> Result<PassengerAgent, LegAgent> {
+            Err(self)
+        }
+        fn try_into_transit_driver(self: Box<Self>) -> Result<TransitDriverAgent, LegAgent> {
+            Err(self)
+        }
+        fn finish_leg(self: Box<Self>, now: SimTime) -> NextPhase {
+            self.delegate.finish_leg(now)
+        }
+    }
+
+    impl NetworkDriverLogic for RecordingDriver {
+        fn planned_vehicle_id(&self) -> Option<&Id<InternalVehicle>> {
+            None
+        }
+        fn peek_next_link_id(&self) -> Option<&Id<Link>> {
+            self.route.get(self.position + 1)
+        }
+        fn is_wanting_to_arrive_on_current_link(&self) -> bool {
+            self.peek_next_link_id().is_none()
+        }
+        fn notify_move_over_node(
+            &mut self,
+            _comp_env: &mut ThreadLocalComputationalEnvironment,
+            next_link: &Id<Link>,
+            _now: SimTime,
+        ) {
+            self.moved_onto
+                .lock()
+                .unwrap()
+                .push(next_link.external().to_owned());
+            self.position += 1;
+            if let Some((link, instead)) = &self.diversion
+                && link == next_link
+            {
+                self.route.truncate(self.position + 1);
+                self.route.push(instead.clone());
+            }
+        }
+    }
+
+    #[deterministic_id_test]
+    fn movement_tells_the_driver_the_checked_destination() {
+        let mut global_network = Network::new();
+        add_test_nodes(&mut global_network, &["S", "K", "TX", "TY"]);
+        add_test_link(&mut global_network, "A", "S", "K", 1.0, 3600.0, 100.0);
+        add_test_link(&mut global_network, "X", "K", "TX", 75.0, 3600.0, 100.0);
+        add_test_link(&mut global_network, "Y", "K", "TY", 75.0, 3600.0, 100.0);
+        let mut network =
+            SimNetworkPartition::from_network_for_test(&global_network, 0, &test_utils::config());
+        let moved_onto = Arc::new(Mutex::new(Vec::new()));
+        let driver = RecordingDriver {
+            delegate: test_utils::create_agent(1, vec!["A", "X"]),
+            route: vec![Id::get_from_ext("A"), Id::get_from_ext("X")],
+            position: 0,
+            moved_onto: moved_onto.clone(),
+            diversion: None,
+        };
+        let vehicle = SimulationVehicle::from_parts(1, 0, 100.0, 1.0, Box::new(driver));
+        network.send_veh_en_route(vehicle, None, 0);
+        let (mut env, events) = environment_with_transition_events();
+        network.move_links(&mut env, 0);
+        network.move_nodes(&mut env, 1);
+
+        assert_eq!(events.leaves_on("A"), vec!["1"]);
+        assert_eq!(
+            &*events.link_enters.borrow(),
+            &[("X".to_string(), "1".to_string())]
+        );
+        assert_eq!(local_vehicle_count(&network, "X"), 1);
+        assert_eq!(local_vehicle_count(&network, "Y"), 0);
+        assert_eq!(*moved_onto.lock().unwrap(), vec!["X"]);
+    }
+
+    /// A network S -A-> K -B-> M, where the links X and Y leave M. The destination of Y lies on
+    /// `partition_of_y`.
+    fn network_with_a_choice_at_m(partition_of_y: u32) -> Network {
+        let mut network = Network::new();
+        add_test_nodes(&mut network, &["S", "K", "M", "TX"]);
+        let mut to_y = Node::new(Id::create("TY"), Coordinate::default(), 0, 1);
+        to_y.partition = partition_of_y;
+        network.add_node(to_y);
+        add_test_link(&mut network, "A", "S", "K", 1.0, 3600.0, 100.0);
+        add_test_link(&mut network, "B", "K", "M", 1.0, 3600.0, 100.0);
+        add_test_link(&mut network, "X", "M", "TX", 1.0, 3600.0, 100.0);
+        network.add_link(Link {
+            id: Id::create("Y"),
+            from: Id::create("M"),
+            to: Id::create("TY"),
+            length: 1.0,
+            capacity: 3600.0,
+            freespeed: 100.0,
+            permlanes: 1.0,
+            modes: Default::default(),
+            partition: partition_of_y,
+            attributes: Default::default(),
+        });
+        network
+    }
+
+    /// A vehicle on the route A, B, X whose driver changes to Y when it moves onto B.
+    fn vehicle_diverting_at_b(moved_onto: Arc<Mutex<Vec<String>>>) -> SimulationVehicle {
+        let driver = RecordingDriver {
+            delegate: test_utils::create_agent(1, vec!["A", "B", "X"]),
+            route: ["A", "B", "X"].into_iter().map(Id::get_from_ext).collect(),
+            position: 0,
+            moved_onto,
+            diversion: Some((Id::get_from_ext("B"), Id::get_from_ext("Y"))),
+        };
+        SimulationVehicle::from_parts(1, 0, 100.0, 1.0, Box::new(driver))
+    }
+
+    #[deterministic_id_test]
+    fn driver_can_change_its_route_at_a_node() {
+        let global_network = network_with_a_choice_at_m(0);
+        let mut network =
+            SimNetworkPartition::from_network_for_test(&global_network, 0, &test_utils::config());
+        let moved_onto = Arc::new(Mutex::new(Vec::new()));
+        network.send_veh_en_route(vehicle_diverting_at_b(moved_onto.clone()), None, 0);
+        let mut env = Default::default();
+
+        let mut arrived = Vec::new();
+        for now in 0..10 {
+            network.move_nodes(&mut env, now);
+            arrived.extend(network.move_links(&mut env, now).vehicles_end_leg);
+        }
+
+        assert_eq!(*moved_onto.lock().unwrap(), vec!["B", "Y"]);
+        assert_eq!(arrived.len(), 1);
+        assert_eq!(arrived[0].curr_link_id().map(Id::external), Some("Y"));
+    }
+
+    #[deterministic_id_test]
+    fn driver_can_change_its_route_towards_another_partition() {
+        let global_network = network_with_a_choice_at_m(1);
+        let config = test_utils::config();
+        let mut first = SimNetworkPartition::from_network_for_test(&global_network, 0, &config);
+        let mut second = SimNetworkPartition::from_network_for_test(&global_network, 1, &config);
+        let moved_onto = Arc::new(Mutex::new(Vec::new()));
+        first.send_veh_en_route(vehicle_diverting_at_b(moved_onto.clone()), None, 0);
+        let mut env: ThreadLocalComputationalEnvironment = Default::default();
+
+        let mut arrived = Vec::new();
+        for now in 0..10 {
+            first.move_nodes(&mut env, now);
+            let exited = first.move_links(&mut env, now).vehicles_exit_partition;
+            for vehicle in exited {
+                assert_eq!(vehicle.curr_link_id().map(Id::external), Some("Y"));
+                second.send_veh_en_route(vehicle, Some(env.events_manager()), now);
+            }
+            second.move_nodes(&mut env, now);
+            arrived.extend(second.move_links(&mut env, now).vehicles_end_leg);
+        }
+
+        assert_eq!(*moved_onto.lock().unwrap(), vec!["B", "Y"]);
+        assert_eq!(arrived.len(), 1);
     }
 
     fn push_vehicle_to_queue(
@@ -1197,10 +1477,10 @@ mod tests {
     }
 
     /// Setting: C has exactly one available slot, A offers A1 and A2, and the stuck threshold is ten ticks.
-    /// Execution: A1 occupies C's last slot at tick 1, making A2 the blocked front vehicle from tick 1 onward; A2 is checked again at ticks 10 and 11.
-    /// Expectation: A2 remains blocked at tick 10 after waiting nine ticks and leaves A exactly at tick 11 because the current implementation uses an inclusive `>=` comparison.
+    /// Execution: A1 occupies C's last slot at tick 1, making A2 the blocked front vehicle from tick 1 onward; A2 is checked again at ticks 11 and 12.
+    /// Expectation: A2 remains blocked at tick 11 after waiting exactly ten ticks and leaves A at tick 12, after more than the threshold.
     #[deterministic_id_test]
-    fn stuck_vehicle_moves_at_inclusive_threshold() {
+    fn stuck_vehicle_moves_after_threshold() {
         let mut global_network = Network::new();
         add_test_nodes(&mut global_network, &["S", "K", "T", "END"]);
         add_test_link(&mut global_network, "A", "S", "K", 1.0, 7200.0, 100.0);
@@ -1219,10 +1499,10 @@ mod tests {
         network.move_nodes(&mut env, 1);
         assert_eq!(vec!["11"], events.leaves_on("A"));
 
-        network.move_nodes(&mut env, 10);
+        network.move_nodes(&mut env, 11);
         assert_eq!(vec!["11"], events.leaves_on("A"));
 
-        network.move_nodes(&mut env, 11);
+        network.move_nodes(&mut env, 12);
         assert_eq!(vec!["11", "12"], events.leaves_on("A"));
     }
 
@@ -1250,7 +1530,13 @@ mod tests {
             14.0,
             network.links.get(&Id::create("C")).unwrap().used_storage()
         );
-        assert!(network.links.get(&Id::create("C")).unwrap().is_available());
+        assert!(
+            network
+                .links
+                .get_mut(&Id::create("C"))
+                .unwrap()
+                .update_and_is_available(0)
+        );
 
         network.move_nodes(&mut env, 1);
         assert_eq!(vec!["1"], events.leaves_on("U"));
@@ -1576,9 +1862,13 @@ mod tests {
             network.move_nodes(&mut env, now);
             network.move_links(&mut env, now);
 
+            let link3_available = network
+                .links
+                .get_mut(&id_3)
+                .unwrap()
+                .update_and_is_available(now);
             let link1 = network.links.get(&id_1).unwrap();
             let link2 = network.links.get(&id_2).unwrap();
-            let link3 = network.links.get(&id_3).unwrap();
 
             // at 10, 20, 30, ... link1 offers a vehicle
             if now < 91 && (0..91).step_by(10).collect::<Vec<u32>>().contains(&now) {
@@ -1626,10 +1916,7 @@ mod tests {
                         || now == 1809
                         || now == 1910)
                     {
-                        assert!(
-                            !link3.is_available(),
-                            "Storage cap reached at timestep {now}"
-                        );
+                        assert!(!link3_available, "Storage cap reached at timestep {now}");
                     }
                 } else {
                     assert!(
@@ -1676,9 +1963,13 @@ mod tests {
             network.move_nodes(&mut env, now);
             network.move_links(&mut env, now);
 
+            let link3_available = network
+                .links
+                .get_mut(&id_3)
+                .unwrap()
+                .update_and_is_available(now);
             let link1 = network.links.get(&id_1).unwrap();
             let link2 = network.links.get(&id_2).unwrap();
-            let link3 = network.links.get(&id_3).unwrap();
 
             // at 10, 20, 30, ... link1 offers a vehicle
             if now < 91 && (0..91).step_by(10).collect::<Vec<u32>>().contains(&now) {
@@ -1699,28 +1990,25 @@ mod tests {
                 assert!(link1.offers_veh().is_none());
 
                 // veh0 reaches buffer at 1001 and is released immediately.
-                // veh1 reaches the buffer at 1011 and is released at 1021.
+                // veh1 reaches the buffer at 1011 and is released at 1022.
                 // Each following vehicle enters the buffer after nine refill ticks and is released
-                // ten ticks later at the inclusive stuck threshold.
+                // eleven ticks later, after more than the stuck threshold.
                 // ...
-                if (1011..1021).contains(&now)
-                    || (1030..1040).contains(&now)
-                    || (1049..1059).contains(&now)
-                    || (1068..1078).contains(&now)
-                    || (1087..1097).contains(&now)
-                    || (1106..1116).contains(&now)
-                    || (1125..1135).contains(&now)
-                    || (1144..1154).contains(&now)
-                    || (1163..1173).contains(&now)
+                if (1011..1022).contains(&now)
+                    || (1031..1042).contains(&now)
+                    || (1051..1062).contains(&now)
+                    || (1071..1082).contains(&now)
+                    || (1091..1102).contains(&now)
+                    || (1111..1122).contains(&now)
+                    || (1131..1142).contains(&now)
+                    || (1151..1162).contains(&now)
+                    || (1171..1182).contains(&now)
                 {
                     assert!(
                         link2.offers_veh().is_some(),
                         "No vehicle offered at timestep {now}"
                     );
-                    assert!(
-                        !link3.is_available(),
-                        "Storage cap reached at timestep {now}"
-                    );
+                    assert!(!link3_available, "Storage cap reached at timestep {now}");
                 } else {
                     assert!(
                         link2.offers_veh().is_none(),
@@ -1916,6 +2204,76 @@ mod tests {
     }
 
     #[deterministic_id_test]
+    fn kinematic_split_sends_future_releases_before_the_empty_link_deactivates() {
+        let mut global = Network::new();
+        let _ = create_three_node_sim_network_with_partition(&mut global);
+        let link_id = Id::get_from_ext("link2");
+        global.get_link_mut(&link_id).length = 25.;
+        let mut config = test_utils::config();
+        config.qsim_mut().traffic_dynamics =
+            crate::simulation::config::TrafficDynamics::KinematicWaves;
+        let mut upstream = SimNetworkPartition::from_network_for_test(&global, 0, &config);
+        let mut downstream = SimNetworkPartition::from_network_for_test(&global, 1, &config);
+        assert_eq!(
+            upstream.links[&link_id].max_storage(),
+            downstream.links[&link_id].max_storage()
+        );
+        for (id, pce, now) in [(1, 1., 0), (2, 2.5, 1)] {
+            let make_vehicle = || {
+                SimulationVehicle::from_parts(
+                    id,
+                    0,
+                    100.,
+                    pce,
+                    test_utils::create_agent(id, vec!["link2"]),
+                )
+            };
+            upstream
+                .links
+                .get_mut(&link_id)
+                .unwrap()
+                .push_veh(make_vehicle(), QStart, now);
+            downstream
+                .links
+                .get_mut(&link_id)
+                .unwrap()
+                .push_veh(make_vehicle(), QStart, now);
+        }
+        downstream.active_links.activate(link_id.clone());
+        downstream.veh_counter = 2;
+        let first = downstream.move_links(&mut Default::default(), 2);
+        let second = downstream.move_links(&mut Default::default(), 3);
+        assert_eq!(1, first.storage_cap_updates.len());
+        assert_eq!(1, second.storage_cap_updates.len());
+        assert_eq!(
+            super::Tick::new(8),
+            first.storage_cap_updates[0].available_at
+        );
+        assert_eq!(
+            super::Tick::new(9),
+            second.storage_cap_updates[0].available_at
+        );
+        assert_eq!(0, downstream.active_links());
+        assert!(
+            downstream
+                .move_links(&mut Default::default(), 100)
+                .storage_cap_updates
+                .is_empty()
+        );
+        let updates = first
+            .storage_cap_updates
+            .into_iter()
+            .chain(second.storage_cap_updates)
+            .collect();
+        upstream.apply_storage_cap_updates(updates);
+        let mirror = upstream.links.get_mut(&link_id).unwrap();
+        for (now, expected) in [(7, 3.5), (8, 2.5), (8, 2.5), (9, 0.), (100, 0.)] {
+            let _ = mirror.update_and_is_available(now);
+            assert_eq!(expected, mirror.used_storage());
+        }
+    }
+
+    #[deterministic_id_test]
     fn neighbors() {
         let mut net = Network::new();
         let node = Node::new(Id::create("node-1"), Coordinate::default(), 0, 1);
@@ -1958,6 +2316,45 @@ mod tests {
         assert!(neighbors.contains(&2));
         assert!(neighbors.contains(&3));
         assert!(!neighbors.contains(&4));
+    }
+
+    #[deterministic_id_test]
+    fn neighbors_only_over_links_with_a_main_mode() {
+        let mut net = Network::new();
+        let node = Node::new(Id::create("node"), Coordinate::default(), 0, 1);
+        let car_node = Node::new(Id::create("car-node"), Coordinate::default(), 1, 1);
+        let pt_node = Node::new(Id::create("pt-node"), Coordinate::default(), 2, 1);
+        let other_node = Node::new(Id::create("other-node"), Coordinate::default(), 3, 1);
+
+        let mut car_link = Link::new_with_default(Id::create("car-link"), &car_node, &node);
+        car_link.modes = IntSet::from_iter([Id::create("car"), Id::create("bike")]);
+        let mut pt_link = Link::new_with_default(Id::create("pt-link"), &node, &pt_node);
+        pt_link.modes = IntSet::from_iter([Id::create("pt")]);
+        let link_without_modes =
+            Link::new_with_default(Id::create("link-without-modes"), &other_node, &node);
+
+        net.add_node(node);
+        net.add_node(car_node);
+        net.add_node(pt_node);
+        net.add_node(other_node);
+        net.add_link(car_link);
+        net.add_link(pt_link);
+        net.add_link(link_without_modes);
+
+        // main modes: car
+        let config = test_utils::config();
+        let sim_net = SimNetworkPartition::from_network_for_test(&net, 0, &config);
+        assert_eq!(IntSet::from_iter([1, 3]), sim_net.neighbors());
+
+        // a partition whose split links carry no vehicles keeps them as neighbors
+        let pt_net = SimNetworkPartition::from_network_for_test(&net, 2, &config);
+        assert_eq!(IntSet::from_iter([0]), pt_net.neighbors());
+
+        // without main modes, every split link counts
+        let mut config = test_utils::config();
+        config.qsim_mut().main_modes = vec![];
+        let sim_net = SimNetworkPartition::from_network_for_test(&net, 0, &config);
+        assert_eq!(IntSet::from_iter([1, 2, 3]), sim_net.neighbors());
     }
 
     fn create_three_node_sim_network_with_partition(

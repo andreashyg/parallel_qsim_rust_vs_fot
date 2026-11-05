@@ -1,7 +1,7 @@
-use crate::simulation::agents::agent::SimulationAgent;
+use crate::simulation::agents::SimulationAgentLogic;
 use crate::simulation::framework_events::QSimId;
 use crate::simulation::time::SimTime;
-use crate::simulation::vehicles::SimulationVehicle;
+use crate::simulation::vehicles::{SimulationVehicle, TransitVehicle};
 use std::any::{Any, type_name};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -14,7 +14,8 @@ pub struct PartitionChangeContext {
 #[derive(Clone, Copy)]
 pub enum PartitionChangeEntity<'a> {
     Vehicle(&'a SimulationVehicle),
-    TeleportationAgent(&'a SimulationAgent),
+    TeleportationAgent(&'a dyn SimulationAgentLogic),
+    TransitVehicle(&'a TransitVehicle),
 }
 
 impl std::fmt::Debug for PartitionChangeEntity<'_> {
@@ -22,6 +23,7 @@ impl std::fmt::Debug for PartitionChangeEntity<'_> {
         match self {
             Self::Vehicle(_) => f.write_str("Vehicle"),
             Self::TeleportationAgent(_) => f.write_str("TeleportationAgent"),
+            Self::TransitVehicle(_) => f.write_str("TransitVehicle"),
         }
     }
 }
@@ -168,9 +170,12 @@ mod tests {
             },
         );
 
-        let attachments = manager.send(PartitionChangeEntity::TeleportationAgent(&agent), &context);
+        let attachments = manager.send(
+            PartitionChangeEntity::TeleportationAgent(agent.as_ref()),
+            &context,
+        );
         manager.receive(
-            PartitionChangeEntity::TeleportationAgent(&agent),
+            PartitionChangeEntity::TeleportationAgent(agent.as_ref()),
             attachments,
             &context,
         );
@@ -190,7 +195,7 @@ mod tests {
         let mut manager = PartitionChangeExtensionsManager::new();
         manager.register::<u32, _, _>(|_, _| Some(1), |_, _, _| {});
         manager.receive(
-            PartitionChangeEntity::TeleportationAgent(&agent),
+            PartitionChangeEntity::TeleportationAgent(agent.as_ref()),
             PartitionChangeAttachments::default(),
             &context,
         );
@@ -208,7 +213,7 @@ mod tests {
         let mut manager = PartitionChangeExtensionsManager::new();
         manager.register::<u32, _, _>(|_, _| Some(1), |_, _, _| {});
         manager.receive(
-            PartitionChangeEntity::TeleportationAgent(&agent),
+            PartitionChangeEntity::TeleportationAgent(agent.as_ref()),
             PartitionChangeAttachments {
                 slots: vec![Some(Box::new("not a u32".to_owned()))],
             },

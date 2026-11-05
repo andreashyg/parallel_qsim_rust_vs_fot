@@ -1,13 +1,13 @@
 use crate::simulation::Identifiable;
 use crate::simulation::agents::EndTime;
-use crate::simulation::agents::agent::SimulationAgent;
-use crate::simulation::engines::teleportation_engine::TeleportedAgent;
+use crate::simulation::agents::{TeleportationAgent, TeleportationLogic};
+use crate::simulation::engines::teleportation_engine::TeleportationAgentWithFixedEnd;
 use crate::simulation::id::Id;
 use crate::simulation::messaging::partition_change::PartitionChangeAttachments;
 use crate::simulation::network::sim_network::StorageUpdate;
 use crate::simulation::scenario::population::InternalPerson;
 use crate::simulation::time::{SimTime, Tick};
-use crate::simulation::vehicles::SimulationVehicle;
+use crate::simulation::vehicles::{SimulationVehicle, TransitVehicle};
 use std::cmp::Ordering;
 
 pub enum InternalSimMessage {
@@ -17,13 +17,13 @@ pub enum InternalSimMessage {
 
 #[derive(Debug)]
 pub(crate) struct TeleportationMessage {
-    agent: SimulationAgent,
+    agent: TeleportationAgent,
     end_time: SimTime,
     attachments: PartitionChangeAttachments,
 }
 
-impl From<TeleportedAgent> for TeleportationMessage {
-    fn from(teleported_agent: TeleportedAgent) -> Self {
+impl From<TeleportationAgentWithFixedEnd> for TeleportationMessage {
+    fn from(teleported_agent: TeleportationAgentWithFixedEnd) -> Self {
         Self {
             agent: teleported_agent.agent,
             end_time: teleported_agent.end_time,
@@ -34,7 +34,7 @@ impl From<TeleportedAgent> for TeleportationMessage {
 
 impl TeleportationMessage {
     #[cfg(test)]
-    pub(crate) fn new(agent: SimulationAgent, end_time: SimTime) -> Self {
+    pub(crate) fn new(agent: TeleportationAgent, end_time: SimTime) -> Self {
         Self {
             agent,
             end_time,
@@ -42,15 +42,15 @@ impl TeleportationMessage {
         }
     }
 
-    pub(crate) fn agent(&self) -> &SimulationAgent {
-        &self.agent
+    pub(crate) fn agent(&self) -> &dyn TeleportationLogic {
+        self.agent.as_ref()
     }
 
     pub(crate) fn end_time(&self) -> SimTime {
         self.end_time
     }
 
-    pub(crate) fn into_agent(self) -> SimulationAgent {
+    pub(crate) fn into_agent(self) -> TeleportationAgent {
         self.agent
     }
 
@@ -92,6 +92,30 @@ impl VehicleMessage {
     }
 }
 
+/// A transit vehicle on its way to a stop on another partition, with its driver and passengers.
+#[derive(Debug)]
+pub(crate) struct TransitVehicleMessage {
+    vehicle: TransitVehicle,
+    attachments: PartitionChangeAttachments,
+}
+
+impl TransitVehicleMessage {
+    pub(crate) fn new(vehicle: TransitVehicle, attachments: PartitionChangeAttachments) -> Self {
+        Self {
+            vehicle,
+            attachments,
+        }
+    }
+
+    pub(crate) fn vehicle(&self) -> &TransitVehicle {
+        &self.vehicle
+    }
+
+    pub(crate) fn into_parts(self) -> (TransitVehicle, PartitionChangeAttachments) {
+        (self.vehicle, self.attachments)
+    }
+}
+
 impl std::fmt::Debug for VehicleMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("VehicleMessage")
@@ -120,6 +144,7 @@ pub struct InternalSyncMessage {
     to_process: u32,
     vehicles: Vec<VehicleMessage>,
     teleportations: Vec<TeleportationMessage>,
+    transit_vehicles: Vec<TransitVehicleMessage>,
     storage_capacities: Vec<StorageUpdate>,
 }
 
@@ -148,6 +173,7 @@ impl InternalSyncMessage {
             to_process: to,
             vehicles: Vec::new(),
             teleportations: Vec::new(),
+            transit_vehicles: Vec::new(),
             storage_capacities: Vec::new(),
         }
     }
@@ -158,6 +184,10 @@ impl InternalSyncMessage {
 
     pub(crate) fn add_teleportation(&mut self, teleportation: TeleportationMessage) {
         self.teleportations.push(teleportation);
+    }
+
+    pub(crate) fn add_transit_vehicle(&mut self, transit_vehicle: TransitVehicleMessage) {
+        self.transit_vehicles.push(transit_vehicle);
     }
 
     pub fn add_storage_cap(&mut self, storage_cap: StorageUpdate) {
@@ -189,10 +219,15 @@ impl InternalSyncMessage {
         &self.teleportations
     }
 
+    pub(crate) fn transit_vehicles(&self) -> &[TransitVehicleMessage] {
+        &self.transit_vehicles
+    }
+
     /// Whether the message carries nothing. Neighbors send such messages in every step.
     pub fn is_empty(&self) -> bool {
         self.vehicles.is_empty()
             && self.teleportations.is_empty()
+            && self.transit_vehicles.is_empty()
             && self.storage_capacities.is_empty()
     }
 
@@ -210,6 +245,10 @@ impl InternalSyncMessage {
 
     pub(crate) fn take_teleportations(&mut self) -> Vec<TeleportationMessage> {
         std::mem::take(&mut self.teleportations)
+    }
+
+    pub(crate) fn take_transit_vehicles(&mut self) -> Vec<TransitVehicleMessage> {
+        std::mem::take(&mut self.transit_vehicles)
     }
 }
 
@@ -266,7 +305,8 @@ mod tests {
             move |_, attachment, _| *arrival_received.borrow_mut() = attachment,
         );
 
-        let mut teleportation = TeleportationMessage::new(agent, end_time);
+        let mut teleportation =
+            TeleportationMessage::new(agent.try_into_teleportation().unwrap(), end_time);
         let attachments = manager.send(
             PartitionChangeEntity::TeleportationAgent(teleportation.agent()),
             &context,

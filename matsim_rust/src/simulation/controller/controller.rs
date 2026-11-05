@@ -1,6 +1,6 @@
 use crate::external_services::AdapterHandle;
 use crate::simulation::config::{
-    Config, Logging, OverwriteFiles, ScoringMode, WriteEvents, write_config,
+    Config, Logging, OverwriteFiles, ScoringMode, TransitSimulation, WriteEvents, write_config,
 };
 use crate::simulation::controller::{
     ExternalServices, MobsimWorkerPool, MobsimWorkerPoolArgumentsBuilder, ReplanningPool,
@@ -13,7 +13,7 @@ use crate::simulation::framework_events::{
 use crate::simulation::id::Id;
 use crate::simulation::network::LinkStorageCapacities;
 use crate::simulation::population::agent_source::{
-    DynAgentSource, IntoDynAgentSource, PopulationAgentSource,
+    DynAgentSource, IntoDynAgentSource, TransitDriverAgentSource, default_agent_sources,
 };
 use crate::simulation::replanning::routing::a_star::{AStar, AltHeuristic};
 use crate::simulation::replanning::routing::cost::ScoringBasedTravelTimeAndDisutility;
@@ -26,6 +26,7 @@ use crate::simulation::replanning::routing::{RoutingModule, TripRouter};
 use crate::simulation::scenario::population::Population;
 use crate::simulation::scenario::prepare::prepare_for_mobsim::prepare_for_mobsim;
 use crate::simulation::scenario::prepare::prepare_for_sim::prepare_for_sim;
+use crate::simulation::scenario::vehicles;
 use crate::simulation::scenario::{ControllerScenario, Scenario};
 use crate::simulation::scoring;
 use crate::simulation::scoring::{PersonExperiences, PlanScorer};
@@ -49,7 +50,7 @@ pub struct Controller {
     link_storage_capacities: LinkStorageCapacities,
     config: Arc<Config>,
     #[debug(skip)]
-    agent_source: DynAgentSource,
+    agent_sources: Vec<DynAgentSource>,
     controller_events_manager: ControllerEventsManager,
     #[debug(skip)]
     worker_listener: HashMap<u32, Vec<Box<WorkerListenerRegisterFunction>>>,
@@ -65,7 +66,7 @@ pub struct Controller {
 
 pub struct ControllerBuilder {
     scenario: Scenario,
-    agent_source: DynAgentSource,
+    agent_sources: Vec<DynAgentSource>,
     controller_event_register_fn: Vec<Box<ControllerListenerRegisterFn>>,
     worker_listener_register_fn: HashMap<u32, Vec<Box<WorkerListenerRegisterFunction>>>,
     external_services: ExternalServices,
@@ -78,7 +79,7 @@ impl ControllerBuilder {
     pub fn default_with_scenario(scenario: Scenario) -> Self {
         ControllerBuilder {
             scenario,
-            agent_source: Arc::new(PopulationAgentSource),
+            agent_sources: default_agent_sources(),
             controller_event_register_fn: Vec::new(),
             worker_listener_register_fn: HashMap::new(),
             external_services: ExternalServices::default(),
@@ -166,11 +167,19 @@ impl ControllerBuilder {
                 }));
         }
 
+        let mut agent_sources = self.agent_sources;
+        if matches!(
+            config.transit().simulation,
+            TransitSimulation::ScheduleBasedTeleportation
+        ) {
+            agent_sources.push(Arc::new(TransitDriverAgentSource));
+        }
+
         Ok(Controller {
             scenario,
             link_storage_capacities,
             config,
-            agent_source: self.agent_source,
+            agent_sources,
             controller_events_manager: controller_event_manager,
             worker_listener: self.worker_listener_register_fn,
             external_services: self.external_services,
@@ -190,8 +199,15 @@ impl ControllerBuilder {
         self
     }
 
-    pub fn agent_source(mut self, source: impl IntoDynAgentSource) -> Self {
-        self.agent_source = source.into_dyn_agent_source();
+    /// Replaces the agent sources, by default [`default_agent_sources`]. A mobsim asks them one
+    /// after the other.
+    pub fn agent_sources(mut self, sources: Vec<DynAgentSource>) -> Self {
+        self.agent_sources = sources;
+        self
+    }
+
+    pub fn add_agent_source(mut self, source: impl IntoDynAgentSource) -> Self {
+        self.agent_sources.push(source.into_dyn_agent_source());
         self
     }
 
@@ -348,7 +364,7 @@ impl Controller {
         self.shutdown_adapters();
 
         info!("Writing output files:");
-        if self.config.controller().compression_type.is_protobuf() {
+        if self.config.output().compression_type.is_protobuf() {
             info!("    ... ID store ...");
             Self::write_output_id_store(&output_path);
         }
@@ -358,6 +374,13 @@ impl Controller {
         self.write_output_network(output_path.clone());
         info!("    ... Population ...");
         self.write_output_population(output_path.clone());
+        if matches!(
+            self.config.transit().simulation,
+            TransitSimulation::ScheduleBasedTeleportation
+        ) {
+            info!("    ... Transit schedule and vehicles ...");
+            self.write_output_transit(&output_path);
+        }
 
         if self.config.output().write_events == WriteEvents::File {
             info!("Copying events to main output directory");
@@ -514,7 +537,7 @@ impl Controller {
     fn start_mobsim_workers(&mut self) -> MobsimWorkerPool {
         let args = MobsimWorkerPoolArgumentsBuilder::default()
             .scenario_core(self.scenario.core.clone())
-            .agent_source(self.agent_source.clone())
+            .agent_sources(self.agent_sources.clone())
             .external_services(self.external_services.clone())
             .worker_listener(mem::take(&mut self.worker_listener))
             .global_barrier(self.global_barrier.clone())
@@ -549,7 +572,7 @@ impl Controller {
             &output_path,
             &PathBuf::from(
                 self.config
-                    .controller()
+                    .output()
                     .compression_type
                     .with_extension("output_network"),
             ),
@@ -562,12 +585,26 @@ impl Controller {
             .to_file_with_link_attribute_overrides(&net_out_path, &attribute_overrides);
     }
 
+    fn write_output_transit(&self, output_path: impl AsRef<Path>) {
+        let compression_type = self.config.output().compression_type;
+        let schedule_path = create_output_filename(
+            &output_path,
+            &PathBuf::from(compression_type.with_extension("output_transitSchedule")),
+        );
+        self.scenario.core.transit_schedule.to_file(&schedule_path);
+        let vehicles_path = create_output_filename(
+            &output_path,
+            &PathBuf::from(compression_type.with_extension("output_transitVehicles")),
+        );
+        vehicles::to_file(&self.scenario.core.transit_garage, &vehicles_path);
+    }
+
     fn write_output_population(&mut self, output_path: impl AsRef<Path>) {
         let pop_out_path = create_output_filename(
             &output_path,
             &PathBuf::from(
                 self.config
-                    .controller()
+                    .output()
                     .compression_type
                     .with_extension("output_plans"),
             ),
@@ -609,7 +646,7 @@ impl Controller {
         population.to_file(
             &iter_path.join(
                 self.config
-                    .controller()
+                    .output()
                     .compression_type
                     .with_extension("output_plans"),
             ),
@@ -679,7 +716,7 @@ pub(crate) fn write_experienced_population(
         .sorted_by(|a, b| a.id().cmp(&b.id()))
         .collect();
     let filename = config
-        .controller()
+        .output()
         .compression_type
         .with_extension("output_experienced_plans");
     let iteration_path = output_path

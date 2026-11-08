@@ -207,7 +207,7 @@ fn main() {
     config.output_mut().logging = Logging::Info;
     config.output_mut().write_events = WriteEvents::File;
     // write xml.zst instead of binbp (is human-readable)
-    config.controller_mut().compression_type = CompressionType::Zst;
+    config.output_mut().compression_type = CompressionType::Zst;
 
     config.scoring_mut().mode = ScoringMode::Enabled;
 

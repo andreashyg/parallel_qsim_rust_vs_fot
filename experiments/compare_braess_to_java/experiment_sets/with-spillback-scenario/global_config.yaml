@@ -8,7 +8,7 @@ global_parameters:
   # without having to rerun them. MUST INCLUDE {callback}, since the joblog is per callback
   joblog_path_pattern: "{base_output_dir}/{experiment_set_name}/joblogs/{callback}_parallel_job.log"
 
-  original_dir_to_read_from: "./../../runs-svn/braess/refinement/with_spillback_scenario"
+  original_dir_to_read_from: "./../../runs-svn/braess/refinement/spillback_scenario"
   file_name_end_pattern_with_beta_rr_ur: "Beta{beta}ReadFromRandom{read_from_random}UseRandomSeed{use_random_seed}"
   file_name_end_pattern_with_beta_rr: "Beta{beta}ReadFromRandom{read_from_random}"
   file_name_end_pattern_with_beta: "Beta{beta}"

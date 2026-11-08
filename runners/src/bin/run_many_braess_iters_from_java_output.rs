@@ -1,5 +1,5 @@
 use clap::{Parser, ValueEnum};
-use matsim_rust::simulation::config::{ActivityParameter, AgentParameter, CompressionType, Config, Logging, ModeParameter, Network, OverwriteFiles, Population, ScoringMode, StrategySetting, TeleportedParams, Vehicles, WriteEvents, parse_key_val};
+use matsim_rust::simulation::config::{ActivityParameter, ActivityScoring, AgentParameter, CompressionType, Config, Logging, ModeParameter, Network, OverwriteFiles, Population, ScoringMode, StrategySetting, TeleportedParams, Vehicles, WriteEvents, parse_key_val};
 use matsim_rust::simulation::controller::controller::ControllerBuilder;
 use matsim_rust::simulation::logging::init_std_out_logging_thread_local;
 use matsim_rust::simulation::scenario::Scenario;
@@ -213,7 +213,7 @@ fn main() {
 
     config.scoring_mut().agent_params = vec![AgentParameter::default()];
     config.scoring_mut().activity_params = vec![
-        ActivityParameter { activity_type: "dummy".to_string(), typical_duration_s: 43200.0 }];
+        ActivityParameter { activity_type: "dummy".to_string(), typical_duration_s: 43200.0, activity_scoring: ActivityScoring::Ignore }];
     config.scoring_mut().mode_params = vec![
         ModeParameter::default_for_mode("car"),
         ModeParameter::default_for_mode("walk")];

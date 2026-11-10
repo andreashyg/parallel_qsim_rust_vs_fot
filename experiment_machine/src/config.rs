@@ -24,7 +24,9 @@ impl GlobalConfig {
 
     pub fn try_get_global_config_parameter_as_str(&self, key: &str) -> Result<&str, String> {
         let value = self.get_global_config_parameter(key)?;
-        value.as_str().ok_or_else(|| format!("Global parameter '{}' should be a string", key))
+        value
+            .as_str()
+            .ok_or_else(|| format!("Global parameter '{}' should be a string", key))
     }
 
     pub fn replace_common_pattern(&self, pattern: &str) -> Result<String, String> {
@@ -73,17 +75,17 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn get_expset_config_globals_parameter(
-        &self,
-        key: &str,
-    ) -> Result<&Value, String> {
+    pub fn get_expset_config_globals_parameter(&self, key: &str) -> Result<&Value, String> {
         // if key exists in (per experiment set) globals, return that value
         if let Some(globals) = &self.globals {
             if let Some(value) = globals.get(key) {
                 return Ok(value);
             }
         }
-        Err(format!("Global parameter '{}' not found in experiment set config.", key))
+        Err(format!(
+            "Global parameter '{}' not found in experiment set config.",
+            key
+        ))
     }
 
     pub(crate) fn get_expset_config_param_sweep_parameter(
@@ -119,7 +121,13 @@ impl Config {
     ) -> Result<(), String> {
         // Run all modules.
         for module in &self.modules {
-            module.run(self, global_config, global_config_path, resume, resume_failed)?;
+            module.run(
+                self,
+                global_config,
+                global_config_path,
+                resume,
+                resume_failed,
+            )?;
         }
         Ok(())
     }
@@ -135,8 +143,8 @@ impl SeedsToAvgOver {
     /// Get the name of the param sweep field containing the seeds to avg over/use.
     fn get_seeds_to_use_field_name(&self) -> &str {
         match self {
-            SeedsToAvgOver::UseRandomSeeds => { "use_random_seeds" }
-            SeedsToAvgOver::ReadFromRandomSeedIndices => { "read_from_random_seed_indices" }
+            SeedsToAvgOver::UseRandomSeeds => "use_random_seeds",
+            SeedsToAvgOver::ReadFromRandomSeedIndices => "read_from_random_seed_indices",
         }
     }
 
@@ -169,7 +177,10 @@ impl SeedsToAvgOver {
     /// since a module might average over all those seeds itself. Therefore, we overwrite that
     /// param sweep field with a single value like "AvgOverAll" or "UseAll", so that the
     /// module is only called once per cartesian product of the other parameters.
-    fn get_param_sweep_overwrites(&self, name_for_param_sweep_overwrite: &str) -> HashMap<String, String> {
+    fn get_param_sweep_overwrites(
+        &self,
+        name_for_param_sweep_overwrite: &str,
+    ) -> HashMap<String, String> {
         // this is the name of the param sweep values that will be replaced
         // by a value such as "AvgOverAll" or "UseAll" in the actual param sweep
         let seeds_to_use_field_name = self.get_seeds_to_use_field_name();
@@ -180,11 +191,12 @@ impl SeedsToAvgOver {
         // the param_sweep field for those seeds to a single value like "AvgOverAll" or
         // "UseAll".
         let seeds_to_use_decl_overwrite = format!(
-            "{}=({})",  // overwrite the param sweep field for the seeds that are passed extra with smth like "AvgOverAll"
+            "{}=({})", // overwrite the param sweep field for the seeds that are passed extra with smth like "AvgOverAll"
             seeds_to_use_field_name,
             bash_utils::yaml_value_as_shell_atom(&Value::String(
                 name_for_param_sweep_overwrite.to_string()
-            )).expect("Failed to convert name_for_param_sweep_overwrite to shell atom")
+            ))
+            .expect("Failed to convert name_for_param_sweep_overwrite to shell atom")
         );
         let overwrites = HashMap::from_iter([(
             seeds_to_use_field_name.to_string(),
@@ -220,7 +232,7 @@ pub trait Module: Debug {
             resume,
             resume_failed,
             self.get_extra_str_args(config, global_config)?, // is None by default
-            self.get_param_sweep_overwrites(),  // also None by default
+            self.get_param_sweep_overwrites(),               // also None by default
         )
     }
 
@@ -229,7 +241,11 @@ pub trait Module: Debug {
 
     /// get optional extra string arguments to pass to the bash function, which are not part of the
     /// cartesian product of the parameter sweep
-    fn get_extra_str_args(&self, _config: &Config, _global_config: &GlobalConfig) -> Result<Option<Vec<String>>, String> {
+    fn get_extra_str_args(
+        &self,
+        _config: &Config,
+        _global_config: &GlobalConfig,
+    ) -> Result<Option<Vec<String>>, String> {
         Ok(None)
     }
 
@@ -278,6 +294,14 @@ pub struct RunManyRustItersBasedOnJavaOutput {
     pub pop_to_use_as_input_pattern: String,
     pub overwrites: Option<HashMap<String, Value>>,
     pub iterations: usize,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct RunDresdenScenario {
+    pub overwrite_mode: OverwriteFiles,
+    pub overwrites: Option<HashMap<String, Value>>,
+    pub iterations: usize,
+    pub sample_size: f64,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -408,11 +432,16 @@ fn get_delete_output_dir_if_existing_extra_str_arg(overwrite_mode: OverwriteFile
 }
 
 fn get_betas_to_use_as_space_sep_str(config: &Config) -> Result<String, String> {
-    Ok(config.param_sweep.get("betas")
-        .ok_or("betas must be set in param_sweep for PlotTtAndSdDeviationScatterplotsOverBeta module")?
+    Ok(config
+        .param_sweep
+        .get("betas")
+        .ok_or(
+            "betas must be set in param_sweep for PlotTtAndSdDeviationScatterplotsOverBeta module",
+        )?
         .iter()
         .map(bash_utils::yaml_value_as_shell_atom)
-        .collect::<Result<Vec<_>, _>>()?.join(" "))
+        .collect::<Result<Vec<_>, _>>()?
+        .join(" "))
 }
 
 /// helper function to get the tt and sd csv path pattern from the module's overwrites if existing,
@@ -455,7 +484,11 @@ impl Module for RunRustBasedOnJavaOutput {
             "rust",
         )
     }
-    fn get_extra_str_args(&self, _config: &Config, _global_config: &GlobalConfig) -> Result<Option<Vec<String>>, String> {
+    fn get_extra_str_args(
+        &self,
+        _config: &Config,
+        _global_config: &GlobalConfig,
+    ) -> Result<Option<Vec<String>>, String> {
         Ok(Some(vec![
             get_delete_output_dir_if_existing_extra_str_arg(self.overwrite_mode),
             self.pop_to_use_as_input_pattern.clone(),
@@ -467,7 +500,6 @@ impl Module for RunRustBasedOnJavaOutput {
     }
 }
 
-
 #[typetag::serde]
 impl Module for RunManyRustItersBasedOnJavaOutput {
     fn get_bash_function(&self) -> BashFunction {
@@ -477,12 +509,18 @@ impl Module for RunManyRustItersBasedOnJavaOutput {
             "rust",
         )
     }
-    fn get_extra_str_args(&self, _config: &Config, _global_config: &GlobalConfig) -> Result<Option<Vec<String>>, String> {
-        let delete_output_dir_if_existing = get_delete_output_dir_if_existing_extra_str_arg(
-            self.overwrite_mode);
-        Ok(Some(vec![delete_output_dir_if_existing,
-                     self.iterations.to_string(),
-                     self.pop_to_use_as_input_pattern.clone()]))
+    fn get_extra_str_args(
+        &self,
+        _config: &Config,
+        _global_config: &GlobalConfig,
+    ) -> Result<Option<Vec<String>>, String> {
+        let delete_output_dir_if_existing =
+            get_delete_output_dir_if_existing_extra_str_arg(self.overwrite_mode);
+        Ok(Some(vec![
+            delete_output_dir_if_existing,
+            self.iterations.to_string(),
+            self.pop_to_use_as_input_pattern.clone(),
+        ]))
     }
 
     fn get_expset_config_overwrites(&self) -> Option<HashMap<String, Value>> {
@@ -490,6 +528,45 @@ impl Module for RunManyRustItersBasedOnJavaOutput {
     }
 }
 
+#[typetag::serde]
+impl Module for RunDresdenScenario {
+    fn get_bash_function(&self) -> BashFunction {
+        BashFunction::new(
+            "run_dresden_experiment_case",
+            "./experiments/compare_braess_to_java/runnable_modules/run_dresden_scenario.sh",
+            "rust",
+        )
+    }
+    fn get_extra_str_args(
+        &self,
+        _config: &Config,
+        _global_config: &GlobalConfig,
+    ) -> Result<Option<Vec<String>>, String> {
+        let delete_output_dir_if_existing =
+            get_delete_output_dir_if_existing_extra_str_arg(self.overwrite_mode);
+        Ok(Some(vec![
+            delete_output_dir_if_existing,
+            self.iterations.to_string(),
+            self.sample_size.to_string(),
+        ]))
+    }
+
+    fn get_param_sweep_overwrites(&self) -> Option<HashMap<String, String>> {
+        // this module doesn't use any java seeds, because there is a single input run that is used.
+        // So we overwrite the read_from_random_seed_indices variable to contain only one parameter,
+        // so that the bash function is only called once per cartesian product of the other parameters
+        let read_from_random_seed_decl_overwrite =
+            "read_from_random_seed_indices=(None)".to_string();
+        Some(HashMap::from_iter([(
+            "read_from_random_seed_indices".to_string(),
+            read_from_random_seed_decl_overwrite.clone(),
+        )]))
+    }
+
+    fn get_expset_config_overwrites(&self) -> Option<HashMap<String, Value>> {
+        self.overwrites.clone()
+    }
+}
 
 #[typetag::serde]
 impl Module for RunJavaSingleIterBasedOnJavaOutput {
@@ -501,10 +578,16 @@ impl Module for RunJavaSingleIterBasedOnJavaOutput {
         )
     }
 
-    fn get_extra_str_args(&self, _config: &Config, _global_config: &GlobalConfig) -> Result<Option<Vec<String>>, String> {
-        Ok(Some(vec![get_delete_output_dir_if_existing_extra_str_arg(self.overwrite_mode),
-                     self.pop_to_use_as_input_pattern.clone(),
-                     self.original_output_config_pattern.clone()]))
+    fn get_extra_str_args(
+        &self,
+        _config: &Config,
+        _global_config: &GlobalConfig,
+    ) -> Result<Option<Vec<String>>, String> {
+        Ok(Some(vec![
+            get_delete_output_dir_if_existing_extra_str_arg(self.overwrite_mode),
+            self.pop_to_use_as_input_pattern.clone(),
+            self.original_output_config_pattern.clone(),
+        ]))
     }
 
     fn get_expset_config_overwrites(&self) -> Option<HashMap<String, Value>> {
@@ -528,7 +611,11 @@ impl Module for ExtractMeasurementsFromEvents {
     /// 3. `tt_csv_output_path_pattern` (read from expset-configs globals, or from the module's overwrites, if existing)
     /// 4. `sd_csv_output_path_pattern` (read from expset-configs globals, or from the module's overwrites, if existing)
     /// 5. `num_parts` (read from module field)
-    fn get_extra_str_args(&self, config: &Config, global_config: &GlobalConfig) -> Result<Option<Vec<String>>, String> {
+    fn get_extra_str_args(
+        &self,
+        config: &Config,
+        global_config: &GlobalConfig,
+    ) -> Result<Option<Vec<String>>, String> {
         // these are the csv files to which the measurements will be written.
         // Is read from the expset-configs globals, or from the module's overwrites, if existing.
         let (tt_csv_output_path_pattern, sd_csv_output_path_pattern) =
@@ -570,7 +657,11 @@ impl Module for AddDummyCoordinatesToEvents {
     /// The extra string arguments for this module are:
     /// 1. `input_file_stem_pattern` (read from module field)
     /// 2. `output_file_stem_pattern` (read from module field)
-    fn get_extra_str_args(&self, _config: &Config, global_config: &GlobalConfig) -> Result<Option<Vec<String>>, String> {
+    fn get_extra_str_args(
+        &self,
+        _config: &Config,
+        global_config: &GlobalConfig,
+    ) -> Result<Option<Vec<String>>, String> {
         // replace common patterns in the input and output file stem patterns, using the global config
         let input_file_stem_pattern = global_config.replace_common_pattern(
             self.input_file_pattern
@@ -583,7 +674,10 @@ impl Module for AddDummyCoordinatesToEvents {
                 .as_ref()
                 .ok_or("output_file_stem_pattern must be set")?,
         )?;
-        Ok(Some(vec![input_file_stem_pattern, output_file_stem_pattern]))
+        Ok(Some(vec![
+            input_file_stem_pattern,
+            output_file_stem_pattern,
+        ]))
     }
 
     fn get_expset_config_overwrites(&self) -> Option<HashMap<String, Value>> {
@@ -608,18 +702,36 @@ impl Module for PrepareOriginalPopulation {
     /// 4. `vehicle_file_pattern` (read from module field)
     /// 5. `add_access_egress_legs_if_necessary` (read from module field)
     /// 6. `output_file_pattern` (read from module field)
-    fn get_extra_str_args(&self, _config: &Config, _global_config: &GlobalConfig) -> Result<Option<Vec<String>>, String> {
-        let skip_if_existing_str = if self.skip_if_existing { "true" } else { "false" }.to_string();
-        let pop_to_be_changed_pattern = self.pop_to_be_changed_pattern.clone().ok_or("pop_to_be_changed_pattern must be set")?;
-        let pop_with_correct_activity_times_pattern = self.pop_with_correct_activity_times_pattern.clone().unwrap_or("None".to_string());
-        let vehicle_file_pattern = self.vehicle_file_pattern.clone().ok_or("vehicle_file_pattern must be set")?;
+    fn get_extra_str_args(
+        &self,
+        _config: &Config,
+        _global_config: &GlobalConfig,
+    ) -> Result<Option<Vec<String>>, String> {
+        let skip_if_existing_str = if self.skip_if_existing {
+            "true"
+        } else {
+            "false"
+        }
+        .to_string();
+        let pop_to_be_changed_pattern = self
+            .pop_to_be_changed_pattern
+            .clone()
+            .ok_or("pop_to_be_changed_pattern must be set")?;
+        let pop_with_correct_activity_times_pattern = self
+            .pop_with_correct_activity_times_pattern
+            .clone()
+            .unwrap_or("None".to_string());
+        let vehicle_file_pattern = self
+            .vehicle_file_pattern
+            .clone()
+            .ok_or("vehicle_file_pattern must be set")?;
         Ok(Some(vec![
             skip_if_existing_str,
             pop_to_be_changed_pattern,
             pop_with_correct_activity_times_pattern,
             vehicle_file_pattern,
             self.add_access_egress_legs_if_necessary.to_string(),
-            self.output_file_pattern.clone()
+            self.output_file_pattern.clone(),
         ]))
     }
 
@@ -628,7 +740,10 @@ impl Module for PrepareOriginalPopulation {
         // So we overwrite the use_random_seeds variable to contain only one parameter, so that the bash
         // function is only called once per cartesian product of the other parameters
         let use_random_seed_decl_overwrite = "use_random_seeds=(None)".to_string();
-        Some(HashMap::from_iter([("use_random_seeds".to_string(), use_random_seed_decl_overwrite.clone())]))
+        Some(HashMap::from_iter([(
+            "use_random_seeds".to_string(),
+            use_random_seed_decl_overwrite.clone(),
+        )]))
     }
 
     fn get_expset_config_overwrites(&self) -> Option<HashMap<String, Value>> {
@@ -653,12 +768,21 @@ impl Module for PlotTtAndSdPerSeed {
     /// 4. `sd_ytoplim` (read from module field `sd_ylims`)
     /// 5. `tt_ybotlim` (read from module field `tt_ylims`)
     /// 6. `tt_ytoplim` (read from module field `tt_ylims`)
-    fn get_extra_str_args(&self, config: &Config, global_config: &GlobalConfig) -> Result<Option<Vec<String>>, String> {
+    fn get_extra_str_args(
+        &self,
+        config: &Config,
+        global_config: &GlobalConfig,
+    ) -> Result<Option<Vec<String>>, String> {
         let (tt_csv_input_path_pattern, sd_csv_input_path_pattern) =
             get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
-        Ok(Some(vec![tt_csv_input_path_pattern, sd_csv_input_path_pattern,
-                     self.sd_ylims[0].to_string(), self.sd_ylims[1].to_string(),
-                     self.tt_ylims[0].to_string(), self.tt_ylims[1].to_string()]))
+        Ok(Some(vec![
+            tt_csv_input_path_pattern,
+            sd_csv_input_path_pattern,
+            self.sd_ylims[0].to_string(),
+            self.sd_ylims[1].to_string(),
+            self.tt_ylims[0].to_string(),
+            self.tt_ylims[1].to_string(),
+        ]))
     }
 
     fn get_expset_config_overwrites(&self) -> Option<HashMap<String, Value>> {
@@ -686,7 +810,11 @@ impl Module for PlotTtAndSdDiffPerSeed {
     /// 7. `sd_ytoplim` (read from module field `sd_ylims`)
     /// 8. `tt_ybotlim` (read from module field `tt_ylims`)
     /// 9. `tt_ytoplim` (read from module field `tt_ylims`)
-    fn get_extra_str_args(&self, config: &Config, global_config: &GlobalConfig) -> Result<Option<Vec<String>>, String> {
+    fn get_extra_str_args(
+        &self,
+        config: &Config,
+        global_config: &GlobalConfig,
+    ) -> Result<Option<Vec<String>>, String> {
         let (tt_csv_input_path_pattern, sd_csv_input_path_pattern) =
             get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
 
@@ -737,10 +865,15 @@ impl Module for PlotTtAndSdAvgdOverSeeds {
     /// 5. `sd_ytoplim` (read from module field `sd_ylims`)
     /// 6. `tt_ybotlim` (read from module field `tt_ylims`)
     /// 7. `tt_ytoplim` (read from module field `tt_ylims`)
-    fn get_extra_str_args(&self, config: &Config, global_config: &GlobalConfig) -> Result<Option<Vec<String>>, String> {
+    fn get_extra_str_args(
+        &self,
+        config: &Config,
+        global_config: &GlobalConfig,
+    ) -> Result<Option<Vec<String>>, String> {
         let (tt_csv_input_path_pattern, sd_csv_input_path_pattern) =
             get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
-        let seeds_to_use_as_space_sep_str = self.seeds_to_avg_over.get_seeds_to_use_as_str(config)?;
+        let seeds_to_use_as_space_sep_str =
+            self.seeds_to_avg_over.get_seeds_to_use_as_str(config)?;
         Ok(Some(vec![
             tt_csv_input_path_pattern,
             sd_csv_input_path_pattern,
@@ -760,7 +893,10 @@ impl Module for PlotTtAndSdAvgdOverSeeds {
     ///     Note: the get_extra_str_args method provides those seeds as a space-separated string to
     ///     the bash function, so that the plotting fct knows which seeds to average over.s
     fn get_param_sweep_overwrites(&self) -> Option<HashMap<String, String>> {
-        Some(self.seeds_to_avg_over.get_param_sweep_overwrites("AvgOverAll"))
+        Some(
+            self.seeds_to_avg_over
+                .get_param_sweep_overwrites("AvgOverAll"),
+        )
     }
 
     fn get_expset_config_overwrites(&self) -> Option<HashMap<String, Value>> {
@@ -790,7 +926,11 @@ impl Module for PlotTtAndSdAvgdOverSeedsDiff {
     /// 8. `sd_ytoplim` (read from module field `sd_ylims`)
     /// 9. `tt_ybotlim` (read from module field `tt_ylims`)
     /// 10. `tt_ytoplim` (read from module field `tt_ylims`)
-    fn get_extra_str_args(&self, config: &Config, global_config: &GlobalConfig) -> Result<Option<Vec<String>>, String> {
+    fn get_extra_str_args(
+        &self,
+        config: &Config,
+        global_config: &GlobalConfig,
+    ) -> Result<Option<Vec<String>>, String> {
         let (tt_csv_input_path_pattern, sd_csv_input_path_pattern) =
             get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
 
@@ -805,7 +945,8 @@ impl Module for PlotTtAndSdAvgdOverSeedsDiff {
                 .ok_or("secondary_input_sd_csv_path_pattern must be set")?,
         )?;
 
-        let seeds_to_use_as_space_sep_str = self.seeds_to_avg_over.get_seeds_to_use_as_str(config)?;
+        let seeds_to_use_as_space_sep_str =
+            self.seeds_to_avg_over.get_seeds_to_use_as_str(config)?;
 
         Ok(Some(vec![
             tt_csv_input_path_pattern,
@@ -829,7 +970,10 @@ impl Module for PlotTtAndSdAvgdOverSeedsDiff {
     ///     Note: the get_extra_str_args method provides those seeds as a space-separated string to
     ///     the bash function, so that the plotting fct knows which seeds to average over.
     fn get_param_sweep_overwrites(&self) -> Option<HashMap<String, String>> {
-        Some(self.seeds_to_avg_over.get_param_sweep_overwrites("AvgOverAll"))
+        Some(
+            self.seeds_to_avg_over
+                .get_param_sweep_overwrites("AvgOverAll"),
+        )
     }
 
     fn get_expset_config_overwrites(&self) -> Option<HashMap<String, Value>> {
@@ -857,10 +1001,15 @@ impl Module for PlotTtAndSdDeviationToNashBoxplotsOverBeta {
     /// 6. `sd_ytoplim` (read from module field `sd_ylims`)
     /// 7. `tt_ybotlim` (read from module field `tt_ylims`)
     /// 8. `tt_ytoplim` (read from module field `tt_ylims`)
-    fn get_extra_str_args(&self, config: &Config, global_config: &GlobalConfig) -> Result<Option<Vec<String>>, String> {
+    fn get_extra_str_args(
+        &self,
+        config: &Config,
+        global_config: &GlobalConfig,
+    ) -> Result<Option<Vec<String>>, String> {
         let (tt_csv_input_path_pattern, sd_csv_input_path_pattern) =
             get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
-        let seeds_to_use_as_space_sep_str = self.seeds_to_avg_over.get_seeds_to_use_as_str(config)?;
+        let seeds_to_use_as_space_sep_str =
+            self.seeds_to_avg_over.get_seeds_to_use_as_str(config)?;
         let betas_to_use_as_space_sep_str = get_betas_to_use_as_space_sep_str(config)?;
         Ok(Some(vec![
             tt_csv_input_path_pattern,
@@ -916,10 +1065,15 @@ impl Module for PlotTtAndSdDeviationToNashScatterplotsOverBeta {
     /// 6. `sd_ytoplim` (read from module field `sd_ylims`)
     /// 7. `tt_ybotlim` (read from module field `tt_ylims`)
     /// 8. `tt_ytoplim` (read from module field `tt_ylims`)
-    fn get_extra_str_args(&self, config: &Config, global_config: &GlobalConfig) -> Result<Option<Vec<String>>, String> {
+    fn get_extra_str_args(
+        &self,
+        config: &Config,
+        global_config: &GlobalConfig,
+    ) -> Result<Option<Vec<String>>, String> {
         let (tt_csv_input_path_pattern, sd_csv_input_path_pattern) =
             get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
-        let seeds_to_use_as_space_sep_str = self.seeds_to_avg_over.get_seeds_to_use_as_str(config)?;
+        let seeds_to_use_as_space_sep_str =
+            self.seeds_to_avg_over.get_seeds_to_use_as_str(config)?;
         let betas_to_use_as_space_sep_str = get_betas_to_use_as_space_sep_str(config)?;
         Ok(Some(vec![
             tt_csv_input_path_pattern,
@@ -943,7 +1097,9 @@ impl Module for PlotTtAndSdDeviationToNashScatterplotsOverBeta {
     /// Motivation: the plotting function uses all betas and seeds_to_avg_over itself, so the bash
     /// function should only be called once per cartesian product of the other parameters.
     fn get_param_sweep_overwrites(&self) -> Option<HashMap<String, String>> {
-        let mut overwrites = self.seeds_to_avg_over.get_param_sweep_overwrites("AvgOverAll");
+        let mut overwrites = self
+            .seeds_to_avg_over
+            .get_param_sweep_overwrites("AvgOverAll");
         // each plot contains all betas, so replace the beta array by a single value "UseAll"
         // (it will never be read, but the important part is that it is only one value)
         overwrites.insert("betas".to_string(), "betas=(UseAll)".to_string());
@@ -978,7 +1134,11 @@ impl Module for PlotTtAndSdDeviationToDiffRunBoxplotsOverBeta {
     /// 9. `sd_ytoplim` (read from module field `sd_ylims`)
     /// 10. `tt_ybotlim` (read from module field `tt_ylims`)
     /// 11. `tt_ytoplim` (read from module field `tt_ylims`)
-    fn get_extra_str_args(&self, config: &Config, global_config: &GlobalConfig) -> Result<Option<Vec<String>>, String> {
+    fn get_extra_str_args(
+        &self,
+        config: &Config,
+        global_config: &GlobalConfig,
+    ) -> Result<Option<Vec<String>>, String> {
         let (tt_csv_input_path_pattern, sd_csv_input_path_pattern) =
             get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
         let secondary_input_tt_csv_path_pattern = global_config.replace_common_pattern(
@@ -991,7 +1151,8 @@ impl Module for PlotTtAndSdDeviationToDiffRunBoxplotsOverBeta {
                 .as_ref()
                 .ok_or("secondary_input_sd_csv_path_pattern must be set")?,
         )?;
-        let seeds_to_use_as_space_sep_str = self.seeds_to_avg_over.get_seeds_to_use_as_str(config)?;
+        let seeds_to_use_as_space_sep_str =
+            self.seeds_to_avg_over.get_seeds_to_use_as_str(config)?;
         let betas_to_use_as_space_sep_str = get_betas_to_use_as_space_sep_str(config)?;
         Ok(Some(vec![
             tt_csv_input_path_pattern,
@@ -1052,7 +1213,11 @@ impl Module for PlotTtAndSdDeviationToDiffRunScatterplotsOverBeta {
     /// 9. `sd_ytoplim` (read from module field `sd_ylims`)
     /// 10. `tt_ybotlim` (read from module field `tt_ylims`)
     /// 11. `tt_ytoplim` (read from module field `tt_ylims`)
-    fn get_extra_str_args(&self, config: &Config, global_config: &GlobalConfig) -> Result<Option<Vec<String>>, String> {
+    fn get_extra_str_args(
+        &self,
+        config: &Config,
+        global_config: &GlobalConfig,
+    ) -> Result<Option<Vec<String>>, String> {
         let (tt_csv_input_path_pattern, sd_csv_input_path_pattern) =
             get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
         let secondary_input_tt_csv_path_pattern = global_config.replace_common_pattern(
@@ -1065,7 +1230,8 @@ impl Module for PlotTtAndSdDeviationToDiffRunScatterplotsOverBeta {
                 .as_ref()
                 .ok_or("secondary_input_sd_csv_path_pattern must be set")?,
         )?;
-        let seeds_to_use_as_space_sep_str = self.seeds_to_avg_over.get_seeds_to_use_as_str(config)?;
+        let seeds_to_use_as_space_sep_str =
+            self.seeds_to_avg_over.get_seeds_to_use_as_str(config)?;
         let betas_to_use_as_space_sep_str = get_betas_to_use_as_space_sep_str(config)?;
         Ok(Some(vec![
             tt_csv_input_path_pattern,
@@ -1092,7 +1258,9 @@ impl Module for PlotTtAndSdDeviationToDiffRunScatterplotsOverBeta {
     /// Motivation: the plotting function uses all betas and seeds_to_avg_over itself, so the bash
     /// function should only be called once per cartesian product of the other parameters.
     fn get_param_sweep_overwrites(&self) -> Option<HashMap<String, String>> {
-        let mut overwrites = self.seeds_to_avg_over.get_param_sweep_overwrites("AvgOverAll");
+        let mut overwrites = self
+            .seeds_to_avg_over
+            .get_param_sweep_overwrites("AvgOverAll");
         // each plot contains all betas, so replace the beta array by a single value "UseAll"
         // (it will never be read, but the important part is that it is only one value)
         overwrites.insert("betas".to_string(), "betas=(UseAll)".to_string());
@@ -1118,7 +1286,11 @@ impl Module for ReformatOriginalExtractedMeasurements {
     /// 2. `original_sd_tsv_file_pattern` (read from module field)
     /// 3. `reformatted_tt_csv_file_pattern` (read from expset-configs globals, or from the module's overwrites, if existing)
     /// 4. `reformatted_sd_csv_file_pattern` (read from expset-configs globals, or from the module's overwrites, if existing)
-    fn get_extra_str_args(&self, config: &Config, global_config: &GlobalConfig) -> Result<Option<Vec<String>>, String> {
+    fn get_extra_str_args(
+        &self,
+        config: &Config,
+        global_config: &GlobalConfig,
+    ) -> Result<Option<Vec<String>>, String> {
         let (reformatted_tt_csv_file_pattern, reformatted_sd_csv_file_pattern) =
             get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
         // replace placeholders in file name
@@ -1175,7 +1347,7 @@ mod tests {
             File::open("./../experiments/compare_braess_to_java/experiment_sets/test_config.yaml")
                 .expect("Failed to open test config file"),
         )
-            .expect("Failed to parse test config file");
+        .expect("Failed to parse test config file");
 
         let expected_config = Config {
             globals: Some(HashMap::from([
@@ -1215,7 +1387,7 @@ mod tests {
                     overwrites: Some(HashMap::from_iter([(
                         "max_parallel_jobs".to_string(),
                         Value::String("1".to_string()),
-                    )]))
+                    )])),
                 }),
                 Box::new(RunRustBasedOnJavaOutput {
                     overwrite_mode: OverwriteFiles::DeleteDirectoryIfExists,

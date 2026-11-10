@@ -78,6 +78,10 @@ run_callback_for_parameter_arrays_parallel() {
 
   mkdir -p "$(dirname "$joblog_path")"  # ensure the directory for the joblog exists
 
+  read_config_file_entry results_dir_pattern results_dir_pattern "$global_config_path"
+  results_dir="${results_dir_pattern//\{experiment_set_name\}/$experiment_set_name}"
+  results_dir="${results_dir//\{base_output_dir\}/$base_output_dir}"
+
   if [[ "$script_type" == "rust" ]]; then
     echo "Building Rust binaries before running parallel jobs..."
     cargo build --release --bins
@@ -89,10 +93,13 @@ run_callback_for_parameter_arrays_parallel() {
   fi
   echo "Starting parallel execution of callback '$actual_callback' for all parameter combinations..."
 
+  echo "The output from this callback would be mixed from multiple parallel jobs. Therefore, it is written to the following files instead (similar files exist for stderr):"
   parallel --memsuspend 15G \
     --will-cite --eta --bar -j "${max_parallel_jobs}" \
     "${resume_arg[@]}" \
     --joblog "${joblog_path}" \
+    --line-buffer \
+    --results "${results_dir}" \
     "bash -lc 'source ${common_q}; source ${module_q}; ${callback_q} {1} {2} {3} ${global_config_path_q} ${experiment_set_name_q} ${base_output_dir_q} ${extra_args}'" \
     ::: "${betas_ref[@]}" \
     ::: "${java_seed_indices_ref[@]}" \

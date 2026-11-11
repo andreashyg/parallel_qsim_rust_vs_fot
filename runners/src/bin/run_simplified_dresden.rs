@@ -1,8 +1,9 @@
 use clap::Parser;
 use matsim_rust::simulation::config::{
-    CompressionType, Config, Facilities, Logging, ModalLinkSelection, Network, OverwriteFiles,
-    QSim, Replanning, Routing, StrategySetting, TeleportedParams, TrafficDynamics, Transit,
-    TransitSimulation, TravelTimeCalculator, Vehicles, WriteEvents, parse_key_val,
+    CompressionType, Config, Facilities, Logging, MetisOptions, ModalLinkSelection, Network,
+    NonMainModeLinks, OverwriteFiles, PartitionMethod, QSim, Replanning, Routing, StrategySetting,
+    TeleportedParams, TrafficDynamics, Transit, TransitSimulation, TravelTimeCalculator, Vehicles,
+    WriteEvents, parse_key_val,
 };
 use matsim_rust::simulation::controller::controller::ControllerBuilder;
 use matsim_rust::simulation::logging::init_std_out_logging_thread_local;
@@ -11,6 +12,7 @@ use matsim_rust::simulation::scenario::population::Population as ScenarioPopulat
 use std::collections::HashSet;
 
 use experiment_machine::config::GlobalConfig;
+use matsim_rust::simulation::config::PartitionMethod::Metis;
 use matsim_rust::simulation::config::RoutingMode::UsePlans;
 use matsim_rust::simulation::id::Id;
 use matsim_rust::simulation::io::xml::attributes::IOAttribute;
@@ -388,6 +390,10 @@ fn main() {
         config.output_mut().overwrite_files = OverwriteFiles::DeleteDirectoryIfExists;
     }
     config.controller_mut().last_iteration = args.iterations as u32;
+
+    config.partitioning_mut().method = Metis(MetisOptions::default());
+    config.partitioning_mut().num_parts = 64;
+    config.partitioning_mut().non_main_mode_links = NonMainModeLinks::default();
 
     // config.travel_time_calculator_mut().bin_size = 1.0 / args.beta as f64;
 

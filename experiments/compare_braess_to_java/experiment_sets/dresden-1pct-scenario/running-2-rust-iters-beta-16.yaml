@@ -1,0 +1,25 @@
+# Setup
+globals:
+  experiment_set_name: running-2-rust-iters-beta-16
+  base_output_dir: ./../../runs-svn/Abschlussarbeiten/2026/andreas-hygrell-rust-vs-fot/dresden-scenario/dresden-1pct
+  max_parallel_jobs: 1 # we are only doing one run here
+  # the following two patterns are used in multiple modules, so they are defined here to avoid repetition.
+  # they don't need to be overwritten in modules, since I will only read from this in the original experiment set itself,
+  # except for when doing comparisons (but there I specify the secondary path pattern explicitly anyway).
+  # If needed, it is however possible to overwrite by adding it to the optional overwrites fields in the modules.
+  tt_csv_path_pattern: "{common_extracted_data_pattern}/averageRouteTtsPerDeptime{file_name_end}.csv"
+  sd_csv_path_pattern: "{common_extracted_data_pattern}/summedDepsPerTime{file_name_end}.csv"
+
+param_sweep:
+  betas: [ 16 ]
+  read_from_random_seed_indices: [ 123456 ]
+  use_random_seeds: [ 42 ]
+
+# What to actually run in this experiment set:
+modules:
+
+  - run_dresden_scenario:
+    type: RunDresdenScenario
+    iterations: 2
+    sample_size: 0.01
+    overwrite_mode: DeleteDirectoryIfExists

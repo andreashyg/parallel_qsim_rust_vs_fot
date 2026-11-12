@@ -1,16 +1,18 @@
 use crate::external_services::AdapterHandle;
 use crate::simulation::config::{
-    Config, Logging, OverwriteFiles, ScoringMode, TransitSimulation, WriteEvents, write_config,
+    CompressionType, Config, Logging, OverwriteFiles, ScoringMode, TransitSimulation, WriteEvents,
+    write_config,
 };
 use crate::simulation::controller::{
     ExternalServices, MobsimWorkerPool, MobsimWorkerPoolArgumentsBuilder, ReplanningPool,
-    ScoringPool, create_output_filename,
+    ScoringPool,
 };
 use crate::simulation::framework_events::{
     ControllerEvent, ControllerEventsManager, ControllerListenerRegisterFn,
     WorkerListenerRegisterFunction,
 };
 use crate::simulation::id::Id;
+use crate::simulation::io::OutputFile;
 use crate::simulation::network::LinkStorageCapacities;
 use crate::simulation::population::agent_source::{
     DynAgentSource, IntoDynAgentSource, TransitDriverAgentSource, default_agent_sources,
@@ -29,7 +31,7 @@ use crate::simulation::scenario::prepare::prepare_for_sim::prepare_for_sim;
 use crate::simulation::scenario::vehicles;
 use crate::simulation::scenario::{ControllerScenario, Scenario};
 use crate::simulation::scoring;
-use crate::simulation::scoring::{PersonExperiences, PlanScorer};
+use crate::simulation::scoring::{PersonExperiences, PlanScorer, write_scoring_parameter_sets};
 use crate::simulation::{id, io, logging};
 use derive_more::Debug;
 use fs_extra::dir::CopyOptions;
@@ -42,7 +44,7 @@ use std::rc::Rc;
 use std::sync::{Arc, Barrier};
 use std::time::Duration;
 use std::{fs, mem};
-use tracing::info;
+use tracing::{info, warn};
 
 #[derive(Debug)]
 pub struct Controller {
@@ -73,6 +75,9 @@ pub struct ControllerBuilder {
     global_barrier: Option<Arc<Barrier>>,
     adapter_handles: Vec<AdapterHandle>,
     scoring_function: Option<Box<dyn PlanScorer>>,
+    /// Network mode -> mode whose observed travel times its router uses, see
+    /// [`ControllerBuilder::travel_time_mode`].
+    travel_time_modes: HashMap<String, String>,
 }
 
 impl ControllerBuilder {
@@ -86,6 +91,7 @@ impl ControllerBuilder {
             global_barrier: None,
             adapter_handles: Vec::new(),
             scoring_function: None,
+            travel_time_modes: HashMap::new(),
         }
     }
 
@@ -143,7 +149,12 @@ impl ControllerBuilder {
             bin_size,
             Duration::from_secs(u64::from(config.qsim().end_time)),
         ));
-        let router = Self::create_trip_router(config.as_ref(), &scenario, global_ttc.clone())?;
+        let router = Self::create_trip_router(
+            config.as_ref(),
+            &scenario,
+            global_ttc.clone(),
+            &self.travel_time_modes,
+        )?;
 
         for i in 0..num_parts {
             let net = scenario.core.network.clone();
@@ -226,6 +237,19 @@ impl ControllerBuilder {
         self
     }
 
+    /// Lets the router of the network mode `mode` use the observed travel times of
+    /// `travel_time_mode`, like MATSim's `addTravelTimeBinding(mode).to(...)`. This is meant for
+    /// modes that the mobsim does not move on the network, so that no travel times are observed for
+    /// them, e.g. ride teleported along its network route, which should see the travel times of car.
+    /// The cost factors stay those of `mode`. The mapping is not chained: if `travel_time_mode` is
+    /// mapped itself, `mode` still uses the travel times observed for `travel_time_mode`. A later
+    /// call for the same `mode` replaces the earlier one.
+    pub fn travel_time_mode(mut self, mode: &str, travel_time_mode: &str) -> Self {
+        self.travel_time_modes
+            .insert(mode.to_string(), travel_time_mode.to_string());
+        self
+    }
+
     pub fn adapter_handles(mut self, v: Vec<AdapterHandle>) -> Self {
         self.adapter_handles = v;
         self
@@ -243,7 +267,10 @@ impl ControllerBuilder {
         config: &Config,
         controller_scenario: &ControllerScenario,
         global_ttc: Arc<GlobalTravelTimeCalculator>,
+        travel_time_modes: &HashMap<String, String>,
     ) -> Result<TripRouter, String> {
+        check_travel_time_modes(config, travel_time_modes)?;
+
         let mut routers: IntMap<Id<String>, Arc<dyn RoutingModule>> = IntMap::default();
 
         // for every teleported mode, create the corresponding router.
@@ -270,11 +297,18 @@ impl ControllerBuilder {
                     id.external(),
                 ));
             };
-            let time_utility = Arc::new(ScoringBasedTravelTimeAndDisutility::new(
-                config,
+            let mut time_utility = ScoringBasedTravelTimeAndDisutility::new(
+                &controller_scenario.core.scoring_parameters,
                 id.clone(),
                 global_ttc.clone(),
-            ));
+            );
+            if let Some(travel_time_mode) = travel_time_modes.get(mode) {
+                info!(
+                    "The router of mode {mode} uses the observed travel times of mode {travel_time_mode}."
+                );
+                time_utility = time_utility.with_travel_time_mode(Id::create(travel_time_mode));
+            }
+            let time_utility = Arc::new(time_utility);
             let astar = AStar::<AltHeuristic>::new(
                 controller_scenario.core.network.clone(),
                 Some(id.clone()),
@@ -366,18 +400,27 @@ impl Controller {
         info!("Writing output files:");
         if self.config.output().compression_type.is_protobuf() {
             info!("    ... ID store ...");
-            Self::write_output_id_store(&output_path);
+            self.write_output_id_store(&output_path);
         }
         info!("    ... Config ...");
         self.write_output_config(output_path.clone());
+        self.write_output_scoring_parameters(&output_path);
         info!("    ... Network ...");
         self.write_output_network(output_path.clone());
+        info!("    ... Facilities ...");
+        self.write_output_facilities(&output_path);
+        info!("    ... Vehicles ...");
+        self.write_output_vehicles(&output_path);
         info!("    ... Population ...");
         self.write_output_population(output_path.clone());
-        if matches!(
-            self.config.transit().simulation,
-            TransitSimulation::ScheduleBasedTeleportation
-        ) {
+        // Like MATSim, the transit files are only written if transit is used: with a schedule as input, also if
+        // transit is teleported, or if it is simulated schedule based.
+        if self.config.transit().schedule_path.is_some()
+            || matches!(
+                self.config.transit().simulation,
+                TransitSimulation::ScheduleBasedTeleportation
+            )
+        {
             info!("    ... Transit schedule and vehicles ...");
             self.write_output_transit(&output_path);
         }
@@ -567,16 +610,23 @@ impl Controller {
         write_config(self.config.as_ref(), output_path);
     }
 
+    /// Writes the scoring parameter sets of the scenario, also the default set if the config names no
+    /// file. The output config keeps the path of the input file, as it does for the network.
+    fn write_output_scoring_parameters(&self, output_path: impl AsRef<Path>) {
+        let path = output_path
+            .as_ref()
+            .join(OutputFile::ScoringParameters.output_file_name(
+                self.config.output().compression_type,
+                self.config.output().run_id.as_deref(),
+            ));
+        write_scoring_parameter_sets(&self.scenario.core.scoring_parameters, &path);
+    }
+
     fn write_output_network(&mut self, output_path: PathBuf) {
-        let net_out_path = create_output_filename(
-            &output_path,
-            &PathBuf::from(
-                self.config
-                    .output()
-                    .compression_type
-                    .with_extension("output_network"),
-            ),
-        );
+        let net_out_path = output_path.join(OutputFile::Network.output_file_name(
+            self.config.output().compression_type,
+            self.config.output().run_id.as_deref(),
+        ));
 
         let attribute_overrides = self.link_storage_capacities.attribute_overrides();
         self.scenario
@@ -585,30 +635,48 @@ impl Controller {
             .to_file_with_link_attribute_overrides(&net_out_path, &attribute_overrides);
     }
 
+    /// Writes the facilities as `prepare_for_sim` prepared them, i.e. with the base links that it assigned.
+    fn write_output_facilities(&self, output_path: impl AsRef<Path>) {
+        let path = output_path
+            .as_ref()
+            .join(OutputFile::Facilities.output_file_name(
+                self.config.output().compression_type,
+                self.config.output().run_id.as_deref(),
+            ));
+        self.scenario.core.facilities.to_file(&path);
+    }
+
+    /// Writes the vehicles of the persons, also those created during scenario preparation.
+    fn write_output_vehicles(&self, output_path: impl AsRef<Path>) {
+        let path = output_path
+            .as_ref()
+            .join(OutputFile::Vehicles.output_file_name(
+                self.config.output().compression_type,
+                self.config.output().run_id.as_deref(),
+            ));
+        vehicles::to_file(&self.scenario.core.garage, &path);
+    }
+
     fn write_output_transit(&self, output_path: impl AsRef<Path>) {
         let compression_type = self.config.output().compression_type;
-        let schedule_path = create_output_filename(
-            &output_path,
-            &PathBuf::from(compression_type.with_extension("output_transitSchedule")),
-        );
+        let run_id = self.config.output().run_id.as_deref();
+        let schedule_path = output_path
+            .as_ref()
+            .join(OutputFile::TransitSchedule.output_file_name(compression_type, run_id));
         self.scenario.core.transit_schedule.to_file(&schedule_path);
-        let vehicles_path = create_output_filename(
-            &output_path,
-            &PathBuf::from(compression_type.with_extension("output_transitVehicles")),
-        );
+        let vehicles_path = output_path
+            .as_ref()
+            .join(OutputFile::TransitVehicles.output_file_name(compression_type, run_id));
         vehicles::to_file(&self.scenario.core.transit_garage, &vehicles_path);
     }
 
     fn write_output_population(&mut self, output_path: impl AsRef<Path>) {
-        let pop_out_path = create_output_filename(
-            &output_path,
-            &PathBuf::from(
-                self.config
-                    .output()
-                    .compression_type
-                    .with_extension("output_plans"),
-            ),
-        );
+        let pop_out_path = output_path
+            .as_ref()
+            .join(OutputFile::Plans.output_file_name(
+                self.config.output().compression_type,
+                self.config.output().run_id.as_deref(),
+            ));
 
         self.scenario.population.to_file(&pop_out_path);
     }
@@ -632,8 +700,11 @@ impl Controller {
         );
     }
 
-    fn write_output_id_store(output_path: impl AsRef<Path>) {
-        id::store_to_file(&output_path.as_ref().join("output_ids.binpb"));
+    fn write_output_id_store(&self, output_path: impl AsRef<Path>) {
+        id::store_to_file(&output_path.as_ref().join(OutputFile::Ids.output_file_name(
+            CompressionType::Proto,
+            self.config.output().run_id.as_deref(),
+        )));
     }
 
     fn write_iteration_files(
@@ -643,14 +714,11 @@ impl Controller {
         population: &Population,
     ) {
         let iter_path = iters_path.as_ref().join(format!("it.{}", iteration));
-        population.to_file(
-            &iter_path.join(
-                self.config
-                    .output()
-                    .compression_type
-                    .with_extension("output_plans"),
-            ),
-        );
+        population.to_file(&iter_path.join(OutputFile::Plans.iteration_file_name(
+            self.config.output().compression_type,
+            self.config.output().run_id.as_deref(),
+            iteration,
+        )));
     }
 }
 
@@ -715,27 +783,50 @@ pub(crate) fn write_experienced_population(
         })
         .sorted_by(|a, b| a.id().cmp(&b.id()))
         .collect();
-    let filename = config
-        .output()
-        .compression_type
-        .with_extension("output_experienced_plans");
+    let compression = config.output().compression_type;
+    let run_id = config.output().run_id.as_deref();
     let iteration_path = output_path
         .join("ITERS")
         .join(format!("it.{iteration}"))
-        .join(&filename);
+        .join(OutputFile::ExperiencedPlans.iteration_file_name(compression, run_id, iteration));
     info!("Writing experienced plans to {}", iteration_path.display());
     let population = Population::from_persons(persons);
     population.to_file(&iteration_path);
 
     if is_last_iteration {
-        let root_path = output_path.join(filename);
+        let root_path =
+            output_path.join(OutputFile::ExperiencedPlans.output_file_name(compression, run_id));
         info!("Writing experienced plans to {}", root_path.display());
         population.to_file(&root_path);
     }
 }
 
+/// Checks the mapping of [`ControllerBuilder::travel_time_mode`]: every mapped mode must be a
+/// network mode. Warns about target modes that the mobsim does not move on the network, because no
+/// travel times are observed for them, so their routers would only see free speed travel times.
+fn check_travel_time_modes(
+    config: &Config,
+    travel_time_modes: &HashMap<String, String>,
+) -> Result<(), String> {
+    // sorted, so that errors and warnings do not depend on the iteration order of the map
+    for (mode, travel_time_mode) in travel_time_modes.iter().sorted() {
+        if !config.routing().network_modes.contains(mode) {
+            return Err(format!(
+                "Travel times of mode {travel_time_mode} are mapped to mode {mode}, which is not a network mode (routing.network_modes)."
+            ));
+        }
+        if !config.qsim().main_modes.contains(travel_time_mode) {
+            warn!(
+                "The router of mode {mode} uses the travel times of mode {travel_time_mode}, which is not a main mode of the mobsim (qsim.main_modes), so no travel times are observed for it."
+            );
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
+    use super::check_travel_time_modes;
     use super::prepare_output_directory;
     use crate::simulation::config::OverwriteFiles;
     use std::fs;
@@ -778,5 +869,21 @@ mod tests {
 
         assert!(output_dir.exists());
         assert!(existing_file.exists());
+    }
+
+    #[test]
+    fn travel_time_modes_must_map_network_modes() {
+        let mut config = crate::simulation::config::Config::default();
+        config.routing_mut().network_modes = vec!["car".to_string(), "ride".to_string()];
+        config.qsim_mut().main_modes = vec!["car".to_string()];
+
+        let mapping = |mode: &str, travel_time_mode: &str| {
+            std::collections::HashMap::from([(mode.to_string(), travel_time_mode.to_string())])
+        };
+        assert!(check_travel_time_modes(&config, &mapping("ride", "car")).is_ok());
+        // a target without observed travel times only warns
+        assert!(check_travel_time_modes(&config, &mapping("ride", "bike")).is_ok());
+        let error = check_travel_time_modes(&config, &mapping("bike", "car")).unwrap_err();
+        assert!(error.contains("bike"), "{error}");
     }
 }

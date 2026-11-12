@@ -9,6 +9,7 @@ use crate::simulation::network::storage_cap::{
     StorageCap, StorageCapacityDefinition, StorageRelease,
 };
 use crate::simulation::network::stuck_timer::StuckTimer;
+use crate::simulation::queue::{LinkQueue, Queue, TimeQueue};
 use crate::simulation::scenario::network::Link;
 use crate::simulation::scenario::network::Node;
 use crate::simulation::time::{SimClock, Tick};
@@ -194,7 +195,7 @@ impl SimLink {
 #[derive(Debug)]
 pub struct LocalLink {
     pub id: Id<Link>,
-    q: VecDeque<VehicleQEntry>,
+    q: LinkQueue<VehicleQEntry>,
     buffer: VecDeque<SimulationVehicle>,
     // Sum of the PCE of the vehicles in the buffer. They have already consumed flow capacity.
     buffer_pce: f64,
@@ -216,6 +217,15 @@ pub struct LocalLink {
 struct VehicleQEntry {
     vehicle: SimulationVehicle,
     earliest_exit_time: Tick,
+}
+
+impl<T> LinkQueue<T> {
+    fn new(dynamics: config::LinkDynamics) -> Self {
+        match dynamics {
+            config::LinkDynamics::Fifo => Self::Fifo(VecDeque::new()),
+            config::LinkDynamics::PassingQ => Self::PassingQ(TimeQueue::new()),
+        }
+    }
 }
 
 impl LocalLink {
@@ -288,7 +298,7 @@ impl LocalLink {
 
         LocalLink {
             id,
-            q: VecDeque::new(),
+            q: LinkQueue::new(config.link_dynamics),
             buffer: VecDeque::new(),
             buffer_pce: 0.0,
             waiting_list: VecDeque::new(),
@@ -331,10 +341,22 @@ impl LocalLink {
         // update state
         consume_inflow(&mut self.inflow_cap, vehicle.pce(), now);
         self.storage_cap.consume(vehicle.pce());
-        self.q.push_back(VehicleQEntry {
-            vehicle,
-            earliest_exit_time,
-        });
+        self.q.push(
+            VehicleQEntry {
+                vehicle,
+                earliest_exit_time,
+            },
+            self.clock.tick_to_time(earliest_exit_time),
+        );
+        // Passing can bring the next exit forward. Reactivate the link so that its new head
+        // is processed on time; the old scheduled wake-up will be ignored by `wake_up`.
+        if self.sleeping_until.is_some_and(|at| {
+            self.q
+                .peek()
+                .is_some_and(|head| head.earliest_exit_time < at)
+        }) {
+            self.sleeping_until = None;
+        }
     }
 
     /// Push a vehicle into the waiting list. The departure wakes up a sleeping link.
@@ -372,7 +394,7 @@ impl LocalLink {
         if self.waiting_list.is_empty()
             && self
                 .q
-                .front()
+                .peek()
                 .is_none_or(|entry| entry.earliest_exit_time > now)
         {
             return Vec::new();
@@ -410,7 +432,7 @@ impl LocalLink {
         let mut released_vehicles = vec![];
 
         loop {
-            let option = self.q.front();
+            let option = self.q.peek();
 
             // If queue is empty, break the loop.
             if option.is_none() {
@@ -429,7 +451,7 @@ impl LocalLink {
 
             // If the vehicle wants to arrive, remove it from the queue
             if arrive {
-                let veh = self.q.pop_front().unwrap().vehicle;
+                let veh = self.q.poll().unwrap().vehicle;
                 self.release_storage(veh.pce(), now, handle_storage_release);
                 released_vehicles.push(veh);
                 continue;
@@ -437,7 +459,7 @@ impl LocalLink {
 
             // If the vehicle wants to move to another link, put it into buffer
             if capacity_left {
-                let veh = self.q.pop_front().unwrap().vehicle;
+                let veh = self.q.poll().unwrap().vehicle;
                 self.release_storage(veh.pce(), now, handle_storage_release);
                 self.push_to_buffer(veh);
             } else {
@@ -463,22 +485,19 @@ impl LocalLink {
                 break;
             }
 
-            // If arrival on link, remove from waiting list and put into buffer
-            if option
-                .unwrap()
-                .driver()
-                .is_wanting_to_arrive_on_current_link()
-            {
-                released_vehicles.push(self.pop_from_waiting(comp_env, now));
-                continue;
+            // As in QSim's moveWaitToRoad, every departure needs flow capacity, including
+            // vehicles whose start and destination link are the same.
+            if !self.is_accepting_from_wait() {
+                break;
             }
 
-            // If not arriving on link, check if flow capacity allows to move vehicle to buffer
-            if self.is_accepting_from_wait() {
-                let vehicle = self.pop_from_waiting(comp_env, now);
-                self.push_to_buffer(vehicle);
+            let vehicle = self.pop_from_waiting(comp_env, now);
+            // If arriving on this link, release directly without consuming capacity.
+            if vehicle.driver().is_wanting_to_arrive_on_current_link() {
+                released_vehicles.push(vehicle);
             } else {
-                break;
+                // Only vehicles entering the buffer consume flow capacity.
+                self.push_to_buffer(vehicle);
             }
         }
 
@@ -577,7 +596,7 @@ impl LocalLink {
     fn drain(&mut self) -> Vec<SimulationVehicle> {
         let mut vehicles =
             Vec::with_capacity(self.q.len() + self.buffer.len() + self.waiting_list.len());
-        vehicles.extend(self.q.drain(..).map(|entry| entry.vehicle));
+        vehicles.extend(self.q.drain().into_iter().map(|entry| entry.vehicle));
         vehicles.extend(self.buffer.drain(..));
         self.buffer_pce = 0.0;
         vehicles.extend(self.waiting_list.drain(..));
@@ -618,7 +637,7 @@ impl LocalLink {
         if !self.waiting_list.is_empty() || !self.buffer.is_empty() || !self.flow_cap.is_full() {
             return None;
         }
-        let wake_up = self.q.front()?.earliest_exit_time;
+        let wake_up = self.q.peek()?.earliest_exit_time;
         if wake_up <= now {
             return None;
         }
@@ -770,11 +789,86 @@ mod sim_link_tests {
     use crate::simulation::id::Id;
     use crate::simulation::network::link::LinkPosition::QStart;
     use crate::simulation::network::link::{LinkPosition, LocalLink, SimLink};
+    use crate::simulation::queue::Queue;
     use crate::simulation::vehicles::SimulationVehicle;
     use crate::test_utils;
     use crate::test_utils::create_agent_without_route;
     use assert_approx_eq::assert_approx_eq;
     use macros::deterministic_id_test;
+
+    #[deterministic_id_test]
+    fn passing_preserves_equal_exit_order_and_wakes_sleeping_link() {
+        use crate::simulation::config::LinkDynamics;
+        use crate::simulation::time::Tick;
+
+        for dynamics in [LinkDynamics::Fifo, LinkDynamics::PassingQ] {
+            let mut config = test_utils::qsim_config();
+            config.link_dynamics = dynamics;
+            let mut link = LocalLink::build(
+                Id::create("passing-link"),
+                36000.,
+                10.,
+                1.,
+                100.,
+                7.5,
+                &config,
+                Id::create("from"),
+                Id::create("to"),
+            );
+            let vehicle = |id, speed| {
+                SimulationVehicle::from_parts(
+                    id,
+                    0,
+                    speed,
+                    1.,
+                    test_utils::create_agent(id, vec!["passing-link", "next"]),
+                )
+            };
+            link.push_veh(vehicle(1, 1.), 0, QStart);
+            let wake_up = Tick::new(100);
+            assert_eq!(Some(wake_up), link.fall_asleep(Tick::zero()));
+            // Both faster vehicles are due at 11; they must retain insertion order.
+            link.push_veh(vehicle(2, 10.), 1, QStart);
+            link.push_veh(vehicle(3, 10.), 1, QStart);
+            assert_eq!(dynamics == LinkDynamics::Fifo, link.is_sleeping());
+            if dynamics == LinkDynamics::PassingQ {
+                assert!(!link.wake_up(wake_up)); // The old scheduled wake-up is stale.
+                assert_eq!(Some(Tick::new(11)), link.fall_asleep(Tick::new(1)));
+                assert!(link.wake_up(Tick::new(11)));
+            }
+            link.do_sim_step(10, &mut Default::default());
+            assert!(link.offers_veh().is_none());
+            link.do_sim_step(11, &mut Default::default());
+            if dynamics == LinkDynamics::PassingQ {
+                for id in ["2", "3"] {
+                    assert_eq!(
+                        id,
+                        link.pop_veh_and_restart_stuck_timer(11)
+                            .unwrap()
+                            .id()
+                            .external()
+                    );
+                }
+            }
+            assert!(link.offers_veh().is_none());
+            link.do_sim_step(100, &mut Default::default());
+            let expected = if dynamics == LinkDynamics::Fifo {
+                vec!["1", "2", "3"]
+            } else {
+                vec!["1"]
+            };
+            for id in expected {
+                assert_eq!(
+                    id,
+                    link.pop_veh_and_restart_stuck_timer(100)
+                        .unwrap()
+                        .id()
+                        .external()
+                );
+            }
+            assert!(!link.is_active());
+        }
+    }
 
     #[deterministic_id_test]
     fn storage_cap_consumed() {
@@ -1162,11 +1256,39 @@ mod sim_link_tests {
     }
 
     /// Setting: Three departures in the waiting list: the second vehicle ends its leg on the link.
-    /// Execution: One link step with 0.25 veh per tick.
+    /// Execution: Link steps with 0.25 veh per tick; the first vehicle leaves the buffer at tick 1.
     /// Expectation: The first departure consumes the capacity when it enters the buffer, the
-    /// arriving vehicle leaves without consuming capacity, and the third departure has to wait.
+    /// arriving vehicle waits for capacity until tick 4 but does not consume it, and the third
+    /// departure enters the buffer in that same tick.
     #[deterministic_id_test]
-    fn departures_consume_flow_capacity_but_arrivals_do_not() {
+    fn waiting_arrivals_require_flow_capacity_but_do_not_consume_it() {
+        use crate::simulation::controller::ThreadLocalComputationalEnvironment;
+        use crate::simulation::events::{VehicleEntersTrafficEvent, VehicleLeavesTrafficEvent};
+        use crate::simulation::time::SimTime;
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        let mut env = ThreadLocalComputationalEnvironment::default();
+        let events = Rc::new(RefCell::new(Vec::new()));
+        let enters = events.clone();
+        env.events_manager_borrow_mut()
+            .on::<VehicleEntersTrafficEvent, _>(move |event| {
+                enters.borrow_mut().push((
+                    "enter",
+                    event.vehicle.external().to_owned(),
+                    event.time,
+                ));
+            });
+        let leaves = events.clone();
+        env.events_manager_borrow_mut()
+            .on::<VehicleLeavesTrafficEvent, _>(move |event| {
+                leaves.borrow_mut().push((
+                    "leave",
+                    event.vehicle.external().to_owned(),
+                    event.time,
+                ));
+            });
+
         let mut link = flow_test_link(900., 1);
         link.push_veh(flow_test_vehicle(1, 1.), 0, LinkPosition::Waiting);
         let arriving_agent = test_utils::create_agent(2, vec!["flow-link"]);
@@ -1174,7 +1296,24 @@ mod sim_link_tests {
         link.push_veh(arriving, 0, LinkPosition::Waiting);
         link.push_veh(flow_test_vehicle(3, 1.), 0, LinkPosition::Waiting);
 
-        let ending = link.do_sim_step(0, &mut Default::default());
+        assert!(link.do_sim_step(0, &mut env).is_empty());
+        assert_eq!(vec!["1"], buffered_ids(&link));
+        assert_eq!(2, link.waiting_list.len());
+        assert_eq!(-0.75, link.flow_cap.accumulated());
+
+        assert!(link.pop_veh_and_restart_stuck_timer(1).is_some());
+        for now in 1..=3 {
+            assert!(link.do_sim_step(now, &mut env).is_empty());
+            assert!(link.buffer.is_empty());
+            assert_eq!(2, link.waiting_list.len());
+        }
+        assert_eq!(0., link.flow_cap.accumulated());
+        assert_eq!(
+            vec![("enter", "1".to_owned(), SimTime::from_secs(0))],
+            *events.borrow()
+        );
+
+        let ending = link.do_sim_step(4, &mut env);
 
         assert_eq!(
             vec!["2"],
@@ -1183,9 +1322,60 @@ mod sim_link_tests {
                 .map(|v| v.id().external().to_owned())
                 .collect::<Vec<_>>()
         );
-        assert_eq!(vec!["1"], buffered_ids(&link));
-        assert_eq!(1, link.waiting_list.len());
+        assert_eq!(vec!["3"], buffered_ids(&link));
+        assert!(link.waiting_list.is_empty());
         assert_eq!(-0.75, link.flow_cap.accumulated());
+        // A repeated step must not emit duplicate entry or arrival events.
+        assert!(link.do_sim_step(4, &mut env).is_empty());
+        assert_eq!(
+            vec![
+                ("enter", "1".to_owned(), SimTime::from_secs(0)),
+                ("enter", "2".to_owned(), SimTime::from_secs(4)),
+                ("enter", "3".to_owned(), SimTime::from_secs(4)),
+                ("leave", "2".to_owned(), SimTime::from_secs(4)),
+            ],
+            *events.borrow()
+        );
+    }
+
+    #[deterministic_id_test]
+    fn consecutive_waiting_arrivals_share_available_flow_capacity() {
+        let mut link = flow_test_link(900., 1);
+        for id in 1..=3 {
+            let agent = test_utils::create_agent(id, vec!["flow-link"]);
+            let vehicle = SimulationVehicle::from_parts(id, 0, 10., 1., agent);
+            link.push_veh(vehicle, 0, LinkPosition::Waiting);
+        }
+
+        let ending = link.do_sim_step(0, &mut Default::default());
+
+        assert_eq!(
+            vec!["1", "2", "3"],
+            ending.iter().map(|v| v.id().external()).collect::<Vec<_>>()
+        );
+        assert_eq!(0.25, link.flow_cap.accumulated());
+        assert!(link.buffer.is_empty());
+        assert_eq!(0., link.buffer_pce);
+        assert_eq!(0., link.storage_cap.used());
+        assert!(!link.is_active());
+    }
+
+    #[deterministic_id_test]
+    fn queued_arrivals_do_not_require_flow_capacity() {
+        let mut link = flow_test_link(900., 1);
+        link.push_veh(flow_test_vehicle(1, 1.), 0, QStart);
+        let agent = test_utils::create_agent(2, vec!["flow-link"]);
+        let arriving = SimulationVehicle::from_parts(2, 0, 10., 1., agent);
+        link.push_veh(arriving, 0, QStart);
+
+        let ending = link.do_sim_step(1, &mut Default::default());
+
+        assert_eq!(1, ending.len());
+        assert_eq!("2", ending[0].id().external());
+        assert_eq!(vec!["1"], buffered_ids(&link));
+        assert_eq!(-0.75, link.flow_cap.accumulated());
+        assert!(link.q.is_empty());
+        assert_eq!(0., link.storage_cap.used());
     }
 
     /// Lets two vehicles pass a link with 800 veh/h at a 0.1 % sample, i.e. 1/4500 veh per tick.
@@ -1458,7 +1648,7 @@ mod kinematic_tests {
                     incoming
                         .local_link
                         .push_veh(vehicle(1, pce, true), 0, LinkPosition::QStart);
-                    let due = local.q.front().unwrap().earliest_exit_time;
+                    let due = local.q.peek().unwrap().earliest_exit_time;
                     local.do_sim_step(due, &mut Default::default());
                     let mut releases = Vec::new();
                     incoming.do_sim_step(due, &mut Default::default(), |release| {

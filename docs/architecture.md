@@ -13,8 +13,8 @@ The rules between agents and engines are stated in [agent-contract.md](agent-con
 
 ### General Scenario Handling
 
-Starting the simulation mostly works as in MATSim Java. All XML input files need to be converted into protobuf for
-faster reading. These files need to be referenced in a configuration file. Based on the config, a scenario is built,
+Starting the simulation mostly works as in MATSim Java. Inputs can be loaded from XML or converted into protobuf for
+faster reading. Input files are referenced in a configuration file. Based on the config, a scenario is built,
 based on that the controller -- pretty much like in MATSim Java.
 
 Network links must list their allowed modes explicitly: a link without modes allows no mode. Unlike MATSim, which
@@ -80,10 +80,34 @@ after the conversion and are resolved during preparation; code running afterward
 `InternalActivity::link_id` instead of unwrapping. Preparation is split into two steps in `scenario::prepare`:
 
 - `prepare_for_sim` runs once on the loaded `Scenario`, before the controller shares it, e.g. with the routing modules.
-  It connects the facilities to the network and resolves the activity locations. Both run in parallel.
+  It prepares routing interaction ids and person vehicles sequentially, connects the facilities to the network and
+  resolves activity locations.
+  The latter two steps run in parallel. Vehicle preparation sorts persons by external id and the union of
+  `qsim.main_modes` and `routing.network_modes` by mode name, so generated ids do not depend on map or thread order.
 - `prepare_for_mobsim` runs before every mobsim iteration. It validates and repairs plans, e.g. by routing trips.
-  As in MATSim, trips with a mode of `qsim.main_modes` or `routing.network_modes` are routed with the vehicle
-  `<person>_<mode>`; vehicles referenced by the routes of the old trip are not reused.
+  Missing vehicle references on network routes are resolved from the person's `vehicles` mapping before read-only
+  validation; explicit references take precedence and must resolve. Newly routed trips use the person's assigned
+  vehicle for their routing mode, rather than reusing the old trip's route vehicle.
+
+`qsim.vehicles_source` follows MATSim's `defaultVehicle`, `modeVehicleTypesFromVehiclesData`, and `fromVehiclesData`.
+Rust defaults to the second option and always generates `<person>_<mode>` ids; it has no deprecated option to use the
+person id alone for cars. For the first two options, every configured main or network routing mode gets a generated
+assignment, replacing that mode's input `vehicles` entry. The person's `vehicleTypes` can override the creation type.
+Types are validated before checking for existing vehicles, as in Java; existing vehicles are never replaced.
+New vehicles resolve their speed and PCE from the garage by the fallback type id. Unlike Java's fresh default type
+object, an already registered `defaultVehicleType` supplies its own values when `defaultVehicle` is used.
+`fromVehiclesData` preserves the supplied mappings and catalog and reports missing vehicles or assignments at use.
+Each person's new assignments are collected locally and merged only after all its modes succeed. A missing
+`vehicles` attribute becomes an empty map even with `fromVehiclesData` or no configured network modes, as in Java.
+On an error, that person's assignments remain unchanged; previously created vehicles and completed persons are not
+rolled back. Interaction ids are prepared separately before this step, also with `fromVehiclesData`.
+Pure teleportation modes do not need vehicles. The catalog remains immutable after this preparation.
+
+Population loaders and the config-free XML-to-protobuf converter do not generate vehicles or fill missing route
+references. `vehicles` and `vehicleTypes` are string-map attributes, represented as JSON objects internally, with
+their Java class names restored on XML output. Protobuf adds the string-map oneof field 5 without changing scalar
+field tags. Older files remain readable, but data already lost by an older converter requires reconversion with the
+matching id store. Preparation can change internal ids relative to previous releases; RNG stream encoding is unchanged.
 
 For mobsim, the controller splits the population into `MobsimInput`s. Each input contains a `MobsimPartition` with the
 shared scenario data and a fresh partition network runtime, plus a `PopulationShard`. Persistent QSim workers receive
@@ -110,7 +134,11 @@ it does not inspect or clone their contents.
 Experienced-plan collection uses this migration bus. Each worker creates one `BackpackingEngine` in an
 `Rc<RefCell<_>>`; its backpacks move with vehicles and teleporting agents and keep both their partial plans and any
 future scoring events. The engine subscribes only to the event types that change a partial plan, so that other events,
-e.g. link leave events, don't reach it. At `BeforeCleanup`, every worker converts the backpacks currently on that
+e.g. link leave events, don't reach it. When a network leg ends, its route gets the distance of MATSim's `EventsToLegs`,
+`RouteUtils.calcDistance` with the relative positions of the vehicle's enters/leaves traffic events (`calc_distance`).
+Vehicles enter and leave traffic at the end of a link, so this is the length of the links after the departure link up
+to and including the arrival link, and 0 if both are the same link.
+At `BeforeCleanup`, every worker converts the backpacks currently on that
 partition into one partial population and sends it to the controller over a dedicated backchannel before publishing its
 normal worker result. Consequently, all partial populations are available when the controller emits `AfterMobsim`. The scoring
 module verifies iteration and rank and merges the populations deterministically by person ID. The controller then
@@ -131,14 +159,49 @@ Scoring uses the public `PlanScorer` trait and reads only the experienced plan. 
 `Box<dyn PlanScorer>`; without one, it creates `CharyparNagelScoringFunction`. It scores activity durations with
 MATSim's default `typicalDurationScoreComputation = relative`, i.e. a zero-utility duration of
 `typicalDuration * exp(-1)`, so an activity of typical duration scores `performing * typicalDuration`. MATSim's
-deprecated `uniform` computation is not supported. Like MATSim's `CharyparNagelLegScoring`, it scores the time until
+deprecated `uniform` computation is not supported. Like MATSim's `CharyparNagelActivityScoring`, an activity is only
+performed between its `opening_time_s` and `closing_time_s`, which may lie beyond 24 hours; the time before and after
+counts as waiting with `waiting`. `latestStartTime`, `earliestEndTime` and `minimalDuration` are not supported.
+`convert_scoring_parameters` converts the scoring module of a MATSim config, typically an `output_config.xml`, into a
+scoring parameters file and rejects such unsupported values instead of dropping them, as well as unknown parameter
+sets and module settings that this simulation does not implement: `usingOldScoringBelowZeroUtilityDuration=true`,
+`learningRate` or `brainExpBeta` other than 1, and a `typicalDurationSource` other than `activityParams`. Only
+`tasteVariations` is skipped with a warning. Missing values take MATSim's
+defaults, including `scoringThisActivityAtAll=false` for types ending with `interaction`, so a reduced output config
+gives the same file. It derives `aborted_plan_score`
+like MATSim's `ScoringParameters`. Like MATSim's `CharyparNagelLegScoring`, the scoring function scores the time until
 boarding of a leg with a transit route with `waiting_pt` instead of the marginal utility of traveling, by default with
 the one of traveling by `pt`, and adds `utility_of_line_switch` for each leg of a `transit.passenger_modes` mode after
 the first one in a trip. The alternative
 `OnlyTravelTimeDependentScoring` assigns the negative elapsed seconds of completed trips, including transfer waits.
 An empty experienced plan receives zero points from either built-in scorer.
 
+Like MATSim's `scoringParameters`, the scoring parameters come in sets per subpopulation. Each `ScoringParameterSet`
+holds the person parameters such as `performing` together with its `activity_params` and `mode_params`. The set without
+`subpopulation` is the default set. A person whose subpopulation has no set of its own uses it, like with MATSim's
+`getScoringParametersOrDefault`, and activity and mode parameters are not merged with those of the default set. A person
+without a subpopulation attribute belongs to `person`. The sets are only read from a file:
+`scoring.scoring_parameters_path` names a YAML file with a list of sets, relative to the config, and without it there is
+one default set. Like the network and the population, `Scenario::load` reads the sets into
+`ScenarioCore::scoring_parameters`, from where the scoring function and the router take them, and rejects several sets
+for one subpopulation as well as activity types or modes that occur twice in a set. The controller always writes the
+sets to `output_scoring_parameters.yml`, while the output config keeps the input path, as it does for the network.
+Deviating from MATSim's
+`RandomizingTimeDistanceTravelDisutility`, which uses the default set for everyone, `ScoringBasedTravelTimeAndDisutility`
+routes with the person's set; routing without a person and the ALT lower bound use the smallest cost factors of all sets.
+Its travel times are those observed in the mobsim for its own mode. `ControllerBuilder::travel_time_mode(mode, other)`
+lets the router of a network mode use the travel times observed for another mode instead, like MATSim's
+`addTravelTimeBinding`, e.g. ride (teleported along its network route) those of car; the cost factors stay those of
+`mode`.
+
 ### Link Dynamics
+
+`qsim.link_dynamics` selects `FIFO` (the default, also for legacy `Simulation` configs) or
+`PassingQ`, independently of `traffic_dynamics`. The CLI accepts `--set qsim.link_dynamics=PassingQ`.
+FIFO uses a `VecDeque`; PassingQ uses the `TimeQueue` from `simulation::queue`, both through the
+`Queue` trait and an internal enum wrapper whose delegation is generated by `enum_dispatch`. PassingQ orders vehicles
+by earliest exit time and preserves insertion order for equal times. Unlike Java's `PassingVehicleQ`, equal exit times thus
+have a guaranteed FIFO order. The buffer and waiting list remain FIFO in both modes.
 
 `qsim.traffic_dynamics` selects `Queue` (the default, including legacy `Simulation` configs) or
 `KinematicWaves`. The CLI override accepts `--set qsim.traffic_dynamics=KinematicWaves`; the Rust API
@@ -170,7 +233,8 @@ exceeded `1e-10`. Both formulations are equivalent, but floating-point rounding 
 
 A link whose waiting list and buffer are empty, whose flow capacity is full and whose first vehicle is not due yet
 sleeps until that vehicle is due (`LocalLink::fall_asleep`): moving it would change nothing, because a full capacity
-stays exactly full. A departure wakes it up earlier; a vehicle entering the queue does not. Because the set of active
+stays exactly full. A departure wakes it up earlier; a vehicle entering a PassingQ also wakes it if its exit time is
+earlier than the scheduled wake-up. Other queue insertions leave it asleep. Because the set of active
 links therefore changes more often, the vehicles that end their leg are sorted by link id before they are handed to
 the activity engine, so that the order of the agents does not depend on the order of the active links. The order of
 events within a time step still depends on it. It is deterministic for a single partition; with several partitions,
@@ -217,7 +281,7 @@ them, with the same type and the id `<vehicle>_<line>_<route>_<departure>`; vehi
 id. `TransitSimulation::needs_vehicle_per_departure` decides this, so that a later simulation with vehicle blocks, e.g.
 on the links of the network, can let vehicles serve several departures. The controller writes the schedule and the
 transit vehicles with the copies to `output_transitSchedule` and `output_transitVehicles`, so that the output matches
-the events and can be used as input again.
+the events and can be used as input again. With teleported transit, it writes both unchanged if a schedule was read.
 
 Each departure has a driver, an agent without a person. Like the drivers of MATSim's transit engines, it passes through
 three phases: it waits in a `pt interaction` activity at the start link of its route until the departure time, drives
@@ -233,8 +297,9 @@ the legs of passenger modes that offer the role of a passenger (`PassengerLogic`
 engine creates a `TransitVehicle` for it. Each driver serves one departure; drivers that serve the departures of a
 vehicle block one after the other could come with a simulation on the network. When its activity ends, the driver copies
 its departure from the schedule into a plan of its own and no longer depends on the schedule. It knows its stops and
-tells the engine when the vehicle arrives and departs: at the departure time plus the arrival offset, but not before the
-earliest arrival the engine allows, and at the departure time plus the departure offset, but not before the arrival. At
+tells the engine when the vehicle arrives and departs: at the departure time plus the arrival offset plus the previous
+stop's nonnegative departure delay, but not before the earliest arrival the engine allows. It departs at the departure
+time plus the departure offset, but not before the arrival, so a shorter halt can absorb arrival delays. At
 the last stop, the driver leaves the vehicle and ends its leg; drivers that are still in a vehicle when the mobsim ends
 are dropped, as in SBB's engine.
 
@@ -269,6 +334,8 @@ in the schedule.
 
 Deviations from SBB's engine:
 
+- A late departure shifts the next arrival by the departure delay, preserving the scheduled travel time between
+  stops. SBB can shorten that travel time to catch up with the schedule. Halts can still absorb arrival delays.
 - A vehicle needs at least one tick from one stop to the next, so that the result does not depend on whether the next
   stop is on another partition. SBB allows zero seconds.
 - Boarding and alighting take no time. With MATSim's default `ComplexTransitStopHandler`, SBB boards and alights one

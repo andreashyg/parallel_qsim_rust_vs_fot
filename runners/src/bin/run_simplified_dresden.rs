@@ -1,9 +1,9 @@
 use clap::Parser;
 use matsim_rust::simulation::config::{
     CompressionType, Config, Facilities, Logging, MetisOptions, ModalLinkSelection, Network,
-    NonMainModeLinks, OverwriteFiles, PartitionMethod, QSim, Replanning, Routing, StrategySetting,
-    TeleportedParams, TrafficDynamics, Transit, TransitSimulation, TravelTimeCalculator, Vehicles,
-    WriteEvents, parse_key_val,
+    NonMainModeLinks, OverwriteFiles, QSim, Replanning, Routing, StrategySetting, TeleportedParams,
+    TrafficDynamics, Transit, TransitSimulation, TravelTimeCalculator, Vehicles, WriteEvents,
+    parse_key_val,
 };
 use matsim_rust::simulation::controller::controller::ControllerBuilder;
 use matsim_rust::simulation::logging::init_std_out_logging_thread_local;
@@ -345,8 +345,8 @@ fn main() {
         access_egress_mode: "walk".to_string(),
         network_modes: vec![
             "car".to_string(),
-            // "ride".to_string(),  // NOTE: I will not route these, since I can't
-            // "bike".to_string(),  // FIXME: uncommenting this did not fix the problem that bike doesn't create VehicleEntersTrafficEvents
+            "ride".to_string(),
+            "bike".to_string(),
             "truck8t".to_string(),
             "truck18t".to_string(),
             "truck40t".to_string(),
@@ -430,12 +430,20 @@ fn main() {
     // params that we cannot respect here). Lastly, we will set all plans to unselected, to get an
     // unbiased start.
 
-    // these are the network modes used in ROUTING, that is, all network modes except for "bike",
-    // because that mode should not be very relevant for congestion,
-    // and "ride", since we cannot reroute it.
-    // These are the routing modes that we will delete the routes for, since we want to reroute them
-    // in this run.
-    let routing_modes_to_use = &scenario.config.routing().network_modes;
+    // these are the network modes used in ROUTING, that is, all network modes, i.e., everything but pt.
+    // For these routing modes, we will delete the present routes, so that they are rerouted instantly.
+    // For plans containing other routing modes (that is, pt), the routes will be kept, and the
+    // persons will be marked as dontroute. Note that all of their trips will keep their routes, even
+    // if some of them might be of a routing mode that we support. This is because routing can only
+    // be turned on and off for a whole person.
+    let routing_modes_to_use = HashSet::from_iter(
+        scenario
+            .config
+            .routing()
+            .network_modes
+            .iter()
+            .map(|s| s.as_str()),
+    );
 
     // read IOPopulation from original population path, since the internal population interface
     // is not public
@@ -443,37 +451,24 @@ fn main() {
 
     let mut num_dontroute_persons = 0usize;
     let mut num_deleted_routes = 0usize;
-    let mut num_kept_routes = 0usize;
 
-    // prepare the plans, by throwing out routes that I want to route and resetting scores and selection
+    // prepare the plans, by throwing out routes that I want to route, and only keeping selected plans
     for person in population_as_io.persons.iter_mut() {
-        for (plan_no, plan) in person.plans.iter_mut().enumerate() {
-            // reset all scores to None, since the scoring might not be identical in rust
-            plan.score = None;
-
-            // In theory, it would be nice to set all plans to deselected, because some of them
-            // change since we throw away routes, and we want to start unbiased anyway.
-            // But the rust implementation seems to expect some plan to be selected, so we set the
-            // first to selected, to have a selection unaffected by the calibrated original output
-            if plan_no == 0 {
-                plan.selected = true;
-            } else {
-                plan.selected = false;
-            }
-
-            // if a person has been marked as dontroute, we don't throw out any plans
-            if person
-                .attributes
-                .as_ref()
-                .unwrap()
-                .find("subpopulation")
-                .unwrap()
-                .ends_with("dontroute")
-            {
+        let mut new_plans = Vec::with_capacity(1); // we will only keep the selected plan, so we can preallocate for one plan
+        // go through all plans of the person
+        for plan in person.plans.iter_mut() {
+            if plan.selected == false {
+                // don't consider this plan, since we want to keep only the selected plan for all agents.
                 continue;
             }
 
-            // get all routing modes of the legs in the plan
+            // reset all scores to None, since the scoring might not be identical in rust
+            plan.score = None;
+
+            // get all routing modes of the legs in the plan. This is because we cannot route all
+            // routing modes in rust yet, so if the plan contains such a routing mode, we must mark
+            // the person as dontroute, so that they keep their initial plan and do not get
+            // rerouted.
             let routing_modes_in_plan = plan
                 .elements
                 .iter()
@@ -483,12 +478,9 @@ fn main() {
                 })
                 .collect::<HashSet<&str>>();
 
-            if routing_modes_in_plan.len() > 1  // if there are several routing modes in the plan
-                || (routing_modes_in_plan.len() == 1  // or if there is one, and it is not one of the routing modes we want to use
-                    && !routing_modes_to_use
-                        .contains(&routing_modes_in_plan.iter().next().unwrap().to_string()))
-            {
-                // then mark the person as dontroute, by changing its subpopulation attribute to *_dontroute
+            // if the routing modes in the plan are not a subset of the routing modes we want to use,
+            // mark this person as dontroute
+            if !routing_modes_to_use.is_superset(&routing_modes_in_plan) {
                 if let Some(attrs) = person.attributes.as_mut() {
                     // remove the current subpopulation attribute but save its name
                     let old_subpopulation = attrs.attributes.remove(
@@ -511,68 +503,43 @@ fn main() {
 
                     // update counter
                     num_dontroute_persons += 1;
-
-                    // no need to go through the next plans, since the subpopulation is not plan-specific
-                    // YES actually we need to, because we need to reset the scores and selection of all plans, even if the person is dontroute
-                    // break;
-                    continue;
                 }
-            }
+            } else {
+                // If the person has a plan with only routing modes that we can route
 
-            // go through all plan elements
-            for element in plan.elements.iter_mut() {
-                match element {
-                    // for legs, ...
-                    IOPlanElement::Leg(leg) => {
-                        // check the routing mode
-                        match leg
-                            .attributes
-                            .as_ref()
-                            .expect("Leg attributes missing")
-                            .find("routingMode")
-                            .clone()
-                        {
-                            // for legs that have a routing mode that I want to use in my run
-                            Some(routing_mode)
-                                if routing_modes_to_use.contains(&routing_mode.to_string()) =>
-                            {
-                                // delete the route
-                                // note that this only happens for agents that are not in a
-                                // "dontroute" subpopulation, since the loop was broken above
-                                // Also note that this keeps the start and end link, tt,
-                                // distance, vehicle; just deletes the route itself
-                                leg.route.as_mut().unwrap().route = None;
-                                // FIXME this also didn't solve it
-                                //  continue here.
-                                //  maybe, the prepare_for_sim is doing something weird?
-                                //  But actually, right now Im not even throwing these out so it
-                                //  shouldn't do anything. Maybe prrint or panic in prepare_for_sim to verify
-                                // TODO also to a little todo list for the day, to not forget anything important
-                                // update counter
-                                num_deleted_routes += 1;
-                            }
-                            // otherwise do nothing
-                            Some(_routing_mode) => num_kept_routes += 1,
-                            // but if the routing mode cannot be determined, panic
-                            None => {
-                                panic!("Found leg with no routing mode, don't know what to do.")
-                            }
+                // Delete the routes:
+                // go through all plan elements
+                for element in plan.elements.iter_mut() {
+                    match element {
+                        // for legs, ...
+                        IOPlanElement::Leg(leg) => {
+                            // delete the route
+                            leg.route = None;
+                            num_deleted_routes += 1;
                         }
+                        // for activities, do nothing
+                        IOPlanElement::Activity(_) => {}
                     }
-                    // for activities, do nothing
-                    IOPlanElement::Activity(_) => {}
                 }
             }
+
+            if plan.selected == false {
+                panic!("Found unselected plan, but we should only keep selected plans.");
+            }
+            // add the edited plan to the new plans vector
+            new_plans.push(plan.clone());
         }
+        // add the new plans (it is just one)
+        person.plans = new_plans;
     }
 
     info!(
         "Prepared population for rerun:\n\
-        {} persons marked as dontroute because they had plans with routing modes that are not\n\
-        supported or that have multiple routing modes.¸\n\
-        These persons will keep their calibrated plans in this run, but they can choose between them.\n\
-        In those persons that are being routed, {} routes deleted, and {} routes kept.",
-        num_dontroute_persons, num_deleted_routes, num_kept_routes
+        {} persons marked as dontroute because their selected plan contained routing modes that are\n\
+        not routable in rust.¸\n\
+        These persons will simply keep their selected plan in this run.\n\
+        In those persons that are being routed, {} routes deleted.",
+        num_dontroute_persons, num_deleted_routes
     );
 
     // create beta*beta - 1 copies of all persons and vehicles
@@ -592,8 +559,10 @@ fn main() {
             for plan in new_person.plans.iter_mut() {
                 for element in plan.elements.iter_mut() {
                     if let IOPlanElement::Leg(leg) = element {
+                        // if the leg contains a route (must be a person in a dontroute subpop),
+                        // then we need to fix the vehicle id in the route, since it must fit to the
+                        // new person id
                         if let Some(route) = leg.route.as_mut() {
-                            // fix the vehicle id used in the route (must fit to the copied person id)
                             if route.vehicle.is_some() {
                                 let routing_mode = leg
                                     .attributes
@@ -611,6 +580,7 @@ fn main() {
             new_persons.push(new_person);
         }
 
+        // create copies of all vehicles in the garage
         for (vehicle_id, vehicle) in scenario.garage.vehicles.iter_mut() {
             let mut new_vehicle = vehicle.clone();
 

@@ -302,6 +302,7 @@ pub struct RunDresdenScenario {
     pub overwrites: Option<HashMap<String, Value>>,
     pub iterations: usize,
     pub sample_size: f64,
+    pub num_parts: usize,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -548,6 +549,7 @@ impl Module for RunDresdenScenario {
             delete_output_dir_if_existing,
             self.iterations.to_string(),
             self.sample_size.to_string(),
+            self.num_parts.to_string(),
         ]))
     }
 

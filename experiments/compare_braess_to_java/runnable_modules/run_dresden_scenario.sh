@@ -15,8 +15,9 @@ run_dresden_experiment_case() {
   local delete_output_dir_if_existing="$7"
   local num_iterations="$8"
   local sample_size="${9}"
+  local num_parts="${10}"
 
-  echo "Running rust simulation with parameters: beta=${beta}, rust_seed=${rust_seed}, num_iterations=${num_iterations}, sample_size=${sample_size}"
+  echo "Running rust simulation with parameters: beta=${beta}, rust_seed=${rust_seed}, num_iterations=${num_iterations}, sample_size=${sample_size}, num_parts=${num_parts}"
 
   local delete_output_dir_arg=()
   if [ "$delete_output_dir_if_existing" = true ]; then
@@ -32,6 +33,7 @@ run_dresden_experiment_case() {
     --iterations "$num_iterations" \
     --global-config-path "$global_config_path" \
     --sample-size "$sample_size" \
+    --num-parts "$num_parts" \
     "${delete_output_dir_arg[@]}"
   then
     echo "Experiment failed, continuing with next case." >&2

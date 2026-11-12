@@ -56,6 +56,9 @@ struct CommandLineArgs {
     /// sample size for the simulation, between 0.0 and 1.0
     #[arg(long)]
     sample_size: f64,
+    /// number of partitions that rust_qsim should use
+    #[arg(long)]
+    num_parts: usize,
 }
 
 fn main() {
@@ -392,7 +395,7 @@ fn main() {
     config.controller_mut().last_iteration = args.iterations as u32;
 
     config.partitioning_mut().method = Metis(MetisOptions::default());
-    config.partitioning_mut().num_parts = 64;
+    config.partitioning_mut().num_parts = args.num_parts as u32;
     config.partitioning_mut().non_main_mode_links = NonMainModeLinks::default();
 
     // config.travel_time_calculator_mut().bin_size = 1.0 / args.beta as f64;

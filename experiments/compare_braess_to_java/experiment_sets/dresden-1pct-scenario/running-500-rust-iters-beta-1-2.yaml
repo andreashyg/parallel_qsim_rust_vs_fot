@@ -2,7 +2,7 @@
 globals:
   experiment_set_name: running-500-rust-iters-beta-1-2
   base_output_dir: ./../../runs-svn/Abschlussarbeiten/2026/andreas-hygrell-rust-vs-fot/dresden-scenario/dresden-1pct
-  max_parallel_jobs: 0
+  max_parallel_jobs: 20
   # the following two patterns are used in multiple modules, so they are defined here to avoid repetition.
   # they don't need to be overwritten in modules, since I will only read from this in the original experiment set itself,
   # except for when doing comparisons (but there I specify the secondary path pattern explicitly anyway).
@@ -12,57 +12,15 @@ globals:
 
 param_sweep:
   betas: [ 1, 2 ]
-  read_from_random_seed_indices: [ 123456 ]
+  read_from_random_seed_indices: [ 123456 ]  # This is not used, but I need a number here until I fixed the experiment machine
   use_random_seeds: [ 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61 ]
 
 # What to actually run in this experiment set:
 modules:
 
-  # Run rust experiments based on the output of the original java runs
-  # Note: in this experiment set, we do 20 rust runs (with seeds 42..61), but in turn, only for java seed 1, so 20 runs for each beta.
   - run_dresden_scenario:
     type: RunDresdenScenario
     iterations: 500
     sample_size: 0.01
     overwrite_mode: DeleteDirectoryIfExists
-  #    overwrites:
-  #      max_parallel_jobs: 4
-
-#  # Extract measurements from the events files from the rust runs
-#  - extract_measurements_from_events:
-#    type: ExtractMeasurementsFromEvents
-#    input_file_stem_pattern: "{common_output_from_runs_pattern}/events/events"
-#    input_file_format: xml.zst
-#    num_parts: 1
-#
-#  # Plot the measurements from the runs
-#  - plot_tt_and_sd_per_seed:
-#    type: PlotTtAndSdPerSeed
-#    sd_ylims: [ 0.0, 45.0 ]
-#    tt_ylims: [ 0.0, 110.0 ]
-#  - plot_tt_and_sd_avgd_over_seeds:
-#    type: PlotTtAndSdAvgdOverSeeds
-#    sd_ylims: [ 0.0, 45.0 ]
-#    tt_ylims: [ 0.0, 110.0 ]
-#    seeds_to_avg_over: UseRandomSeeds
-
-#  #  Plot the differences to the original java runs
-#  - plot_tt_and_sd_diff_to_original_java_per_seed:
-#    type: PlotTtAndSdDiffPerSeed
-#    minus_what: "OriginalScenarioOutput"
-#    sd_ylims: [ -1.0, 1.0 ]
-#    tt_ylims: [ -3.3, 4.7 ]
-#    # Note: cannot use placeholder {file_name_end} here, since the original java runs don't have a use_random_seed,
-#    # but the automatic replacement would think so, since the experiment set has use_random_seed parameters otherwise.
-#    secondary_input_tt_csv_path_pattern: "{base_output_dir}/analyzing-java-output-only-leg-scoring-and-brain-1/analysis/extractedData/averageRouteTtsPerDeptimeBeta{beta}ReadFromRandom{read_from_random}.csv"
-#    secondary_input_sd_csv_path_pattern: "{base_output_dir}/analyzing-java-output-only-leg-scoring-and-brain-1/analysis/extractedData/summedDepsPerTimeBeta{beta}ReadFromRandom{read_from_random}.csv"
-#  - plot_tt_and_sd_avgd_over_seeds_diff_to_original_java:
-#    type: PlotTtAndSdAvgdOverSeedsDiff
-#    minus_what: "OriginalScenarioOutput"
-#    sd_ylims: [ -1.0, 1.0 ]
-#    tt_ylims: [ -3.3, 4.7 ]
-#    # Note: cannot use placeholder {file_name_end} here, since the original java runs don't have a use_random_seed,
-#    # but the automatic replacement would think so, since the experiment set has use_random_seed parameters otherwise.
-#    secondary_input_tt_csv_path_pattern: "{base_output_dir}/analyzing-java-output-only-leg-scoring-and-brain-1/analysis/extractedData/averageRouteTtsPerDeptimeBeta{beta}ReadFromRandom{read_from_random}.csv"
-#    secondary_input_sd_csv_path_pattern: "{base_output_dir}/analyzing-java-output-only-leg-scoring-and-brain-1/analysis/extractedData/summedDepsPerTimeBeta{beta}ReadFromRandom{read_from_random}.csv"
-#    seeds_to_avg_over: UseRandomSeeds
+    num_parts: 3

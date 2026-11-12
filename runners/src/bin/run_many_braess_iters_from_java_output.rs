@@ -1,5 +1,9 @@
 use clap::{Parser, ValueEnum};
-use matsim_rust::simulation::config::{ActivityParameter, ActivityScoring, AgentParameter, CompressionType, Config, Logging, ModeParameter, Network, OverwriteFiles, Population, ScoringMode, StrategySetting, TeleportedParams, Vehicles, WriteEvents, parse_key_val};
+use matsim_rust::simulation::config::{
+    ActivityParameter, ActivityScoring, CompressionType, Config, Logging, ModeParameter, Network,
+    OverwriteFiles, Population, ScoringMode, StrategySetting, TeleportedParams, Vehicles,
+    WriteEvents, parse_key_val,
+};
 use matsim_rust::simulation::controller::controller::ControllerBuilder;
 use matsim_rust::simulation::logging::init_std_out_logging_thread_local;
 use matsim_rust::simulation::scenario::Scenario;
@@ -8,12 +12,16 @@ use std::fmt::Display;
 use experiment_machine::config::GlobalConfig;
 use matsim_rust::simulation::config::RoutingMode::UsePlans;
 use matsim_rust::simulation::id::Id;
-use matsim_rust::simulation::replanning::{RE_ROUTE_STRATEGY_NAME, SELECT_EXP_BETA_STRATEGY_NAME, WORST_SCORE_STRATEGY_NAME};
+use matsim_rust::simulation::replanning::{
+    RE_ROUTE_STRATEGY_NAME, SELECT_EXP_BETA_STRATEGY_NAME, WORST_SCORE_STRATEGY_NAME,
+};
 use pre_postprocessing::utils::replace_placeholders_in_path_pattern;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::info;
 
+// FIXME I will need to change how scoring parameters are read, and select the queue dynamics,
+//  and where the vehicle names smth come from. These were breaking changes in some PRs.
 #[derive(Debug, Clone, ValueEnum)]
 enum ReplanningVariant {
     /// selection exponent ("preference for higher scores" of 1, rerouting until 0.5, msa from 0.5
@@ -34,7 +42,10 @@ impl Display for ReplanningVariant {
             Self::SelExp1SwitchAt80 => write!(f, "sel-exp1-switch-at80"),
             Self::SelExp10SwitchAt80 => write!(f, "sel-exp10-switch-at80"),
             Self::SelExp10SwitchAt80MyOwn => write!(f, "sel-exp10-switch-at80-my-own"),
-            Self::SelExp10SwitchAt80MyOwnOnlyLegScoringAndBrain1Only64 => write!(f, "sel-exp10-switch-at80-my-own-only-leg-scoring-and-brain1-only64"),
+            Self::SelExp10SwitchAt80MyOwnOnlyLegScoringAndBrain1Only64 => write!(
+                f,
+                "sel-exp10-switch-at80-my-own-only-leg-scoring-and-brain1-only64"
+            ),
         }
     }
 }
@@ -106,8 +117,7 @@ fn main() {
     let args = CommandLineArgs::parse();
     info!("Started with args: {:?}", args);
 
-    let global_config_path =
-        PathBuf::from(&args.global_config_path);
+    let global_config_path = PathBuf::from(&args.global_config_path);
 
     let global_config: GlobalConfig =
         serde_yaml::from_reader(std::fs::File::open(&global_config_path).unwrap())
@@ -128,21 +138,25 @@ fn main() {
     let seed_rust = args.use_random_seed;
 
     // ------ load file and directory patterns from global config
-    let experiment_output_dir_pattern = global_config.try_get_global_config_parameter_as_str(
-        "common_output_from_runs_pattern").expect("Failed to get common_output_from_runs_pattern from global config");
+    let experiment_output_dir_pattern = global_config
+        .try_get_global_config_parameter_as_str("common_output_from_runs_pattern")
+        .expect("Failed to get common_output_from_runs_pattern from global config");
 
-    let vehicle_file_pattern = global_config.try_get_global_config_parameter_as_str(
-        "vehicle_file_pattern").expect("Failed to get vehicle_file_pattern from global config");
+    let vehicle_file_pattern = global_config
+        .try_get_global_config_parameter_as_str("vehicle_file_pattern")
+        .expect("Failed to get vehicle_file_pattern from global config");
 
-    let network_file_pattern = global_config.try_get_global_config_parameter_as_str(
-        "network_file_pattern").expect("Failed to get network_file_pattern from global config");
+    let network_file_pattern = global_config
+        .try_get_global_config_parameter_as_str("network_file_pattern")
+        .expect("Failed to get network_file_pattern from global config");
 
     // ------ replace placeholders in the patterns with actual values
 
     let vehicle_file_path = replace_placeholders_in_path_pattern(
         // first replace placeholders from the global config (such as {original_dir_to_read_from}),
         // then replace the placeholders for this run
-        &global_config.replace_common_pattern(&vehicle_file_pattern)
+        &global_config
+            .replace_common_pattern(&vehicle_file_pattern)
             .expect("Failed to replace common pattern in vehicle_file_pattern"),
         Some(&args.base_output_dir),
         Some(&args.experiment_set_name),
@@ -150,12 +164,14 @@ fn main() {
         Some(beta),
         Some(random_java),
         None, // use_random_seed is not used in the vehicle input path
-    ).into();
+    )
+    .into();
 
     let network_file_path = replace_placeholders_in_path_pattern(
         // first replace placeholders from the global config (such as {original_dir_to_read_from}),
         // then replace the placeholders for this run
-        &global_config.replace_common_pattern(&network_file_pattern)
+        &global_config
+            .replace_common_pattern(&network_file_pattern)
             .expect("Failed to replace common pattern in network_file_pattern"),
         Some(&args.base_output_dir),
         Some(&args.experiment_set_name),
@@ -163,7 +179,8 @@ fn main() {
         Some(beta),
         Some(random_java),
         None, // use_random_seed is not used in the network input path
-    ).into();
+    )
+    .into();
 
     let output_dir = replace_placeholders_in_path_pattern(
         experiment_output_dir_pattern,
@@ -172,18 +189,21 @@ fn main() {
         Some(beta),
         Some(random_java),
         Some(seed_rust),
-    ).into();
+    )
+    .into();
 
     let pop_to_use_as_input_path = replace_placeholders_in_path_pattern(
         // first replace common patterns from the global config, such as {original_dir_to_read_from}
-        &global_config.replace_common_pattern(&pop_to_use_as_input_pattern)
+        &global_config
+            .replace_common_pattern(&pop_to_use_as_input_pattern)
             .expect("Failed to replace common pattern in pop_to_use_as_input_pattern"),
         Some(&args.base_output_dir),
         Some(&args.experiment_set_name),
         Some(beta),
         Some(random_java),
         None, // use_random_seed is not needed for the input population path
-    ).into();
+    )
+    .into();
 
     // ------ Construct config
     let mut config = Config::default();
@@ -196,7 +216,7 @@ fn main() {
     });
 
     config.set_network(Network {
-        path: Some(network_file_path)
+        path: Some(network_file_path),
     });
 
     config.computational_setup_mut().random_seed = seed_rust as u64;
@@ -211,13 +231,22 @@ fn main() {
 
     config.scoring_mut().mode = ScoringMode::Enabled;
 
-    config.scoring_mut().agent_params = vec![AgentParameter::default()];
-    config.scoring_mut().activity_params = vec![
-        ActivityParameter { activity_type: "dummy".to_string(), typical_duration_s: 43200.0, activity_scoring: ActivityScoring::Ignore }];
-    config.scoring_mut().mode_params = vec![
-        ModeParameter::default_for_mode("car"),
-        ModeParameter::default_for_mode("walk")];
-    config.scoring_mut().fraction_of_iterations_to_start_score_msa = Some(0.8);
+    panic!(
+        "This is a temporary panic, since the below code about scoring parameters needs to be fixed."
+    );
+    // config.scoring_mut().agent_params = vec![AgentParameter::default()];
+    // config.scoring_mut().activity_params = vec![ActivityParameter {
+    //     activity_type: "dummy".to_string(),
+    //     typical_duration_s: 43200.0,
+    //     activity_scoring: ActivityScoring::Ignore,
+    // }];
+    // config.scoring_mut().mode_params = vec![
+    //     ModeParameter::default_for_mode("car"),
+    //     ModeParameter::default_for_mode("walk"),
+    // ];
+    config
+        .scoring_mut()
+        .fraction_of_iterations_to_start_score_msa = Some(0.8);
 
     // config.
     if args.delete_output_dir_if_existing {
@@ -234,16 +263,25 @@ fn main() {
         beeline_distance_factor: 1.3,
     }];
 
-    config.replanning_mut().fraction_of_iterations_to_disable_innovation = 0.8;
+    config
+        .replanning_mut()
+        .fraction_of_iterations_to_disable_innovation = 0.8;
     config.replanning_mut().max_agent_plan_memory = 5;
     config.replanning_mut().plan_selector_for_removal = WORST_SCORE_STRATEGY_NAME.to_string();
     config.replanning_mut().strategy_settings = vec![
-        StrategySetting::new(RE_ROUTE_STRATEGY_NAME.to_string(), 0.1, "person".to_string()),
-        StrategySetting::new(SELECT_EXP_BETA_STRATEGY_NAME.to_string(), 0.9, "person".to_string())];
-
+        StrategySetting::new(
+            RE_ROUTE_STRATEGY_NAME.to_string(),
+            0.1,
+            "person".to_string(),
+        ),
+        StrategySetting::new(
+            SELECT_EXP_BETA_STRATEGY_NAME.to_string(),
+            0.9,
+            "person".to_string(),
+        ),
+    ];
 
     config.travel_time_calculator_mut().bin_size = 1.0 / args.beta as f64;
-
 
     config.apply_overrides(&args.overrides);
 
@@ -264,7 +302,6 @@ fn main() {
         })
         .collect();
     scenario.garage.vehicles = renamed_vehicles;
-
 
     // Create and run simulation
     let controller = ControllerBuilder::default_with_scenario(scenario)

@@ -28,6 +28,7 @@ global_parameters:
   facilities_file_pattern: "{original_dir_to_read_from}/009.output_facilities.xml.gz"
   transit_schedule_file_pattern: "{original_dir_to_read_from}/009.output_transitSchedule.xml.gz"
   transit_vehicles_file_pattern: "{original_dir_to_read_from}/009.output_transitVehicles.xml.gz"
+  scoring_parameters_file_pattern: "./runners/dresden_scoring_parameters.yaml"
 
   standard_fig_size: [ 12, 10 ]
   boxplot_fig_size: [ 12, 12 ]

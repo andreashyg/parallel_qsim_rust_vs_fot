@@ -1,9 +1,9 @@
 use clap::Parser;
 use matsim_rust::simulation::config::{
     CompressionType, Config, Facilities, Logging, MetisOptions, ModalLinkSelection, Network,
-    NonMainModeLinks, OverwriteFiles, QSim, Replanning, Routing, StrategySetting, TeleportedParams,
-    TrafficDynamics, Transit, TransitSimulation, TravelTimeCalculator, Vehicles, WriteEvents,
-    parse_key_val,
+    NonMainModeLinks, OverwriteFiles, QSim, Replanning, Routing, Scoring, StrategySetting,
+    TeleportedParams, TrafficDynamics, Transit, TransitSimulation, TravelTimeCalculator, Vehicles,
+    WriteEvents, parse_key_val,
 };
 use matsim_rust::simulation::controller::controller::ControllerBuilder;
 use matsim_rust::simulation::logging::init_std_out_logging_thread_local;
@@ -12,8 +12,13 @@ use matsim_rust::simulation::scenario::population::Population as ScenarioPopulat
 use std::collections::HashSet;
 
 use experiment_machine::config::GlobalConfig;
+use matsim_rust::simulation::config::LinkDynamics::PassingQ;
 use matsim_rust::simulation::config::PartitionMethod::Metis;
 use matsim_rust::simulation::config::RoutingMode::UsePlans;
+use matsim_rust::simulation::config::ScoringMode::Enabled;
+use matsim_rust::simulation::config::VehiclesSource::{
+    FromVehiclesData, ModeVehicleTypesFromVehiclesData,
+};
 use matsim_rust::simulation::id::Id;
 use matsim_rust::simulation::io::xml::attributes::IOAttribute;
 use matsim_rust::simulation::io::xml::population::{IOPlanElement, IOPopulation};
@@ -110,6 +115,10 @@ fn main() {
         .try_get_global_config_parameter_as_str("transit_vehicles_file_pattern")
         .expect("Failed to get transit_vehicles_file_pattern from global config");
 
+    let scoring_parameters_file_pattern = global_config
+        .try_get_global_config_parameter_as_str("scoring_parameters_file_pattern")
+        .expect("Failed to get scoring_parameters_file_pattern from global config");
+
     // ------ replace placeholders in the patterns with actual values
 
     let vehicle_file_path = replace_placeholders_in_path_pattern(
@@ -185,6 +194,21 @@ fn main() {
         None, // use_random_seed is not used in the transit vehicles input path
     );
 
+    let scoring_parameters_file_path = replace_placeholders_in_path_pattern(
+        // first replace placeholders from the global config (such as {original_dir_to_read_from}),
+        // then replace the placeholders for this run
+        &global_config
+            .replace_common_pattern(&scoring_parameters_file_pattern)
+            .expect("Failed to replace common pattern in scoring_parameters_file_pattern"),
+        Some(&args.base_output_dir),
+        Some(&args.experiment_set_name),
+        // Some(&args.replanning_variant.to_string()),
+        Some(beta),
+        None, // random_java is not used in the dresden runner
+        None, // use_random_seed is not used in the scoring parameters file path
+    )
+    .into();
+
     let output_dir = replace_placeholders_in_path_pattern(
         experiment_output_dir_pattern,
         Some(&args.base_output_dir),
@@ -209,14 +233,14 @@ fn main() {
     .into();
 
     // ------ Construct config
-    // let mut config = Config::default();
+    let mut config = Config::default();
 
     // we read the initial config file from yaml, since it contains too many activity scoring parameters
     // to define them in code.
-    let mut config: Config = serde_yaml::from_reader(
-        std::fs::File::open("./runners/src/simplified_dresden_config.yaml").unwrap(),
-    )
-    .expect("Failed to read config file");
+    // let mut config: Config = serde_yaml::from_reader(
+    //     std::fs::File::open("./runners/src/simplified_dresden_config.yaml").unwrap(),
+    // )
+    // .expect("Failed to read config file");
 
     config.set_vehicles(Vehicles {
         path: Some(vehicle_file_path),
@@ -251,6 +275,9 @@ fn main() {
             "bike".to_string(),
         ],
         traffic_dynamics: TrafficDynamics::Queue, // Note: they used kinematic waves, but since we don't know if it works for time steps <1, we use queue
+        vehicles_source: ModeVehicleTypesFromVehiclesData, //  TODO they used ModeVehicleTypesFromVehiclesData, but since I have their actual vehicles in the output, that feels more robust
+        // vehicles_source: FromVehiclesData, // ModeVehicleTypesFromVehiclesData,  TODO they used ModeVehicleTypesFromVehiclesData, but since I have their actual vehicles in the output, that feels more robust
+        link_dynamics: PassingQ,
     });
     // Note: they use linkDynamics PassingQ, which we don't have.
 
@@ -362,6 +389,13 @@ fn main() {
         // Note: I wasn't able to set the routing randomness, but they kept it at default 3.0, I guess that's what we use in rust as well (or we don't use it at all)
     });
 
+    config.set_scoring(Scoring {
+        mode: Enabled,
+        write_experienced_plans: true,
+        fraction_of_iterations_to_start_score_msa: Some(0.9),
+        scoring_parameters_path: Some(scoring_parameters_file_path),
+    });
+
     // Note: scoring is read from the yaml file.
 
     // Note: we are missing subtourModeChoice, timeAllocationMutator
@@ -388,6 +422,7 @@ fn main() {
     config.output_mut().write_events = WriteEvents::File;
     // write xml.zst instead of binbp (is human-readable)
     config.output_mut().compression_type = CompressionType::Zst;
+    config.output_mut().run_id = Some("001".to_string());
 
     if args.delete_output_dir_if_existing {
         config.output_mut().overwrite_files = OverwriteFiles::DeleteDirectoryIfExists;

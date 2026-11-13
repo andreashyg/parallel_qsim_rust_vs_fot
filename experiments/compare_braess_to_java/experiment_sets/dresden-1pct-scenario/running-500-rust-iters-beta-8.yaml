@@ -11,7 +11,7 @@ globals:
   sd_csv_path_pattern: "{common_extracted_data_pattern}/summedDepsPerTime{file_name_end}.csv"
 
 param_sweep:
-  betas: [ 16 ]
+  betas: [ 8 ]
   read_from_random_seed_indices: [ 123456 ]  # This is not used, but I need a number here until I fixed the experiment machine
   use_random_seeds: [ 42 ]
 

@@ -1,0 +1,38 @@
+global_parameters:
+  global_log_file_pattern: "{base_output_dir}/{experiment_set_name}/global_log.txt"
+  global_error_log_file_pattern: "{base_output_dir}/{experiment_set_name}/global_error_log.txt"
+  output_expset_config_pattern: "{base_output_dir}/{experiment_set_name}/output_expset_config.yaml"
+  output_global_config_pattern: "{base_output_dir}/{experiment_set_name}/output_global_config.yaml"
+  # used in the GNU parallel call, i.e., "--joblog <joblog_path>", to make parallel store a joblog.
+  # This is used to allow resuming the runs if they are interrupted, and to allow extracting measurements from the runs
+  # without having to rerun them. MUST INCLUDE {module_id}, since the joblog is per module, and needs a unique name per module
+  # (even if the same module is used multiple times in the same experiment set, e.g., with different parameters).
+  joblog_path_pattern: "{base_output_dir}/{experiment_set_name}/joblogs/{module_id}_parallel_job.log"
+
+  # this is where parallel writes the individual stdout and stderr of each parallel job. This is important, since the output
+  # of multiple parallel jobs is mixed together in the stdout and stderr of the main process
+  results_dir_pattern: "{base_output_dir}/{experiment_set_name}/individual-output/beta{1}-read-from-random{2}-use-random{3}/{module_id}/"
+
+  original_dir_to_read_from: "./../../runs-svn/braess/refinement/modified_spillback_scenario"
+  file_name_end_pattern_with_beta_rr_ur: "Beta{beta}ReadFromRandom{read_from_random}UseRandomSeed{use_random_seed}"
+  file_name_end_pattern_with_beta_rr: "Beta{beta}ReadFromRandom{read_from_random}"
+  file_name_end_pattern_with_beta: "Beta{beta}"
+  # Note: the below pattern is the complete output dir, not just the start, since the common part is in fact all of it
+  common_output_from_runs_pattern: "{base_output_dir}/{experiment_set_name}/outputFromRuns/beta{beta}/readFromRandom{read_from_random}useRandomSeed{use_random_seed}"
+  common_extracted_data_pattern: "{base_output_dir}/{experiment_set_name}/analysis/extractedData"
+  common_plots_pattern: "{base_output_dir}/{experiment_set_name}/analysis/plots"
+
+  vehicle_file_pattern: "{original_dir_to_read_from}/modified_spillback_beta{beta}_vehicles.xml.zst"
+  network_file_pattern: "{original_dir_to_read_from}/modified_spillback_beta{beta}_network_2_4_two_ts_slower.xml.zst"
+  scoring_parameters_file_pattern: "./runners/braess_scoring_parameters.yaml"
+
+  # FIXME these are not exact, just what I read from theresas plots
+  nash_tt_points: [ [ 0, 25 ], [ 100, 225 ] ]
+
+  nash_sd_points: [ [ [ 0, 0 ], [ 100, 0 ] ],  # top
+                    [ [ 0, 0 ], [ 100, 100 ] ],  # middle
+                    [ [ 0, 0 ], [ 100, 0 ] ] ]  # bottom
+
+  # This is the population that will be used when performing runs based on output plans. That is, the original java
+  # output plans, but with the activity times replaced with the correct ones.
+#  pop_to_use_as_input_pattern: "{original_dir_to_read_from}/beta{beta}/random{read_from_random}/ITERS/it.0/beta{beta}random{read_from_random}.0.plans.xml.zst"

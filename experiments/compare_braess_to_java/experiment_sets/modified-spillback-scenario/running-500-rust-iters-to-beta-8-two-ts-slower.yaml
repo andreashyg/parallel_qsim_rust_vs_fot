@@ -1,0 +1,59 @@
+# Setup
+globals:
+  experiment_set_name: running-500-rust-iters-to-beta-8-two-ts-slower
+  base_output_dir: ./../../runs-svn/Abschlussarbeiten/2026/andreas-hygrell-rust-vs-fot/compare-braess-to-java/modified-spillback-scenario
+  max_parallel_jobs: 0
+  # the following two patterns are used in multiple modules, so they are defined here to avoid repetition.
+  # they don't need to be overwritten in modules, since I will only read from this in the original experiment set itself,
+  # except for when doing comparisons (but there I specify the secondary path pattern explicitly anyway).
+  # If needed, it is however possible to overwrite by adding it to the optional overwrites fields in the modules.
+  tt_csv_path_pattern: "{common_extracted_data_pattern}/averageRouteTtsPerDeptime{file_name_end}.csv"
+  sd_csv_path_pattern: "{common_extracted_data_pattern}/summedDepsPerTime{file_name_end}.csv"
+  per_veh_data_csv_path_pattern: "{common_extracted_data_pattern}/perVehData{file_name_end}.csv"
+
+param_sweep:
+  betas: [ 1, 2, 4, 8 ] #, 16, 32, 64 ]
+  read_from_random_seed_indices: [ 1 ]
+  use_random_seeds: [ 42 , 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61 ]
+
+# What to actually run in this experiment set:
+modules:
+  # Run rust experiments based on the input (in it.0 folder) of the original java runs
+  - run_many_rust_iters_based_on_java_output:
+      type: RunManyRustItersBasedOnJavaOutput
+      iterations: 500
+      pop_to_use_as_input_pattern: "{original_dir_to_read_from}/2026-11-14_original_settings_but_only_leg_scoring_and_brain_1__2_4_two_ts_slower/beta{beta}/random{read_from_random}/ITERS/it.0/beta{beta}random{read_from_random}.0.plans.xml.zst"
+      overwrite_mode: DeleteDirectoryIfExists
+    #    overwrites:
+    #      max_parallel_jobs: 4
+
+  # Extract measurements from the events files from the rust runs
+  - extract_measurements_from_events:
+      type: ExtractMeasurementsFromEvents
+      input_file_stem_pattern: "{common_output_from_runs_pattern}/events/events"
+      input_file_format: xml.zst
+      num_parts: 1
+
+  # Plot the measurements from the runs
+  - plot_tt_and_sd_per_seed:
+      type: PlotTtAndSdPerSeed
+      sd_ylims: [ 0.0, 110.0 ]
+      tt_ylims: [ 0.0, 240.0 ]
+
+  - plot_tt_and_sd_avgd_over_seeds:
+      type: PlotTtAndSdAvgdOverSeeds
+      seeds_to_avg_over: UseRandomSeeds
+      sd_ylims: [ 0.0, 110.0 ]
+      tt_ylims: [ 0.0, 240.0 ]
+
+  - plot_tt_and_sd_deviation_to_nash_boxplots:
+      type: PlotTtAndSdDeviationToNashBoxplotsOverBeta
+      seeds_to_avg_over: UseRandomSeeds
+      sd_ylims: [ 0.0, 9.5 ]
+      tt_ylims: [ 0.0, 38.5 ]
+
+  - plot_tt_and_sd_deviation_to_nash_scatterplots:
+      type: PlotTtAndSdDeviationToNashScatterplotsOverBeta
+      seeds_to_avg_over: UseRandomSeeds
+      sd_ylims: [ 0.0, 9.45 ]
+      tt_ylims: [ 0.0, 35.05 ]

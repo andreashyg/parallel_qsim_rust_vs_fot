@@ -1,0 +1,80 @@
+- subpopulation: null
+  late_arrival: -18.0
+  early_departure: -0.0
+  performing: 6.0
+  waiting: -0.0
+  marginal_utility_of_money: 1.0
+  aborted_plan_score: -18.0
+  waiting_pt: -6.0
+  utility_of_line_switch: -1.0
+  activity_params:
+  - activity_type: car interaction
+    typical_duration_s: 1.0
+    activity_scoring: Ignore
+  - activity_type: pt interaction
+    typical_duration_s: 1.0
+    activity_scoring: Ignore
+  - activity_type: bike interaction
+    typical_duration_s: 1.0
+    activity_scoring: Ignore
+  - activity_type: drt interaction
+    typical_duration_s: 1.0
+    activity_scoring: Ignore
+  - activity_type: taxi interaction
+    typical_duration_s: 1.0
+    activity_scoring: Ignore
+  - activity_type: other interaction
+    typical_duration_s: 1.0
+    activity_scoring: Ignore
+  - activity_type: walk interaction
+    typical_duration_s: 1.0
+    activity_scoring: Ignore
+  - activity_type: dummy
+    typical_duration_s: 43200.0
+    activity_scoring: ConsiderFullActivity
+  - activity_type: ride interaction
+    typical_duration_s: 1.0
+    activity_scoring: Ignore
+  mode_params:
+  - mode: car
+    marginal_utility_of_traveling: -6.0
+    marginal_utility_of_distance: 0.0
+    monetary_distance_cost_rate: -0.0
+    daily_money_constant: 0.0
+    daily_utility_constant: 0.0
+    constant: 0.0
+  - mode: pt
+    marginal_utility_of_traveling: -6.0
+    marginal_utility_of_distance: 0.0
+    monetary_distance_cost_rate: 0.0
+    daily_money_constant: 0.0
+    daily_utility_constant: 0.0
+    constant: 0.0
+  - mode: walk
+    marginal_utility_of_traveling: -6.0
+    marginal_utility_of_distance: 0.0
+    monetary_distance_cost_rate: 0.0
+    daily_money_constant: 0.0
+    daily_utility_constant: 0.0
+    constant: 0.0
+  - mode: bike
+    marginal_utility_of_traveling: -6.0
+    marginal_utility_of_distance: 0.0
+    monetary_distance_cost_rate: 0.0
+    daily_money_constant: 0.0
+    daily_utility_constant: 0.0
+    constant: 0.0
+  - mode: ride
+    marginal_utility_of_traveling: -6.0
+    marginal_utility_of_distance: 0.0
+    monetary_distance_cost_rate: 0.0
+    daily_money_constant: 0.0
+    daily_utility_constant: 0.0
+    constant: 0.0
+  - mode: other
+    marginal_utility_of_traveling: -6.0
+    marginal_utility_of_distance: 0.0
+    monetary_distance_cost_rate: 0.0
+    daily_money_constant: 0.0
+    daily_utility_constant: 0.0
+    constant: 0.0

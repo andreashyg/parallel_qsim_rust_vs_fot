@@ -50,6 +50,11 @@ struct InputArgs {
     /// {replanning_variant}, {beta}, {read_from_random}, {use_random_seed} that will be replaced.
     #[arg(long)]
     pub sd_csv_path_pattern: String,
+    /// complete output path (including extension) for the per-vehicle data csv file to be written.
+    /// Note: *can* contain placeholders {base_output_dir}, {experiment_set_name}, {file_name_end},
+    /// {replanning_variant}, {beta}, {read_from_random}, {use_random_seed} that will be replaced.
+    #[arg(long)]
+    pub per_veh_data_csv_output_path_pattern: String,
     /// optional complete path to an id store to be loaded (required when reading proto files)
     #[arg(long)]
     pub id_store_path_pattern: Option<String>,
@@ -102,7 +107,7 @@ fn main() {
                 .as_str()
                 .expect("common_output_from_runs_pattern must be a string"),
         )
-            .join("output_ids.binpb");
+        .join("output_ids.binpb");
         let id_store_path = replace_placeholders_in_path_pattern(
             id_store_path_pattern.to_str().unwrap(),
             Some(&args.base_output_dir),
@@ -125,7 +130,7 @@ fn main() {
         args.read_from_random.into(),
         args.use_random_seed,
     )
-        .into();
+    .into();
 
     let tt_output_file_path_with_file_name_end = replace_file_name_end_placeholder_in_path_pattern(
         &args.tt_csv_path_pattern,
@@ -141,8 +146,7 @@ fn main() {
         args.read_from_random.into(),
         args.use_random_seed,
     )
-        .into();
-
+    .into();
 
     let sd_output_file_path_with_file_name_end = replace_file_name_end_placeholder_in_path_pattern(
         &args.sd_csv_path_pattern,
@@ -157,15 +161,38 @@ fn main() {
         args.read_from_random.into(),
         args.use_random_seed,
     )
-        .into();
+    .into();
+
+    let per_veh_data_csv_output_path_with_file_name_end =
+        replace_file_name_end_placeholder_in_path_pattern(
+            &args.per_veh_data_csv_output_path_pattern,
+            &global_config,
+            args.use_random_seed,
+        );
+    let per_veh_data_csv_output_path: PathBuf = replace_placeholders_in_path_pattern(
+        &per_veh_data_csv_output_path_with_file_name_end,
+        Some(&args.base_output_dir),
+        Some(&args.experiment_set_name),
+        args.beta.into(),
+        args.read_from_random.into(),
+        args.use_random_seed,
+    )
+    .into();
 
     let link_to_path_map = LinkToPathMap::named(args.link_to_path_map_name.as_str())
         .expect("Failed to load link to path map");
+    let links_to_measure_time_on_list =
+        pre_postprocessing::event_extraction::LinksToMeasureTimeOnList::named(
+            args.link_to_path_map_name.as_str(),
+        )
+        .expect("Failed to load links to measure time on list");
 
     let ttppsd_register_fn = TravelTimeAndSumDepPerPathCSVWriter::register_fn(
         link_to_path_map,
+        links_to_measure_time_on_list,
         tt_output_file_path.clone(),
         sd_output_file_path.clone(),
+        per_veh_data_csv_output_path.clone(),
         args.beta,
     );
 
@@ -176,7 +203,7 @@ fn main() {
                 &mut event_mgr,
                 input_path_stem.with_added_extension(args.input_file_format),
             )
-                .expect("Failed to read events from input file");
+            .expect("Failed to read events from input file");
         }
         n if n > 0u32 => {
             read_partitioned_events(
@@ -188,7 +215,7 @@ fn main() {
                 n,
                 &args.input_file_format,
             )
-                .expect("Failed to read partitioned events from files");
+            .expect("Failed to read partitioned events from files");
         }
         _ => {
             unreachable!()

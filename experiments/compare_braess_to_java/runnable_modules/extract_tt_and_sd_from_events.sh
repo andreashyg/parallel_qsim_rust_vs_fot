@@ -16,7 +16,8 @@ extract_travel_time_sum_dep_case() {
   local input_file_format="$8"
   local tt_csv_path_pattern="${9}"
   local sd_csv_path_pattern="${10}"
-  local num_parts="${11}"
+  local per_veh_data_csv_path_pattern="${11}"
+  local num_parts="${12}"
 
   echo "Extracting average travel times and summed departures for parameters: replanning_variant=deprecated, beta=$beta, java_seed_index=$java_seed_index, rust_seed=$rust_seed"
   echo "writing into $tt_csv_path_pattern and $sd_csv_path_pattern"
@@ -38,6 +39,7 @@ extract_travel_time_sum_dep_case() {
     --input-file-format "$input_file_format" \
     --tt-csv-path-pattern "$tt_csv_path_pattern" \
     --sd-csv-path-pattern "$sd_csv_path_pattern" \
+    --per-veh-data-csv-output-path-pattern "$per_veh_data_csv_path_pattern" \
     --num-parts "$num_parts" \
     --global-config-path "$global_config_path" \
     --link-to-path-map-name "braess" \

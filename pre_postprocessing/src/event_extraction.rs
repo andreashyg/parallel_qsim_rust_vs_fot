@@ -1,13 +1,13 @@
 #![allow(ambiguous_glob_imports)]
 use matsim_rust::simulation::events::{
-    EventHandlerRegisterFn, EventsManager, LinkEnterEvent, VehicleEntersTrafficEvent,
-    VehicleLeavesTrafficEvent,
+    EventHandlerRegisterFn, EventsManager, LinkEnterEvent, LinkLeaveEvent,
+    VehicleEntersTrafficEvent, VehicleLeavesTrafficEvent,
 };
 use matsim_rust::simulation::id::Id;
 use matsim_rust::simulation::scenario::network::Link;
 use matsim_rust::simulation::scenario::vehicles::InternalVehicle;
 use matsim_rust::simulation::time::SimTime;
-use nohash_hasher::IntMap;
+use nohash_hasher::{IntMap, IntSet};
 use polars::df;
 use polars::prelude::*;
 // this function is technically automatically imported in the prelude above, but it is ambiguous,
@@ -16,6 +16,7 @@ use polars::prelude::*;
 // So we import the one we want explicitly here, with a custom name.
 use polars_lazy::prelude::sum_horizontal as polars_lazy_sum_horizontal;
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::collections::hash_map::Entry;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -37,6 +38,10 @@ enum VehicleStatus {
     HasArrived(usize, SimTime, Duration), // path index, departure time, travel time
 }
 
+enum TimeStatus {
+    HasEntered(SimTime), // entry time
+    HasExited(Duration), // travel time
+}
 #[derive(Debug)]
 pub struct UnimplementedNamedMapError(String);
 
@@ -66,6 +71,27 @@ impl LinkToPathMap {
     }
 }
 
+pub struct LinksToMeasureTimeOnList(IntSet<Id<Link>>);
+
+impl LinksToMeasureTimeOnList {
+    pub fn named(name: &str) -> Result<Self, UnimplementedNamedMapError> {
+        match name.to_lowercase().as_str() {
+            "braess" => Ok(LinksToMeasureTimeOnList(IntSet::from_iter([
+                Id::create("1_2"),
+                Id::create("2_3"),
+                Id::create("2_4"),
+                Id::create("3_4"),
+                Id::create("3_5"),
+                Id::create("4_5"),
+            ]))),
+            _ => Err(UnimplementedNamedMapError(format!(
+                "No links to measure time between set with name {} implemented",
+                name,
+            ))),
+        }
+    }
+}
+
 /// An events handler that writes travel times, grouped by path taken, and averaged across all
 /// vehicles with the same departure time,into a csv file.
 /// Expected use case is scenarios where paths can be uniquely determined by a single link and every
@@ -73,12 +99,17 @@ impl LinkToPathMap {
 pub struct TravelTimeAndSumDepPerPathCSVWriter {
     /// data about departure time, travel time and path are stored here once found in the events
     vehicle_data_cache: IntMap<Id<InternalVehicle>, VehicleStatus>,
+    time_data_per_vehicle_cache: IntMap<Id<InternalVehicle>, IntMap<Id<Link>, TimeStatus>>,
     /// map from link ids to an integer representing a path
     link_to_path_lookup: LinkToPathMap, // = IntMap<Id<Link>, usize>
+    /// set of links on which to measure the time
+    links_to_measure_time_on_set: LinksToMeasureTimeOnList, // = IntSet<Id<Link>>
     /// path to the csv file into which travel times are written
     tt_output_csv_path: PathBuf,
     /// path to the csv file into which summed departures are written
     sd_output_csv_path: PathBuf,
+    /// path to the per-vehicle csv file into which their travel times and path data is written
+    per_veh_data_csv_path: PathBuf,
     /// parameter `beta` that was used when simulating the scenario; this is used to scale the
     /// summed departures value (we want it to be given in PCU's/PCE's)
     beta: usize,
@@ -87,15 +118,20 @@ pub struct TravelTimeAndSumDepPerPathCSVWriter {
 impl TravelTimeAndSumDepPerPathCSVWriter {
     pub fn new(
         link_to_path_map: LinkToPathMap,
+        links_to_measure_time_on_list: LinksToMeasureTimeOnList,
         tt_csv_path: impl AsRef<Path>,
         sd_csv_path: impl AsRef<Path>,
+        per_veh_data_csv_path: impl AsRef<Path>,
         beta: usize,
     ) -> Self {
         Self {
             vehicle_data_cache: IntMap::default(),
+            time_data_per_vehicle_cache: IntMap::default(),
             link_to_path_lookup: link_to_path_map,
+            links_to_measure_time_on_set: links_to_measure_time_on_list,
             tt_output_csv_path: tt_csv_path.as_ref().to_owned(),
             sd_output_csv_path: sd_csv_path.as_ref().to_owned(),
+            per_veh_data_csv_path: per_veh_data_csv_path.as_ref().to_owned(),
             beta,
         }
     }
@@ -205,6 +241,131 @@ impl TravelTimeAndSumDepPerPathCSVWriter {
                 }
             }
         }
+        // check if the entered link is one of the links on which we want to measure travel time
+        if self.links_to_measure_time_on_set.0.contains(&e.link) {
+            // if yes, go into time cache for this vehicle...
+            match self.time_data_per_vehicle_cache.entry(e.vehicle.clone()) {
+                // if the vehicle is already in the time cache, check if it has already entered this link
+                Entry::Occupied(mut time_cache_per_link_for_vehicle) => {
+                    // Check if the vehicle has already entered this link
+                    match time_cache_per_link_for_vehicle
+                        .get_mut()
+                        .entry(e.link.clone())
+                    {
+                        // if yes, panic
+                        Entry::Occupied(_time_entry) => {
+                            panic!(
+                                "Vehicle {} entered link {} again without leaving first, which is unexpected",
+                                e.vehicle, e.link
+                            )
+                        }
+                        // if the vehicle has not yet entered this link, insert the entry time
+                        Entry::Vacant(time_status_of_veh_on_this_link_entry) => {
+                            time_status_of_veh_on_this_link_entry
+                                .insert(TimeStatus::HasEntered(e.time));
+                        }
+                    }
+                }
+                // if the vehicle is not yet in the time cache, insert it with the entry time for this link
+                Entry::Vacant(vehicle_entry) => {
+                    vehicle_entry.insert(IntMap::from_iter([(
+                        e.link.clone(),
+                        TimeStatus::HasEntered(e.time),
+                    )]));
+                }
+            }
+            // match self.time_data_per_vehicle_cache.entry(e.vehicle.clone()) {
+            //     Entry::Occupied(mut time_entry) => match time_entry.get() {
+            //         TimeStatus::HasEntered(entry_time) => {
+            //             panic!(
+            //                 "Vehicle {} entered link {} again after already entering at time {} without exiting first, which is unexpected",
+            //                 e.vehicle, e.link, entry_time
+            //             )
+            //         }
+            //         TimeStatus::HasExited(_travel_time) => {
+            //             panic!(
+            //                 "Vehicle {} entered link {} again after already exiting, which is unexpected (This is not illegal in MATSim but should not happen here.)",
+            //                 e.vehicle, e.link
+            //             )
+            //         }
+            //     },
+            //     Entry::Vacant(mut time_entry) => {
+            //         time_entry.insert(TimeStatus::HasEntered(e.time));
+            //     }
+            // }
+        }
+    }
+
+    pub fn on_left_link(&mut self, e: &LinkLeaveEvent) {
+        if self.links_to_measure_time_on_set.0.contains(&e.link) {
+            match self.time_data_per_vehicle_cache.entry(e.vehicle.clone()) {
+                Entry::Occupied(mut time_cache_per_link_for_vehicle) => {
+                    match time_cache_per_link_for_vehicle
+                        .get_mut()
+                        .entry(e.link.clone())
+                    {
+                        Entry::Occupied(mut time_entry) => match time_entry.get() {
+                            TimeStatus::HasEntered(entry_time) => {
+                                let travel_time = e
+                                    .time
+                                    .saturating_sub(entry_time.as_duration())
+                                    .as_duration();
+                                info!(
+                                    "Vehicle {} left link {} after entering at time {}, travel time: {:?}",
+                                    e.vehicle, e.link, entry_time, travel_time
+                                );
+                                time_entry.insert(TimeStatus::HasExited(travel_time));
+                            }
+                            TimeStatus::HasExited(_travel_time) => {
+                                panic!(
+                                    "Vehicle {} left link {} again after already exiting, which is unexpected.",
+                                    e.vehicle, e.link
+                                )
+                            }
+                        },
+                        Entry::Vacant(_time_entry) => {
+                            panic!(
+                                "Vehicle {} left link {} without entering first, which is unexpected",
+                                e.vehicle, e.link
+                            )
+                        }
+                    }
+                }
+                Entry::Vacant(_time_cache_per_link_for_vehicle) => {
+                    panic!(
+                        "Vehicle {} has no time data per link cache but is leaving link {} on which travel time is to be measured.",
+                        e.vehicle, e.link
+                    )
+                }
+            }
+            // match self.time_data_per_vehicle_cache.entry(e.vehicle.clone()) {
+            //     Entry::Occupied(mut time_entry) => match time_entry.get() {
+            //         TimeStatus::HasEntered(entry_time) => {
+            //             let travel_time = e
+            //                 .time
+            //                 .saturating_sub(entry_time.as_duration())
+            //                 .as_duration();
+            //             info!(
+            //                 "Vehicle {} left link {} after entering at time {}, travel time: {:?}",
+            //                 e.vehicle, e.link, entry_time, travel_time
+            //             );
+            //             time_entry.insert(TimeStatus::HasExited(travel_time));
+            //         }
+            //         TimeStatus::HasExited(_travel_time) => {
+            //             panic!(
+            //                 "Vehicle {} left link {} again after already exiting, which is unexpected (This is not illegal in MATSim but should not happen here.)",
+            //                 e.vehicle, e.link
+            //             )
+            //         }
+            //     },
+            //     Entry::Vacant(_time_entry) => {
+            //         panic!(
+            //             "Vehicle {} left link {} without entering first, which is unexpected",
+            //             e.vehicle, e.link
+            //         )
+            //     }
+            // }
+        }
     }
 
     pub fn on_finish(&mut self) {
@@ -232,6 +393,37 @@ impl TravelTimeAndSumDepPerPathCSVWriter {
             })
             .collect::<IntMap<&Id<InternalVehicle>, &VehicleStatus>>();
 
+        let successful_time_on_link_data = self
+            .time_data_per_vehicle_cache
+            .iter()
+            .filter(|(vehicle, time_data)| {
+                if !successful_vehicle_data.contains_key(vehicle) {
+                    info!(
+                        "Vehicle {} has time data for links but did not arrive at any named path. \
+                        Ignored in all travel time extraction.",
+                        vehicle
+                    );
+                    return false;
+                }
+                let all_entered_links_exited =
+                    self.links_to_measure_time_on_set.0.iter().all(|link| {
+                        match time_data.get(link) {
+                            Some(TimeStatus::HasExited(_travel_time)) => true,
+                            Some(TimeStatus::HasEntered(entry_time)) => {
+                                info!(
+                                    "Vehicle {} entered link {} at time {} but did not exit. \
+                                Ignored in all travel time extraction.",
+                                    vehicle, link, entry_time
+                                );
+                                false
+                            }
+                            None => true, // it is normal behavior if a vehicle did not enter a link
+                        }
+                    });
+                all_entered_links_exited
+            })
+            .collect::<IntMap<&Id<InternalVehicle>, &IntMap<Id<Link>, TimeStatus>>>();
+
         let earliest_departure_time = successful_vehicle_data
             .values()
             .map(|status| match status {
@@ -241,7 +433,8 @@ impl TravelTimeAndSumDepPerPathCSVWriter {
             .min()
             .expect("No successful vehicle data found");
 
-        let veh_df: DataFrame = df!(
+        // TODO I think this is unsafe because the order of the keys and values is not guaranteed to be the same always
+        let mut veh_df: DataFrame = df!(
             "vehicle_id" => successful_vehicle_data
                 .keys()
                 .map(|id| id.to_string())
@@ -277,7 +470,45 @@ impl TravelTimeAndSumDepPerPathCSVWriter {
                 })
                 .collect::<Vec<_>>(),
         )
-            .expect("Failed to create vehicle DataFrame");
+        .expect("Failed to create vehicle DataFrame");
+
+        // for every link that we are tracking travel time on, add a column to the vehicle DataFrame with the travel time on that link
+        for link in self.links_to_measure_time_on_set.0.iter() {
+            let link_tt_col = veh_df
+                .column("vehicle_id")
+                .expect("Failed to get vehicle_id column")
+                .str()
+                .expect("vehicle_id column is not utf8")
+                .into_no_null_iter()
+                .map(|veh_id| {
+                    let vehicle_id = Id::<InternalVehicle>::get_from_ext(veh_id);
+                    let time_data = successful_time_on_link_data.get(&vehicle_id).unwrap_or_else(|| {
+                        panic!(
+                            "Vehicle {} is missing from successful_time_on_link_data",
+                            veh_id
+                        )
+                    });
+
+                    match time_data.get(link) {
+                        Some(TimeStatus::HasExited(travel_time)) => travel_time.as_secs_f64(),
+                        Some(TimeStatus::HasEntered(entry_time)) => {
+                            panic!(
+                                "Vehicle {} entered link {} at time {} but did not exit, which should have been filtered out earlier",
+                                veh_id, link, entry_time
+                            )
+                        }
+                        None => f64::NAN,
+                    }
+                })
+                .collect::<Vec<_>>();
+
+            veh_df
+                .with_column(Column::new(
+                    format!("travel_time_on_link_{}", link).into(),
+                    link_tt_col,
+                ))
+                .expect("Failed to add travel time on link column to vehicle DataFrame");
+        }
 
         let unique_path_indices = {
             // get all path indices
@@ -303,6 +534,11 @@ impl TravelTimeAndSumDepPerPathCSVWriter {
             .chain(std::iter::once(
                 col("travel_time").mean().alias("avg_travel_time"),
             ))
+            .chain(self.links_to_measure_time_on_set.0.iter().map(|link| {
+                col(format!("travel_time_on_link_{}", link))
+                    .mean()
+                    .alias(format!("avg_travel_time_on_link_{}", link))
+            }))
             .collect::<Vec<_>>();
 
         let tt_df = veh_df
@@ -352,27 +588,31 @@ impl TravelTimeAndSumDepPerPathCSVWriter {
                     .collect::<Vec<_>>(),
                 true,
             )
-                .unwrap()
-                .alias("sum_departures_total")]);
+            .unwrap()
+            .alias("sum_departures_total")]);
 
         create_dir_all(
             self.tt_output_csv_path
                 .parent()
                 .expect("Failed to get parent directory of output csv path"),
         )
-            .expect("Failed to create output directory");
-        let mut file = File::create(&self.tt_output_csv_path).expect("Failed to create csv file");
+        .expect("Failed to create tt csv output directory");
+
+        let mut file =
+            File::create(&self.tt_output_csv_path).expect("Failed to create tt csv file");
         CsvWriter::new(&mut file)
             .finish(&mut tt_df.collect().expect("Failed to collect result"))
-            .expect("Failed to write csv file");
+            .expect("Failed to write tt csv file");
 
         create_dir_all(
             self.sd_output_csv_path
                 .parent()
                 .expect("Failed to get parent directory of output csv path"),
         )
-            .expect("Failed to create output directory");
-        let mut file = File::create(&self.sd_output_csv_path).expect("Failed to create csv file");
+        .expect("Failed to create sd csv output directory");
+
+        let mut file =
+            File::create(&self.sd_output_csv_path).expect("Failed to create sd csv file");
         CsvWriter::new(&mut file)
             .finish(
                 &mut sd_df
@@ -380,13 +620,35 @@ impl TravelTimeAndSumDepPerPathCSVWriter {
                     .collect()
                     .expect("Failed to collect result"),
             )
-            .expect("Failed to write csv file");
+            .expect("Failed to write sd csv file");
+
+        println!("{}", veh_df);
+
+        create_dir_all(
+            self.per_veh_data_csv_path
+                .parent()
+                .expect("Failed to get parent directory of per vehicle data csv path"),
+        )
+        .expect("Failed to create per vehicle data csv output directory");
+
+        let mut file = File::create(&self.per_veh_data_csv_path)
+            .expect("Failed to create per vehicle data csv file");
+        CsvWriter::new(&mut file)
+            .finish(
+                &mut veh_df
+                    // better to sort by departure time than vehicle id, since the latter is a string
+                    .sort(["departure_time"], SortMultipleOptions::default())
+                    .expect("Failed to sort vehicle DataFrame by departure time"),
+            )
+            .expect("Failed to write per vehicle data csv file");
     }
 
     pub fn register_fn(
         link_to_path_map: LinkToPathMap,
+        links_to_measure_time_on_list: LinksToMeasureTimeOnList,
         tt_csv_path: impl AsRef<Path> + Send + 'static,
         sd_csv_path: impl AsRef<Path> + Send + 'static,
+        per_veh_data_csv_path: impl AsRef<Path> + Send + 'static,
         beta: usize,
     ) -> Box<EventHandlerRegisterFn> {
         // register the function to extract event times from the simulation
@@ -394,14 +656,17 @@ impl TravelTimeAndSumDepPerPathCSVWriter {
             let event_time_extractor =
                 Rc::new(RefCell::new(TravelTimeAndSumDepPerPathCSVWriter::new(
                     link_to_path_map,
+                    links_to_measure_time_on_list,
                     tt_csv_path,
                     sd_csv_path,
+                    per_veh_data_csv_path,
                     beta,
                 )));
             let event_time_extractor_1 = event_time_extractor.clone();
             let event_time_extractor_2 = event_time_extractor.clone();
             let event_time_extractor_3 = event_time_extractor.clone();
             let event_time_extractor_4 = event_time_extractor.clone();
+            let event_time_extractor_5 = event_time_extractor.clone();
 
             events_mgr.on::<VehicleEntersTrafficEvent, _>(move |e| {
                 event_time_extractor_1.borrow_mut().on_vet(e);
@@ -412,9 +677,12 @@ impl TravelTimeAndSumDepPerPathCSVWriter {
             events_mgr.on::<LinkEnterEvent, _>(move |e| {
                 event_time_extractor_3.borrow_mut().on_entered_link(e);
             });
+            events_mgr.on::<LinkLeaveEvent, _>(move |e| {
+                event_time_extractor_4.borrow_mut().on_left_link(e);
+            });
 
             events_mgr.on_finish(move || {
-                event_time_extractor_4.borrow_mut().on_finish();
+                event_time_extractor_5.borrow_mut().on_finish();
             });
         })
     }
@@ -422,13 +690,16 @@ impl TravelTimeAndSumDepPerPathCSVWriter {
 
 #[cfg(test)]
 mod test {
-    use crate::event_extraction::{LinkToPathMap, TravelTimeAndSumDepPerPathCSVWriter};
+    use crate::event_extraction::{
+        LinkToPathMap, LinksToMeasureTimeOnList, TravelTimeAndSumDepPerPathCSVWriter,
+    };
     use matsim_rust::simulation::events::EventsManager;
     use matsim_rust::simulation::events::utils::read_events;
     use polars::prelude::*;
     use std::fs::create_dir_all;
     use std::path::PathBuf;
 
+    // FIXME this test will fail since I added new columns
     /// test the travel time per path extractor.
     /// Reads a simplified/shortened events file based on a run on the braess network, and verifies
     /// that the (avg) travel times (per path) extracted match the expected results.
@@ -448,6 +719,8 @@ mod test {
             .join("test_event_extractor_travel_times.csv");
         let sd_output_path = PathBuf::from("./test_output/io/event_time_extraction")
             .join("test_event_extractor_sum_departures.csv");
+        let per_veh_data_output_path = PathBuf::from("./test_output/io/event_time_extraction")
+            .join("test_event_extractor_per_vehicle_data.csv");
         create_dir_all(tt_output_path.parent().unwrap())
             .expect("Failed to create output directory");
 
@@ -455,8 +728,10 @@ mod test {
         let mut event_mgr = EventsManager::new();
         let register_fn = TravelTimeAndSumDepPerPathCSVWriter::register_fn(
             LinkToPathMap::named("braess").unwrap(),
+            LinksToMeasureTimeOnList::named("braess").unwrap(),
             tt_output_path.clone(),
             sd_output_path.clone(),
+            per_veh_data_output_path.clone(),
             1,
         );
         register_fn(&mut event_mgr);
@@ -532,8 +807,25 @@ mod test {
             "sum_departures_path_2" => &[0,0,0,0,1,1].to_vec(),
             "sum_departures_total" => &[1,2,3,4,5,6].to_vec(),
         )
-            .expect("Failed to create expected sd result DataFrame");
+        .expect("Failed to create expected sd result DataFrame");
 
         assert_eq!(read_sd_csv, expected_sd_result);
+
+        let read_per_veh_data_csv = CsvReadOptions::default()
+            .try_into_reader_with_file_path(Some(per_veh_data_output_path))
+            .expect("Failed to read per vehicle data output csv file")
+            .finish()
+            .unwrap();
+
+        // FIXME these are just dummy values so far
+        let expected_per_veh_data_result = df!(
+            "vehicle_id" => &["0", "1", "2", "3", "16", "28"].to_vec(),
+            "departure_time" => &[28.0, 29.0, 30.0, 31.0, 16.0, 28.0].to_vec(),
+            "travel_time" => &[67.0, 27.0, 29.0, 31.0, 56.0, 67.0].to_vec(),
+            "path_index" => &[0, 1, 1, 1, 2, 0].to_vec(),
+        )
+        .expect("Failed to create expected per vehicle data result DataFrame");
+
+        assert_eq!(read_per_veh_data_csv, expected_per_veh_data_result);
     }
 }

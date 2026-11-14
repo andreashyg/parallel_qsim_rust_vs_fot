@@ -1,8 +1,7 @@
 use clap::{Parser, ValueEnum};
 use matsim_rust::simulation::config::{
-    ActivityParameter, ActivityScoring, CompressionType, Config, Logging, ModeParameter, Network,
-    OverwriteFiles, Population, ScoringMode, StrategySetting, TeleportedParams, Vehicles,
-    WriteEvents, parse_key_val,
+    CompressionType, Config, Logging, Network, OverwriteFiles, Population, Scoring, ScoringMode,
+    StrategySetting, TeleportedParams, Vehicles, WriteEvents, parse_key_val,
 };
 use matsim_rust::simulation::controller::controller::ControllerBuilder;
 use matsim_rust::simulation::logging::init_std_out_logging_thread_local;
@@ -10,7 +9,9 @@ use matsim_rust::simulation::scenario::Scenario;
 use std::fmt::Display;
 
 use experiment_machine::config::GlobalConfig;
+use matsim_rust::simulation::config::LinkDynamics::Fifo;
 use matsim_rust::simulation::config::RoutingMode::UsePlans;
+use matsim_rust::simulation::config::VehiclesSource::DefaultVehicle;
 use matsim_rust::simulation::id::Id;
 use matsim_rust::simulation::replanning::{
     RE_ROUTE_STRATEGY_NAME, SELECT_EXP_BETA_STRATEGY_NAME, WORST_SCORE_STRATEGY_NAME,
@@ -150,6 +151,10 @@ fn main() {
         .try_get_global_config_parameter_as_str("network_file_pattern")
         .expect("Failed to get network_file_pattern from global config");
 
+    let scoring_parameters_file_pattern = global_config
+        .try_get_global_config_parameter_as_str("scoring_parameters_file_pattern")
+        .expect("Failed to get scoring_parameters_file_pattern from global config");
+
     // ------ replace placeholders in the patterns with actual values
 
     let vehicle_file_path = replace_placeholders_in_path_pattern(
@@ -179,6 +184,21 @@ fn main() {
         Some(beta),
         Some(random_java),
         None, // use_random_seed is not used in the network input path
+    )
+    .into();
+
+    let scoring_parameters_file_path = replace_placeholders_in_path_pattern(
+        // first replace placeholders from the global config (such as {original_dir_to_read_from}),
+        // then replace the placeholders for this run
+        &global_config
+            .replace_common_pattern(&scoring_parameters_file_pattern)
+            .expect("Failed to replace common pattern in scoring_parameters_file_pattern"),
+        Some(&args.base_output_dir),
+        Some(&args.experiment_set_name),
+        // Some(&args.replanning_variant.to_string()),
+        Some(beta),
+        Some(random_java),
+        None, // use_random_seed is not used in the scoring parameters input path
     )
     .into();
 
@@ -223,17 +243,24 @@ fn main() {
     config.qsim_mut().main_modes = vec!["car".to_string()];
     config.qsim_mut().ticks_per_second = beta as u32;
     config.qsim_mut().stuck_threshold = config.qsim().end_time;
+    config.qsim_mut().vehicles_source = DefaultVehicle;
+    config.qsim_mut().link_dynamics = Fifo;
+
     config.output_mut().output_dir = output_dir;
     config.output_mut().logging = Logging::Info;
     config.output_mut().write_events = WriteEvents::File;
     // write xml.zst instead of binbp (is human-readable)
     config.output_mut().compression_type = CompressionType::Zst;
 
-    config.scoring_mut().mode = ScoringMode::Enabled;
+    config.set_scoring(Scoring {
+        mode: ScoringMode::Enabled,
+        write_experienced_plans: true,
+        fraction_of_iterations_to_start_score_msa: Some(0.8),
+        scoring_parameters_path: Some(scoring_parameters_file_path),
+    });
 
-    panic!(
-        "This is a temporary panic, since the below code about scoring parameters needs to be fixed."
-    );
+    // config.scoring_mut().mode = ScoringMode::Enabled;
+
     // config.scoring_mut().agent_params = vec![AgentParameter::default()];
     // config.scoring_mut().activity_params = vec![ActivityParameter {
     //     activity_type: "dummy".to_string(),
@@ -244,9 +271,10 @@ fn main() {
     //     ModeParameter::default_for_mode("car"),
     //     ModeParameter::default_for_mode("walk"),
     // ];
-    config
-        .scoring_mut()
-        .fraction_of_iterations_to_start_score_msa = Some(0.8);
+
+    // config
+    //     .scoring_mut()
+    //     .fraction_of_iterations_to_start_score_msa = Some(0.8);
 
     // config.
     if args.delete_output_dir_if_existing {

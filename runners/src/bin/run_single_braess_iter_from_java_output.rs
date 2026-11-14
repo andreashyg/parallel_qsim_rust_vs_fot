@@ -9,6 +9,8 @@ use matsim_rust::simulation::scenario::Scenario;
 use std::fmt::Display;
 
 use experiment_machine::config::GlobalConfig;
+use matsim_rust::simulation::config::LinkDynamics::Fifo;
+use matsim_rust::simulation::config::VehiclesSource::DefaultVehicle;
 use pre_postprocessing::utils::replace_placeholders_in_path_pattern;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -92,8 +94,7 @@ fn main() {
     let args = CommandLineArgs::parse();
     info!("Started with args: {:?}", args);
 
-    let global_config_path =
-        PathBuf::from(&args.global_config_path);
+    let global_config_path = PathBuf::from(&args.global_config_path);
 
     let global_config: GlobalConfig =
         serde_yaml::from_reader(std::fs::File::open(&global_config_path).unwrap())
@@ -111,17 +112,19 @@ fn main() {
 
     let seed_rust = args.use_random_seed;
 
-
     // ------ load file and directory patterns from global config
 
-    let experiment_output_dir_pattern = global_config.try_get_global_config_parameter_as_str(
-        "common_output_from_runs_pattern").expect("Failed to get common_output_from_runs_pattern from global config");
+    let experiment_output_dir_pattern = global_config
+        .try_get_global_config_parameter_as_str("common_output_from_runs_pattern")
+        .expect("Failed to get common_output_from_runs_pattern from global config");
 
-    let vehicle_file_pattern = global_config.try_get_global_config_parameter_as_str(
-        "vehicle_file_pattern").expect("Failed to get vehicle_file_pattern from global config");
+    let vehicle_file_pattern = global_config
+        .try_get_global_config_parameter_as_str("vehicle_file_pattern")
+        .expect("Failed to get vehicle_file_pattern from global config");
 
-    let network_file_pattern = global_config.try_get_global_config_parameter_as_str(
-        "network_file_pattern").expect("Failed to get network_file_pattern from global config");
+    let network_file_pattern = global_config
+        .try_get_global_config_parameter_as_str("network_file_pattern")
+        .expect("Failed to get network_file_pattern from global config");
 
     // ------ replace placeholders in patterns with actual values
 
@@ -132,41 +135,48 @@ fn main() {
         Some(beta),
         Some(random_java),
         Some(seed_rust),
-    ).into();
+    )
+    .into();
 
     let pop_to_use_as_input_path = replace_placeholders_in_path_pattern(
-        &global_config.replace_common_pattern(&pop_to_use_as_input_pattern)
+        &global_config
+            .replace_common_pattern(&pop_to_use_as_input_pattern)
             .expect("Failed to replace common pattern in pop_to_use_as_input_pattern"),
         Some(&args.base_output_dir),
         Some(&args.experiment_set_name),
         Some(beta),
         Some(random_java),
         None, // use_random_seed is not used in the population input path
-    ).into();
+    )
+    .into();
 
     let vehicle_file_path = replace_placeholders_in_path_pattern(
         // first replace placeholders from the global config (such as {original_dir_to_read_from}),
         // then replace the placeholders for this run
-        &global_config.replace_common_pattern(&vehicle_file_pattern)
+        &global_config
+            .replace_common_pattern(&vehicle_file_pattern)
             .expect("Failed to replace common pattern in vehicle_file_pattern"),
         Some(&args.base_output_dir),
         Some(&args.experiment_set_name),
         Some(beta),
         Some(random_java),
         None, // use_random_seed is not used in the vehicle input path
-    ).into();
+    )
+    .into();
 
     let network_file_path = replace_placeholders_in_path_pattern(
         // first replace placeholders from the global config (such as {original_dir_to_read_from}),
         // then replace the placeholders for this run
-        &global_config.replace_common_pattern(&network_file_pattern)
+        &global_config
+            .replace_common_pattern(&network_file_pattern)
             .expect("Failed to replace common pattern in network_file_pattern"),
         Some(&args.base_output_dir),
         Some(&args.experiment_set_name),
         Some(beta),
         Some(random_java),
         None, // use_random_seed is not used in the network input path
-    ).into();
+    )
+    .into();
 
     // ------ Construct config
 
@@ -188,6 +198,9 @@ fn main() {
     config.qsim_mut().main_modes = vec!["car".to_string()];
     config.qsim_mut().ticks_per_second = beta as u32;
     config.qsim_mut().stuck_threshold = config.qsim().end_time;
+    config.qsim_mut().vehicles_source = DefaultVehicle;
+    config.qsim_mut().link_dynamics = Fifo;
+
     config.output_mut().output_dir = output_dir;
     config.output_mut().logging = Logging::Info;
     config.output_mut().write_events = WriteEvents::File;

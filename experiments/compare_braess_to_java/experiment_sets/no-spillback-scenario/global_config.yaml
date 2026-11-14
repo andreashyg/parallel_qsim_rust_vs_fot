@@ -5,12 +5,13 @@ global_parameters:
   output_global_config_pattern: "{base_output_dir}/{experiment_set_name}/output_global_config.yaml"
   # used in the GNU parallel call, i.e., "--joblog <joblog_path>", to make parallel store a joblog.
   # This is used to allow resuming the runs if they are interrupted, and to allow extracting measurements from the runs
-  # without having to rerun them. MUST INCLUDE {callback}, since the joblog is per callback
-  joblog_path_pattern: "{base_output_dir}/{experiment_set_name}/joblogs/{callback}_parallel_job.log"
+  # without having to rerun them. MUST INCLUDE {module_id}, since the joblog is per module, and needs a unique name per module
+  # (even if the same module is used multiple times in the same experiment set, e.g., with different parameters).
+  joblog_path_pattern: "{base_output_dir}/{experiment_set_name}/joblogs/{module_id}_parallel_job.log"
 
   # this is where parallel writes the individual stdout and stderr of each parallel job. This is important, since the output
   # of multiple parallel jobs is mixed together in the stdout and stderr of the main process
-  results_dir_pattern: "{base_output_dir}/{experiment_set_name}/individual-output/beta{1}-read-from-random{2}-use-random{3}/"
+  results_dir_pattern: "{base_output_dir}/{experiment_set_name}/individual-output/beta{1}-read-from-random{2}-use-random{3}/{module_id}/"
 
   original_dir_to_read_from: "./../../runs-svn/braess/refinement/no_spillback_scenario"
   file_name_end_pattern_with_beta_rr_ur: "Beta{beta}ReadFromRandom{read_from_random}UseRandomSeed{use_random_seed}"
@@ -23,6 +24,7 @@ global_parameters:
 
   vehicle_file_pattern: "{original_dir_to_read_from}/no_spillback_beta{beta}_vehicles.xml"
   network_file_pattern: "{original_dir_to_read_from}/no_spillback_network.xml"
+  scoring_parameters_file_pattern: "./runners/braess_scoring_parameters.yaml"
 
   standard_fig_size: [ 12, 10 ]
   boxplot_fig_size: [ 12, 12 ]
@@ -35,7 +37,7 @@ global_parameters:
                     [ [ 0, 0 ], [ 15, 0 ], [ 26.25, 7.5 ], [ 82.5, 26.25 ], [ 100, 35 ] ] ]  # bottom
 
   # These are used when replacing activity times in the original java output plans with the correct activity times
-  #  original_output_pop_pattern: "{original_dir_to_read_from}/beta{beta}/random{read_from_random}/beta{beta}random{read_from_random}.output_plans.xml.gz"
+  #  original_output_pop_pattern: "{ original_dir_to_read_from }/beta{beta}/random{read_from_random}/beta{beta}random{read_from_random}.output_plans.xml.gz"
   #  pop_with_correct_activity_times_pattern: "{original_dir_to_read_from}/uniteratedPlans_TimeFormatHHMMSSDOTSS/beta{beta}random1.output_plans.xml.gz"
   #  vehicle_file_pattern: "{original_dir_to_read_from}/no_spillback_beta{beta}_vehicles.xml"
   # This is the population that will be used when performing runs based on output plans. That is, the original java

@@ -24,14 +24,15 @@ run_callback_for_parameter_arrays_parallel() {
   local experiment_set_name="$5"
   local base_output_dir="$6"
   local max_parallel_jobs="$7"
-  local resume="$8"
-  local resume_failed="${9}"
-  local script_type="${10}"
-  local actual_callback="${11}"
+  local module_id="$8"
+  local resume="$9"
+  local resume_failed="${10}"
+  local script_type="${11}"
+  local actual_callback="${12}"
 
   local batch_common_file="${SCRIPT_DIR}/common_code_for_modules.sh"
 
-  shift 11
+  shift 12
 
   local resume_arg=()
   if [[ "$resume" == "true" ]]; then
@@ -57,6 +58,7 @@ run_callback_for_parameter_arrays_parallel() {
   printf -v base_output_dir_q '%q' "$base_output_dir"
   printf -v common_q '%q' "$batch_common_file"
   printf -v global_config_path_q '%q' "$global_config_path"
+  printf -v module_id_q '%q' "$module_id"
 
   for arg in "$@"; do
     extra_args+=" $(printf '%q' "$arg")"
@@ -74,13 +76,14 @@ run_callback_for_parameter_arrays_parallel() {
 
   joblog_path="${joblog_path_pattern//\{experiment_set_name\}/$experiment_set_name}"
   joblog_path="${joblog_path//\{base_output_dir\}/$base_output_dir}"
-  joblog_path="${joblog_path//\{callback\}/$callback_q}"
+  joblog_path="${joblog_path//\{module_id\}/$module_id_q}"
 
   mkdir -p "$(dirname "$joblog_path")"  # ensure the directory for the joblog exists
 
   read_config_file_entry results_dir_pattern results_dir_pattern "$global_config_path"
   results_dir="${results_dir_pattern//\{experiment_set_name\}/$experiment_set_name}"
   results_dir="${results_dir//\{base_output_dir\}/$base_output_dir}"
+  results_dir="${results_dir//\{module_id\}/$module_id_q}"
 
   if [[ "$script_type" == "rust" ]]; then
     echo "Building Rust binaries before running parallel jobs..."
@@ -95,7 +98,7 @@ run_callback_for_parameter_arrays_parallel() {
 
   echo "The output from this callback would be mixed from multiple parallel jobs. Therefore, it is written to the following files instead (similar files exist for stderr):"
   parallel --memsuspend 15G \
-    --will-cite --eta --bar -j "${max_parallel_jobs}" \
+    --will-cite --eta -j "${max_parallel_jobs}" \
     "${resume_arg[@]}" \
     --joblog "${joblog_path}" \
     --line-buffer \

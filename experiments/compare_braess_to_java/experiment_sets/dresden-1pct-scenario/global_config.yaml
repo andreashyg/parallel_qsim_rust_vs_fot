@@ -5,12 +5,13 @@ global_parameters:
   output_global_config_pattern: "{base_output_dir}/{experiment_set_name}/output_global_config.yaml"
   # used in the GNU parallel call, i.e., "--joblog <joblog_path>", to make parallel store a joblog.
   # This is used to allow resuming the runs if they are interrupted, and to allow extracting measurements from the runs
-  # without having to rerun them. MUST INCLUDE {callback}, since the joblog is per callback
-  joblog_path_pattern: "{base_output_dir}/{experiment_set_name}/joblogs/{callback}_parallel_job.log"
+  # without having to rerun them. MUST INCLUDE {module_id}, since the joblog is per module, and needs a unique name per module
+  # (even if the same module is used multiple times in the same experiment set, e.g., with different parameters).
+  joblog_path_pattern: "{base_output_dir}/{experiment_set_name}/joblogs/{module_id}_parallel_job.log"
 
   # this is where parallel writes the individual stdout and stderr of each parallel job. This is important, since the output
   # of multiple parallel jobs is mixed together in the stdout and stderr of the main process
-  results_dir_pattern: "{base_output_dir}/{experiment_set_name}/individual-output/beta{1}-use-random{3}/"
+  results_dir_pattern: "{base_output_dir}/{experiment_set_name}/individual-output/beta{1}-use-random{3}/{module_id}/"
 
   # FIXME it is not correct that the dresden scenario is in the compare_braess_to_java folder. But this is where the bash scripts are, which is wrong as well
   original_dir_to_read_from: "./../../public-svn/matsim/scenarios/countries/de/dresden/dresden-v1.1/calibrated-1pct/output"

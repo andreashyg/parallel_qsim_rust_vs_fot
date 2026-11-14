@@ -1,6 +1,7 @@
 use crate::bash_utils;
 use crate::bash_utils::BashFunction;
 use matsim_rust::simulation::config::OverwriteFiles;
+use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 use std::collections::HashMap;
@@ -71,10 +72,88 @@ impl GlobalConfig {
 pub struct Config {
     globals: Option<HashMap<String, Value>>,
     param_sweep: HashMap<String, Vec<Value>>,
-    modules: Vec<Box<dyn Module>>,
+    modules: Vec<ModuleConfigEntry>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ModuleConfigEntry {
+    pub module_id: String,
+    pub module: Box<dyn Module>,
+}
+impl ModuleConfigEntry {
+    pub fn new(module_id: String, module: Box<dyn Module>) -> Self {
+        Self { module_id, module }
+    }
+
+    pub fn run_with_module_id(
+        &self,
+        config: &Config,
+        global_config: &GlobalConfig,
+        global_config_path: &str,
+        resume: bool,
+        resume_failed: bool,
+    ) -> Result<(), String> {
+        self.module.run(
+            config,
+            global_config,
+            global_config_path,
+            &self.module_id,
+            resume,
+            resume_failed,
+        )
+    }
+}
+
+impl<'de> Deserialize<'de> for ModuleConfigEntry {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = Value::deserialize(deserializer)?;
+        let mapping = value
+            .as_mapping()
+            .ok_or_else(|| de::Error::custom("Each module entry must be a map with one key"))?;
+        eprintln!(
+            "Deserializing ModuleConfigEntry from mapping: {:?}",
+            mapping
+        );
+        if mapping.len() != 1 {
+            return Err(de::Error::custom(
+                "Each module entry must contain exactly one key (the module_id)",
+            ));
+        }
+
+        let (module_id_value, module_value) = mapping
+            .iter()
+            .next()
+            .ok_or_else(|| de::Error::custom("Missing module entry"))?;
+
+        let module_id = module_id_value
+            .as_str()
+            .ok_or_else(|| de::Error::custom("module_id must be a string"))?
+            .to_string();
+
+        let module = <Box<dyn Module>>::deserialize(module_value.clone())
+            .map_err(|err| de::Error::custom(format!("Failed to deserialize module: {err}")))?;
+
+        Ok(Self { module_id, module })
+    }
 }
 
 impl Config {
+    /// Assert that all module IDs in the config are unique.
+    pub fn assert_unique_module_ids(&self) -> Result<(), String> {
+        let mut seen_ids = std::collections::HashSet::new();
+        for module_entry in &self.modules {
+            if !seen_ids.insert(&module_entry.module_id) {
+                return Err(format!(
+                    "Duplicate module_id found: {}",
+                    module_entry.module_id
+                ));
+            }
+        }
+        Ok(())
+    }
     pub fn get_expset_config_globals_parameter(&self, key: &str) -> Result<&Value, String> {
         // if key exists in (per experiment set) globals, return that value
         if let Some(globals) = &self.globals {
@@ -120,8 +199,8 @@ impl Config {
         resume_failed: bool,
     ) -> Result<(), String> {
         // Run all modules.
-        for module in &self.modules {
-            module.run(
+        for module_entry in &self.modules {
+            module_entry.run_with_module_id(
                 self,
                 global_config,
                 global_config_path,
@@ -219,6 +298,7 @@ pub trait Module: Debug {
         config: &Config,
         global_config: &GlobalConfig,
         global_config_path: &str,
+        module_id: &str,
         resume: bool,
         resume_failed: bool,
     ) -> Result<(), String> {
@@ -229,6 +309,7 @@ pub trait Module: Debug {
             config,
             global_config_path,
             self,
+            module_id,
             resume,
             resume_failed,
             self.get_extra_str_args(config, global_config)?, // is None by default
@@ -454,7 +535,7 @@ fn get_tt_and_sd_csv_path_patterns(
     config: &Config,
     global_config: &GlobalConfig,
     module: &dyn Module,
-) -> Result<(String, String), String> {
+) -> Result<(String, String, String), String> {
     // gets the tt_csv_path_pattern and sd_csv_path_pattern from the expset-configs globals, or
     // from the module's overwrites, if existing.
     // Then, replaces the placeholders {common_output_from_runs_pattern}, {common_extracted_data_pattern},
@@ -472,8 +553,21 @@ fn get_tt_and_sd_csv_path_patterns(
             .as_str()
             .ok_or("sd_csv_path_pattern must be a string")?,
     )?;
+    let per_veh_data_csv_output_path_pattern = global_config.replace_common_pattern(
+        module
+            .get_expset_config_global_parameter_or_overwrite(
+                config,
+                "per_veh_data_csv_path_pattern",
+            )?
+            .as_str()
+            .ok_or("per_veh_data_csv_path_pattern must be a string")?,
+    )?;
 
-    Ok((tt_csv_output_path_pattern, sd_csv_output_path_pattern))
+    Ok((
+        tt_csv_output_path_pattern,
+        sd_csv_output_path_pattern,
+        per_veh_data_csv_output_path_pattern,
+    ))
 }
 
 #[typetag::serde]
@@ -620,8 +714,11 @@ impl Module for ExtractMeasurementsFromEvents {
     ) -> Result<Option<Vec<String>>, String> {
         // these are the csv files to which the measurements will be written.
         // Is read from the expset-configs globals, or from the module's overwrites, if existing.
-        let (tt_csv_output_path_pattern, sd_csv_output_path_pattern) =
-            get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
+        let (
+            tt_csv_output_path_pattern,
+            sd_csv_output_path_pattern,
+            per_veh_data_csv_output_path_pattern,
+        ) = get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
 
         // the input file stem pattern is used to find the input files.
         let input_file_stem_pattern = global_config.replace_common_pattern(
@@ -637,6 +734,7 @@ impl Module for ExtractMeasurementsFromEvents {
                 .ok_or("input_file_format must be set")?,
             tt_csv_output_path_pattern,
             sd_csv_output_path_pattern,
+            per_veh_data_csv_output_path_pattern,
             self.num_parts.ok_or("num_parts must be set")?.to_string(),
         ]))
     }
@@ -775,8 +873,11 @@ impl Module for PlotTtAndSdPerSeed {
         config: &Config,
         global_config: &GlobalConfig,
     ) -> Result<Option<Vec<String>>, String> {
-        let (tt_csv_input_path_pattern, sd_csv_input_path_pattern) =
-            get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
+        let (
+            tt_csv_input_path_pattern,
+            sd_csv_input_path_pattern,
+            _per_veh_data_csv_input_path_pattern,
+        ) = get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
         Ok(Some(vec![
             tt_csv_input_path_pattern,
             sd_csv_input_path_pattern,
@@ -817,8 +918,11 @@ impl Module for PlotTtAndSdDiffPerSeed {
         config: &Config,
         global_config: &GlobalConfig,
     ) -> Result<Option<Vec<String>>, String> {
-        let (tt_csv_input_path_pattern, sd_csv_input_path_pattern) =
-            get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
+        let (
+            tt_csv_input_path_pattern,
+            sd_csv_input_path_pattern,
+            _per_veh_data_csv_input_path_pattern,
+        ) = get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
 
         let secondary_input_tt_csv_path_pattern = global_config.replace_common_pattern(
             self.secondary_input_tt_csv_path_pattern
@@ -872,8 +976,11 @@ impl Module for PlotTtAndSdAvgdOverSeeds {
         config: &Config,
         global_config: &GlobalConfig,
     ) -> Result<Option<Vec<String>>, String> {
-        let (tt_csv_input_path_pattern, sd_csv_input_path_pattern) =
-            get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
+        let (
+            tt_csv_input_path_pattern,
+            sd_csv_input_path_pattern,
+            _per_veh_data_csv_input_path_pattern,
+        ) = get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
         let seeds_to_use_as_space_sep_str =
             self.seeds_to_avg_over.get_seeds_to_use_as_str(config)?;
         Ok(Some(vec![
@@ -933,8 +1040,11 @@ impl Module for PlotTtAndSdAvgdOverSeedsDiff {
         config: &Config,
         global_config: &GlobalConfig,
     ) -> Result<Option<Vec<String>>, String> {
-        let (tt_csv_input_path_pattern, sd_csv_input_path_pattern) =
-            get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
+        let (
+            tt_csv_input_path_pattern,
+            sd_csv_input_path_pattern,
+            _per_veh_data_csv_input_path_pattern,
+        ) = get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
 
         let secondary_input_tt_csv_path_pattern = global_config.replace_common_pattern(
             self.secondary_input_tt_csv_path_pattern
@@ -1008,8 +1118,11 @@ impl Module for PlotTtAndSdDeviationToNashBoxplotsOverBeta {
         config: &Config,
         global_config: &GlobalConfig,
     ) -> Result<Option<Vec<String>>, String> {
-        let (tt_csv_input_path_pattern, sd_csv_input_path_pattern) =
-            get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
+        let (
+            tt_csv_input_path_pattern,
+            sd_csv_input_path_pattern,
+            _per_veh_data_csv_input_path_pattern,
+        ) = get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
         let seeds_to_use_as_space_sep_str =
             self.seeds_to_avg_over.get_seeds_to_use_as_str(config)?;
         let betas_to_use_as_space_sep_str = get_betas_to_use_as_space_sep_str(config)?;
@@ -1072,8 +1185,11 @@ impl Module for PlotTtAndSdDeviationToNashScatterplotsOverBeta {
         config: &Config,
         global_config: &GlobalConfig,
     ) -> Result<Option<Vec<String>>, String> {
-        let (tt_csv_input_path_pattern, sd_csv_input_path_pattern) =
-            get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
+        let (
+            tt_csv_input_path_pattern,
+            sd_csv_input_path_pattern,
+            _per_veh_data_csv_input_path_pattern,
+        ) = get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
         let seeds_to_use_as_space_sep_str =
             self.seeds_to_avg_over.get_seeds_to_use_as_str(config)?;
         let betas_to_use_as_space_sep_str = get_betas_to_use_as_space_sep_str(config)?;
@@ -1141,8 +1257,11 @@ impl Module for PlotTtAndSdDeviationToDiffRunBoxplotsOverBeta {
         config: &Config,
         global_config: &GlobalConfig,
     ) -> Result<Option<Vec<String>>, String> {
-        let (tt_csv_input_path_pattern, sd_csv_input_path_pattern) =
-            get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
+        let (
+            tt_csv_input_path_pattern,
+            sd_csv_input_path_pattern,
+            _per_veh_data_csv_input_path_pattern,
+        ) = get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
         let secondary_input_tt_csv_path_pattern = global_config.replace_common_pattern(
             self.secondary_input_tt_csv_path_pattern
                 .as_ref()
@@ -1220,8 +1339,11 @@ impl Module for PlotTtAndSdDeviationToDiffRunScatterplotsOverBeta {
         config: &Config,
         global_config: &GlobalConfig,
     ) -> Result<Option<Vec<String>>, String> {
-        let (tt_csv_input_path_pattern, sd_csv_input_path_pattern) =
-            get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
+        let (
+            tt_csv_input_path_pattern,
+            sd_csv_input_path_pattern,
+            _per_veh_data_csv_input_path_pattern,
+        ) = get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
         let secondary_input_tt_csv_path_pattern = global_config.replace_common_pattern(
             self.secondary_input_tt_csv_path_pattern
                 .as_ref()
@@ -1293,8 +1415,11 @@ impl Module for ReformatOriginalExtractedMeasurements {
         config: &Config,
         global_config: &GlobalConfig,
     ) -> Result<Option<Vec<String>>, String> {
-        let (reformatted_tt_csv_file_pattern, reformatted_sd_csv_file_pattern) =
-            get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
+        let (
+            reformatted_tt_csv_file_pattern,
+            reformatted_sd_csv_file_pattern,
+            _per_veh_data_csv_input_path_pattern,
+        ) = get_tt_and_sd_csv_path_patterns(config, global_config, self)?;
         // replace placeholders in file name
         let original_tt_tsv_file_pattern = global_config.replace_common_pattern(
             self.original_tt_tsv_file_pattern
@@ -1379,29 +1504,38 @@ mod tests {
                 ),
             ]),
             modules: vec![
-                Box::new(PrepareOriginalPopulation {
-                    pop_to_be_changed_pattern: None,
-                    pop_with_correct_activity_times_pattern: None,
-                    vehicle_file_pattern: None,
-                    output_file_pattern: "somePattern".to_string(),
-                    add_access_egress_legs_if_necessary: false,
-                    skip_if_existing: false,
-                    overwrites: Some(HashMap::from_iter([(
-                        "max_parallel_jobs".to_string(),
-                        Value::String("1".to_string()),
-                    )])),
-                }),
-                Box::new(RunRustBasedOnJavaOutput {
-                    overwrite_mode: OverwriteFiles::DeleteDirectoryIfExists,
-                    pop_to_use_as_input_pattern: "SomePattern".to_string(),
-                    overwrites: None,
-                }),
-                Box::new(PlotTtAndSdAvgdOverSeeds {
-                    overwrites: None,
-                    seeds_to_avg_over: SeedsToAvgOver::UseRandomSeeds,
-                    sd_ylims: [0.0, 1.0],
-                    tt_ylims: [0.0, 1.0],
-                }),
+                ModuleConfigEntry::new(
+                    "replace_activity_times_and_add_access_egress_legs_in_population".to_string(),
+                    Box::new(PrepareOriginalPopulation {
+                        pop_to_be_changed_pattern: None,
+                        pop_with_correct_activity_times_pattern: None,
+                        vehicle_file_pattern: None,
+                        output_file_pattern: "somePattern".to_string(),
+                        add_access_egress_legs_if_necessary: false,
+                        skip_if_existing: false,
+                        overwrites: Some(HashMap::from_iter([(
+                            "max_parallel_jobs".to_string(),
+                            Value::String("1".to_string()),
+                        )])),
+                    }),
+                ),
+                ModuleConfigEntry::new(
+                    "run_rust_based_on_java_output".to_string(),
+                    Box::new(RunRustBasedOnJavaOutput {
+                        overwrite_mode: OverwriteFiles::DeleteDirectoryIfExists,
+                        pop_to_use_as_input_pattern: "SomePattern".to_string(),
+                        overwrites: None,
+                    }),
+                ),
+                ModuleConfigEntry::new(
+                    "plot_tt_and_sd_avgd_over_seeds".to_string(),
+                    Box::new(PlotTtAndSdAvgdOverSeeds {
+                        overwrites: None,
+                        seeds_to_avg_over: SeedsToAvgOver::UseRandomSeeds,
+                        sd_ylims: [0.0, 1.0],
+                        tt_ylims: [0.0, 1.0],
+                    }),
+                ),
             ],
         };
         assert_eq!(
@@ -1417,5 +1551,15 @@ mod tests {
             expected_config.modules.len(),
             "Parsed config modules length does not match expected config modules length"
         );
+        for (parsed_module, expected_module) in parsed_config
+            .modules
+            .iter()
+            .zip(expected_config.modules.iter())
+        {
+            assert_eq!(
+                parsed_module.module_id, expected_module.module_id,
+                "Parsed module name does not match expected module name"
+            );
+        }
     }
 }

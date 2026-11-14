@@ -43,28 +43,34 @@ fn main() {
     let global_config: config::GlobalConfig = serde_yaml::from_reader(
         File::open(&args.global_config_file).expect("Failed to open global config file"),
     )
-        .expect("Failed to parse global config file");
+    .expect("Failed to parse global config file");
 
     //  load experiment set config
     let experiment_set_config: config::Config = serde_yaml::from_reader(
         File::open(&args.experiment_set_config_file)
             .expect("Failed to open experiment set config file"),
     )
-        .expect("Failed to parse experiment set config file");
+    .expect("Failed to parse experiment set config file");
 
     // check that the experiment set name in the config file matches the file name of the config
     // file.
     // If this is not the case, it is likely that the output will be saved in the wrong directory,
     // possibly overwriting previous runs. This is a safety check to prevent that from happening.
     assert_eq!(
-        experiment_set_config.get_expset_config_globals_parameter("experiment_set_name")
+        experiment_set_config
+            .get_expset_config_globals_parameter("experiment_set_name")
             .expect("Missing experiment_set_name in globals"),
-        args.experiment_set_config_file.file_stem()
+        args.experiment_set_config_file
+            .file_stem()
             .expect("Failed to get file stem of experiment set config file cla")
             .to_str()
             .expect("Failed to convert file stem of experiment set config to string"),
         "Experiment set name in config file does not match the file name"
     );
+
+    experiment_set_config
+        .assert_unique_module_ids()
+        .expect("Failed to assert that module IDs are unique");
 
     let base_output_dir = experiment_set_config
         .get_expset_config_globals_parameter("base_output_dir")
@@ -120,7 +126,12 @@ fn main() {
     // run the modules specified in the config
     info!("********** Starting run of experiment set **********");
     experiment_set_config
-        .run_all_modules(&global_config, &args.global_config_file.to_string_lossy(), args.resume, args.resume_failed)
+        .run_all_modules(
+            &global_config,
+            &args.global_config_file.to_string_lossy(),
+            args.resume,
+            args.resume_failed,
+        )
         .expect("Failed to run experiment set");
 
     info!("********** Finished run of experiment set **********");
@@ -148,9 +159,7 @@ fn main() {
     let output_experiment_set_config_path = if args.overwrite_and_append {
         // get smallest free index for the output config file, so that we don't overwrite previous runs
         let mut index = 1;
-        while get_output_path_with_index(&output_experiment_set_config_path, index)
-            .exists()
-        {
+        while get_output_path_with_index(&output_experiment_set_config_path, index).exists() {
             index += 1;
         }
         get_output_path_with_index(&output_experiment_set_config_path, index)
@@ -189,9 +198,7 @@ fn main() {
     let output_global_config_path = if args.overwrite_and_append {
         // get smallest free index for the output config file, so that we don't overwrite previous runs
         let mut index = 1;
-        while get_output_path_with_index(&output_global_config_path, index)
-            .exists()
-        {
+        while get_output_path_with_index(&output_global_config_path, index).exists() {
             index += 1;
         }
         get_output_path_with_index(&output_global_config_path, index)
@@ -223,7 +230,7 @@ fn main() {
             .expect("Failed to create output experiment set config file"),
         &experiment_set_config,
     )
-        .expect("Failed to write output_experiment_set_config file");
+    .expect("Failed to write output_experiment_set_config file");
 
     info!(
         "Saving copy of global config to {}",
@@ -235,30 +242,28 @@ fn main() {
             .expect("Failed to create output global config file"),
         &global_config,
     )
-        .expect("Failed to write output global config file");
+    .expect("Failed to write output global config file");
 }
 
 /// Returns a new PathBuf with the same path as `path`, but with the file stem modified to include
 /// the given index.
 fn get_output_path_with_index(path: &PathBuf, index: i32) -> PathBuf {
-    path
-        .with_file_name(
-            format!(
-                "{}_{}.{}",
-                path
-                    .file_stem()
-                    .expect(&format!("Failed to get file stem of {}", path.display()))
-                    .to_str()
-                    .expect(
-                        &format!("Failed to convert file stem of {} to str", path.display())
-                    ),
-                index,
-                path.extension()
-                    .expect(&format!("Failed to get extension of {}", path.display()))
-                    .to_str()
-                    .expect(
-                        &format!("Failed to convert extension of {} to str", path.display())
-                    )
-            )
-        )
+    path.with_file_name(format!(
+        "{}_{}.{}",
+        path.file_stem()
+            .expect(&format!("Failed to get file stem of {}", path.display()))
+            .to_str()
+            .expect(&format!(
+                "Failed to convert file stem of {} to str",
+                path.display()
+            )),
+        index,
+        path.extension()
+            .expect(&format!("Failed to get extension of {}", path.display()))
+            .to_str()
+            .expect(&format!(
+                "Failed to convert extension of {} to str",
+                path.display()
+            ))
+    ))
 }

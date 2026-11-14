@@ -16,9 +16,7 @@ use matsim_rust::simulation::config::LinkDynamics::PassingQ;
 use matsim_rust::simulation::config::PartitionMethod::Metis;
 use matsim_rust::simulation::config::RoutingMode::UsePlans;
 use matsim_rust::simulation::config::ScoringMode::Enabled;
-use matsim_rust::simulation::config::VehiclesSource::{
-    FromVehiclesData, ModeVehicleTypesFromVehiclesData,
-};
+use matsim_rust::simulation::config::VehiclesSource::ModeVehicleTypesFromVehiclesData;
 use matsim_rust::simulation::id::Id;
 use matsim_rust::simulation::io::xml::attributes::IOAttribute;
 use matsim_rust::simulation::io::xml::population::{IOPlanElement, IOPopulation};

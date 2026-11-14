@@ -7,6 +7,7 @@ globals:
   # measurements
   tt_csv_path_pattern: "{common_extracted_data_pattern}/averageRouteTtsPerDeptime{file_name_end}.csv"
   sd_csv_path_pattern: "{common_extracted_data_pattern}/summedDepsPerTime{file_name_end}.csv"
+  per_veh_data_csv_path_pattern: "{common_extracted_data_pattern}/perVehData{file_name_end}.csv"
 
 param_sweep:
   betas: [ 1, 2, 4, 8 ]
@@ -18,57 +19,57 @@ modules:
 
   # extract measurements from the events files
   - extract_measurements_from_events:
-    type: ExtractMeasurementsFromEvents
-    input_file_stem_pattern: "{original_dir_to_read_from}/2026-10-19-23-8-29_original_settings_but_only_leg_scoring_and_brain_1_to_beta_8/beta{beta}/random{read_from_random}/beta{beta}random{read_from_random}.output_events"
-    input_file_format: xml.zst
-    num_parts: 0
+      type: ExtractMeasurementsFromEvents
+      input_file_stem_pattern: "{original_dir_to_read_from}/2026-10-19-23-8-29_original_settings_but_only_leg_scoring_and_brain_1_to_beta_8/beta{beta}/random{read_from_random}/beta{beta}random{read_from_random}.output_events"
+      input_file_format: xml.zst
+      num_parts: 0
 
   # plot the measurements
   - plot_tt_and_sd_per_seed:
-    type: PlotTtAndSdPerSeed
-    sd_ylims: [ 0.0, 45.0 ]
-    tt_ylims: [ 0.0, 110.0 ]
+      type: PlotTtAndSdPerSeed
+      sd_ylims: [ 0.0, 45.0 ]
+      tt_ylims: [ 0.0, 110.0 ]
   - plot_tt_and_sd_avgd_over_seeds:
-    type: PlotTtAndSdAvgdOverSeeds
-    sd_ylims: [ 0.0, 45.0 ]
-    tt_ylims: [ 0.0, 110.0 ]
-    seeds_to_avg_over: ReadFromRandomSeedIndices
+      type: PlotTtAndSdAvgdOverSeeds
+      sd_ylims: [ 0.0, 45.0 ]
+      tt_ylims: [ 0.0, 110.0 ]
+      seeds_to_avg_over: ReadFromRandomSeedIndices
   - plot_tt_and_sd_deviation_to_nash_boxplots:
-    type: PlotTtAndSdDeviationToNashBoxplotsOverBeta
-    seeds_to_avg_over: ReadFromRandomSeedIndices
-    sd_ylims: [ 0.0, 3.5 ]
-    tt_ylims: [ 0.0, 8.5 ]
+      type: PlotTtAndSdDeviationToNashBoxplotsOverBeta
+      seeds_to_avg_over: ReadFromRandomSeedIndices
+      sd_ylims: [ 0.0, 3.5 ]
+      tt_ylims: [ 0.0, 8.5 ]
   - plot_tt_and_sd_deviation_to_nash_scatterplots:
-    type: PlotTtAndSdDeviationToNashScatterplotsOverBeta
-    seeds_to_avg_over: ReadFromRandomSeedIndices
-    sd_ylims: [ 0.0, 0.85 ]
-    tt_ylims: [ 0.0, 1.05 ]
-    overwrites:
-      resume: False
+      type: PlotTtAndSdDeviationToNashScatterplotsOverBeta
+      seeds_to_avg_over: ReadFromRandomSeedIndices
+      sd_ylims: [ 0.0, 0.85 ]
+      tt_ylims: [ 0.0, 1.05 ]
+      overwrites:
+        resume: False
 
   #  Plot the differences to the original settings (i.e., with activity scoring and brainExpBeta=10)
   - plot_tt_and_sd_diff_to_original_settings_per_seed:
-    type: PlotTtAndSdDiffPerSeed
-    minus_what: "OriginalSettings"
-    sd_ylims: [ -1.0, 1.0 ]
-    tt_ylims: [ -3.3, 4.7 ]
-    secondary_input_tt_csv_path_pattern: "{base_output_dir}/analyzing-java-output-original-settings/analysis/extractedData/averageRouteTtsPerDeptime{file_name_end}.csv"
-    secondary_input_sd_csv_path_pattern: "{base_output_dir}/analyzing-java-output-original-settings/analysis/extractedData/summedDepsPerTime{file_name_end}.csv"
+      type: PlotTtAndSdDiffPerSeed
+      minus_what: "OriginalSettings"
+      sd_ylims: [ -1.0, 1.0 ]
+      tt_ylims: [ -3.3, 4.7 ]
+      secondary_input_tt_csv_path_pattern: "{base_output_dir}/analyzing-java-output-original-settings/analysis/extractedData/averageRouteTtsPerDeptime{file_name_end}.csv"
+      secondary_input_sd_csv_path_pattern: "{base_output_dir}/analyzing-java-output-original-settings/analysis/extractedData/summedDepsPerTime{file_name_end}.csv"
 
   #  Plot the differences to the runs with only leg scoring (i.e., still with brainExpBeta=10)
   - plot_tt_and_sd_diff_to_only_leg_scoring_per_seed:
-    type: PlotTtAndSdDiffPerSeed
-    minus_what: "OnlyLegScoring"
-    sd_ylims: [ -1.0, 1.0 ]
-    tt_ylims: [ -3.3, 4.7 ]
-    secondary_input_tt_csv_path_pattern: "{base_output_dir}/analyzing-java-output-only-leg-scoring/analysis/extractedData/averageRouteTtsPerDeptime{file_name_end}.csv"
-    secondary_input_sd_csv_path_pattern: "{base_output_dir}/analyzing-java-output-only-leg-scoring/analysis/extractedData/summedDepsPerTime{file_name_end}.csv"
+      type: PlotTtAndSdDiffPerSeed
+      minus_what: "OnlyLegScoring"
+      sd_ylims: [ -1.0, 1.0 ]
+      tt_ylims: [ -3.3, 4.7 ]
+      secondary_input_tt_csv_path_pattern: "{base_output_dir}/analyzing-java-output-only-leg-scoring/analysis/extractedData/averageRouteTtsPerDeptime{file_name_end}.csv"
+      secondary_input_sd_csv_path_pattern: "{base_output_dir}/analyzing-java-output-only-leg-scoring/analysis/extractedData/summedDepsPerTime{file_name_end}.csv"
 
   # Plot the differences per seed to theresas runs (of course also with original settings)
   - plot_tt_and_sd_diff_to_theresas_runs_per_seed:
-    type: PlotTtAndSdDiffPerSeed
-    minus_what: "TheresasRuns"
-    sd_ylims: [ -1.0, 1.0 ]
-    tt_ylims: [ -3.3, 4.7 ]
-    secondary_input_tt_csv_path_pattern: "{base_output_dir}/analyzing-theresas-java-output-original-settings/analysis/extractedData/averageRouteTtsPerDeptime{file_name_end}ReformattedTheresasData.csv"
-    secondary_input_sd_csv_path_pattern: "{base_output_dir}/analyzing-theresas-java-output-original-settings/analysis/extractedData/summedDepsPerTime{file_name_end}ReformattedTheresasData.csv"
+      type: PlotTtAndSdDiffPerSeed
+      minus_what: "TheresasRuns"
+      sd_ylims: [ -1.0, 1.0 ]
+      tt_ylims: [ -3.3, 4.7 ]
+      secondary_input_tt_csv_path_pattern: "{base_output_dir}/analyzing-theresas-java-output-original-settings/analysis/extractedData/averageRouteTtsPerDeptime{file_name_end}ReformattedTheresasData.csv"
+      secondary_input_sd_csv_path_pattern: "{base_output_dir}/analyzing-theresas-java-output-original-settings/analysis/extractedData/summedDepsPerTime{file_name_end}ReformattedTheresasData.csv"

@@ -19,7 +19,7 @@ param_sweep:
 modules:
 
   - run_dresden_scenario:
-    type: RunDresdenScenario
-    iterations: 2
-    sample_size: 0.01
-    overwrite_mode: DeleteDirectoryIfExists
+      type: RunDresdenScenario
+      iterations: 2
+      sample_size: 0.01
+      overwrite_mode: DeleteDirectoryIfExists

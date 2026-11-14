@@ -45,6 +45,7 @@ impl BashFunction {
     /// - config: the Config object containing the parameter sweep definitions
     /// - global_config_path: the path to the global config file
     /// - module: the Module object containing the module-specific parameters and overwrites
+    /// - module_id: identifier of the module, used in output path of joblog and stdout/stderr files
     /// - resume: if true, only run experiments that have not yet been run. Can be overwritten by
     ///     the module's overwrites
     /// - resume_failed: if true, only run experiments that have failed or have not been run. Can be
@@ -57,13 +58,15 @@ impl BashFunction {
         config: &Config,
         global_config_path: &str,
         module: &M,
+        module_id: &str,
         resume: bool,
         resume_failed: bool,
         extra_str_args: Option<Vec<String>>,
         param_sweep_overwrites: Option<HashMap<String, String>>,
     ) -> Result<(), String> {
         // if the module has an overwrite for resume, use that instead of the passed in value
-        let resume = if let Some(resume_overwrite) = module.get_expset_config_overwrites()
+        let resume = if let Some(resume_overwrite) = module
+            .get_expset_config_overwrites()
             .as_ref()
             .and_then(|m| m.get("resume"))
         {
@@ -76,7 +79,8 @@ impl BashFunction {
         };
 
         // if the module has an overwrite for resume_failed, use that instead of the passed in value
-        let resume_failed = if let Some(resume_failed_overwrite) = module.get_expset_config_overwrites()
+        let resume_failed = if let Some(resume_failed_overwrite) = module
+            .get_expset_config_overwrites()
             .as_ref()
             .and_then(|m| m.get("resume_failed"))
         {
@@ -188,6 +192,7 @@ run_callback_for_parameter_arrays_parallel \
   {experiment_set_name} \
   {base_output_dir} \
   {max_parallel_jobs} \
+  {module_id} \
   {resume} \
   {resume_failed} \
   {script_type} \
@@ -208,17 +213,14 @@ print_failure_summary
             base_output_dir = shell_escape_single_quoted(&base_output_dir),
             max_parallel_jobs = max_parallel_jobs,
             resume = resume,
+            module_id = shell_escape_single_quoted(module_id),
             resume_failed = resume_failed,
             script_type = script_type,
             extra_args_escaped = extra_args_escaped,
             function_name = function_name
         );
 
-        let status = run_step_while_tracing(
-            function_name,
-            "bash",
-            &["-lc", &bash_script],
-        )
+        let status = run_step_while_tracing(function_name, "bash", &["-lc", &bash_script])
             .map_err(|e| {
                 format!(
                     "Failed to run bash function {} in parallel: {e}",

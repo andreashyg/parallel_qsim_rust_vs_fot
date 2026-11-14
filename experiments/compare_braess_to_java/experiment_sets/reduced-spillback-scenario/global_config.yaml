@@ -5,12 +5,12 @@ global_parameters:
   output_global_config_pattern: "{base_output_dir}/{experiment_set_name}/output_global_config.yaml"
   # used in the GNU parallel call, i.e., "--joblog <joblog_path>", to make parallel store a joblog.
   # This is used to allow resuming the runs if they are interrupted, and to allow extracting measurements from the runs
-  # without having to rerun them. MUST INCLUDE {callback}, since the joblog is per callback
-  joblog_path_pattern: "{base_output_dir}/{experiment_set_name}/joblogs/{callback}_parallel_job.log"
+  # without having to rerun them. MUST INCLUDE {module_id}, since the joblog is per module
+  joblog_path_pattern: "{base_output_dir}/{experiment_set_name}/joblogs/{module_id}_parallel_job.log"
 
   # this is where parallel writes the individual stdout and stderr of each parallel job. This is important, since the output
   # of multiple parallel jobs is mixed together in the stdout and stderr of the main process
-  results_dir_pattern: "{base_output_dir}/{experiment_set_name}/individual-output/beta{1}-read-from-random{2}-use-random{3}/"
+  results_dir_pattern: "{base_output_dir}/{experiment_set_name}/individual-output/beta{1}-read-from-random{2}-use-random{3}/{module_id}/"
 
   original_dir_to_read_from: "./../../runs-svn/braess/refinement/reduced_spillback_scenario"
   file_name_end_pattern_with_beta_rr_ur: "Beta{beta}ReadFromRandom{read_from_random}UseRandomSeed{use_random_seed}"

@@ -3,7 +3,9 @@ use matsim_rust::simulation::events::EventsManager;
 use matsim_rust::simulation::events::utils::{read_events, read_partitioned_events};
 use matsim_rust::simulation::id;
 use matsim_rust::simulation::logging::init_std_out_logging_thread_local;
-use pre_postprocessing::event_extraction::{LinkToPathMap, TravelTimeAndSumDepPerPathCSVWriter};
+use pre_postprocessing::trav_time_cum_flow_event_extraction::{
+    LinkToPathMap, LinksToMeasureTimeOnList, TravelTimeAndSumDepPerPathCSVWriter,
+};
 use pre_postprocessing::utils::{
     replace_file_name_end_placeholder_in_path_pattern, replace_placeholders_in_path_pattern,
 };
@@ -182,10 +184,8 @@ fn main() {
     let link_to_path_map = LinkToPathMap::named(args.link_to_path_map_name.as_str())
         .expect("Failed to load link to path map");
     let links_to_measure_time_on_list =
-        pre_postprocessing::event_extraction::LinksToMeasureTimeOnList::named(
-            args.link_to_path_map_name.as_str(),
-        )
-        .expect("Failed to load links to measure time on list");
+        LinksToMeasureTimeOnList::named(args.link_to_path_map_name.as_str())
+            .expect("Failed to load links to measure time on list");
 
     let ttppsd_register_fn = TravelTimeAndSumDepPerPathCSVWriter::register_fn(
         link_to_path_map,

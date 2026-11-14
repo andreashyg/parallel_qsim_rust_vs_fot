@@ -690,7 +690,7 @@ impl TravelTimeAndSumDepPerPathCSVWriter {
 
 #[cfg(test)]
 mod test {
-    use crate::event_extraction::{
+    use crate::trav_time_cum_flow_event_extraction::{
         LinkToPathMap, LinksToMeasureTimeOnList, TravelTimeAndSumDepPerPathCSVWriter,
     };
     use matsim_rust::simulation::events::EventsManager;

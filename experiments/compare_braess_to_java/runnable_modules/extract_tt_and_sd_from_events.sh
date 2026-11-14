@@ -30,7 +30,7 @@ extract_travel_time_sum_dep_case() {
   fi
 
   # Extract travel times and summed departures from the events written by the rust simulation.
-  if ! ./target/release/event_data_extractor \
+  if ! ./target/release/trav_time_cum_flow_extractor \
     --base-output-dir "$base_output_dir" \
     --experiment-set-name "$experiment_set_name" \
     --read-from-random "$java_seed_index" \

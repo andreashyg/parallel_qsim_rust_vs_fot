@@ -404,6 +404,16 @@ pub struct ExtractMeasurementsFromEvents {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+pub struct ExtractAvgLinkTravelTimeFromEvents {
+    pub input_file_stem_pattern: Option<String>,
+    pub input_file_format: Option<String>,
+    // overwrite global parameters by putting them in this hashmap
+    pub overwrites: Option<HashMap<String, Value>>,
+    pub num_parts: Option<usize>,
+    pub bin_size: f64,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct AddDummyCoordinatesToEvents {
     pub input_file_pattern: Option<String>,
     pub output_file_pattern: Option<String>,
@@ -570,6 +580,46 @@ fn get_tt_and_sd_csv_path_patterns(
     ))
 }
 
+/// helper function to get the avg link tt per link enter time and avg link tt csv path patterns
+/// from the module's overwrites if existing, otherwise from the *experiment set specific* config.
+/// Will replace placeholders {common_output_from_runs_pattern}, {common_extracted_data_pattern},
+/// {common_plots_pattern} and {original_dir_to_read_from} in the path patterns, by reading those
+/// from the *global* config.
+fn get_avg_link_tt_per_le_time_and_avg_tt_csv_path_patterns(
+    config: &Config,
+    global_config: &GlobalConfig,
+    module: &dyn Module,
+) -> Result<(String, String), String> {
+    // gets the avg_link_tts_over_le_time and avg_link_tts from the expset-configs globals, or
+    // from the module's overwrites, if existing.
+    // Then, replaces the placeholders {common_output_from_runs_pattern}, {common_extracted_data_pattern},
+    // {common_plots_pattern} and {original_dir_to_read_from} in the path patterns, by reading those
+    // from the *global* config.
+    let avg_link_tts_over_le_time_csv_path_pattern = global_config.replace_common_pattern(
+        module
+            .get_expset_config_global_parameter_or_overwrite(
+                config,
+                "avg_link_tts_over_le_time_csv_path_pattern",
+            )?
+            .as_str()
+            .ok_or("avg_link_tts_over_le_time_csv_path_pattern must be a string")?,
+    )?;
+    let avg_link_tts_csv_path_pattern = global_config.replace_common_pattern(
+        module
+            .get_expset_config_global_parameter_or_overwrite(
+                config,
+                "avg_link_tts_csv_path_pattern",
+            )?
+            .as_str()
+            .ok_or("avg_link_tts_csv_path_pattern must be a string")?,
+    )?;
+
+    Ok((
+        avg_link_tts_over_le_time_csv_path_pattern,
+        avg_link_tts_csv_path_pattern,
+    ))
+}
+
 #[typetag::serde]
 impl Module for RunRustBasedOnJavaOutput {
     fn get_bash_function(&self) -> BashFunction {
@@ -706,7 +756,8 @@ impl Module for ExtractMeasurementsFromEvents {
     /// 2. `input_file_format` (read from module field)
     /// 3. `tt_csv_output_path_pattern` (read from expset-configs globals, or from the module's overwrites, if existing)
     /// 4. `sd_csv_output_path_pattern` (read from expset-configs globals, or from the module's overwrites, if existing)
-    /// 5. `num_parts` (read from module field)
+    /// 5. `per_veh_data_csv_output_path_pattern` (read from expset-configs globals, or from the module's overwrites, if existing)
+    /// 6. `num_parts` (read from module field)
     fn get_extra_str_args(
         &self,
         config: &Config,
@@ -736,6 +787,58 @@ impl Module for ExtractMeasurementsFromEvents {
             sd_csv_output_path_pattern,
             per_veh_data_csv_output_path_pattern,
             self.num_parts.ok_or("num_parts must be set")?.to_string(),
+        ]))
+    }
+
+    fn get_expset_config_overwrites(&self) -> Option<HashMap<String, Value>> {
+        self.overwrites.clone()
+    }
+}
+
+#[typetag::serde]
+impl Module for ExtractAvgLinkTravelTimeFromEvents {
+    fn get_bash_function(&self) -> BashFunction {
+        BashFunction::new(
+            "extract_avg_link_travel_time_case",
+            "./experiments/compare_braess_to_java/runnable_modules/extract_avg_link_tt_from_events.sh",
+            "rust",
+        )
+    }
+
+    /// The extra string arguments for this module are:
+    /// 1. `input_file_stem_pattern` (read from module field)
+    /// 2. `input_file_format` (read from module field)
+    /// 3. `avg_link_tts_over_le_time_csv_path_pattern` (read from expset-configs globals, or from the module's overwrites, if existing)
+    /// 4. `avg_link_tts_csv_path_pattern` (read from expset-configs globals, or from the module's overwrites, if existing)
+    /// 5. `num_parts` (read from module field)
+    /// 6. `bin_size` (read from module field)
+    fn get_extra_str_args(
+        &self,
+        config: &Config,
+        global_config: &GlobalConfig,
+    ) -> Result<Option<Vec<String>>, String> {
+        // these are the csv files to which the measurements will be written.
+        // Is read from the expset-configs globals, or from the module's overwrites, if existing.
+
+        let (avg_link_tts_over_le_time_csv_path_pattern, avg_link_tts_csv_path_pattern) =
+            get_avg_link_tt_per_le_time_and_avg_tt_csv_path_patterns(config, global_config, self)?;
+
+        // the input file stem pattern is used to find the input files.
+        let input_file_stem_pattern = global_config.replace_common_pattern(
+            self.input_file_stem_pattern
+                .as_ref()
+                .ok_or("input_file_stem_pattern must be set")?,
+        )?;
+
+        Ok(Some(vec![
+            input_file_stem_pattern,
+            self.input_file_format
+                .clone()
+                .ok_or("input_file_format must be set")?,
+            avg_link_tts_over_le_time_csv_path_pattern,
+            avg_link_tts_csv_path_pattern,
+            self.num_parts.ok_or("num_parts must be set")?.to_string(),
+            self.bin_size.to_string(),
         ]))
     }
 

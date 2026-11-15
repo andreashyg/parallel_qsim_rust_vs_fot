@@ -16,7 +16,6 @@ use polars::prelude::*;
 // So we import the one we want explicitly here, with a custom name.
 use polars_lazy::prelude::sum_horizontal as polars_lazy_sum_horizontal;
 use std::cell::RefCell;
-use std::collections::HashSet;
 use std::collections::hash_map::Entry;
 use std::error::Error;
 use std::fmt::{Display, Formatter};

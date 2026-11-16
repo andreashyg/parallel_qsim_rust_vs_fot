@@ -61,4 +61,5 @@ modules:
       which_deviation: "ToBeta8"
       tt_ylims: [ 0.0, 3.05 ]
       overwrites:
+        avg_link_tts_csv_path_pattern: "{common_extracted_data_pattern}/avgLinkTtsWithBinSize1{file_name_end}.csv"
         resume_failed: false

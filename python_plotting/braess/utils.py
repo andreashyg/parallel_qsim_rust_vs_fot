@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
 
-from setup import (
+from python_plotting.braess.setup import (
     PlotParameters,
     get_file_name_end_and_common_plots_patterns_from_global_config,
 )
@@ -97,8 +97,10 @@ def plot_boxplot_over_beta(df: pd.DataFrame, ax: plt.Axes, mode: str, betas: Lis
         ylabel = "avg. travel time deviation [s]"
     elif mode == "sd":
         ylabel = "cumulative flow deviation [vol]"
+    elif mode == "avg_link_tt":
+        ylabel = "avg. link travel time deviation [s]"
     else:
-        raise ValueError("Mode must be either tt or sd")
+        raise ValueError("Mode must be either tt or sd or avg_link_tt")
 
     bplot = ax.boxplot(x=df,
                        patch_artist=True)

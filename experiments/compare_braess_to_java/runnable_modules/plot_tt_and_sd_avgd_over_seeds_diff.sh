@@ -28,7 +28,7 @@ plot_avgd_over_seeds_diff_case() {
 
 
   # Plot the average travel times and summed departures averaged over seeds.
-  if ! python python_plotting/braess/plot_tt_and_sd_avg_over_seeds_differences.py \
+  if ! python -m python_plotting.braess.plot_tt_and_sd_avg_over_seeds_differences \
     "$beta" "$experiment_set_name" "$java_seed_index" "$rust_seed" "$base_output_dir" \
     "$minus_what" \
     "$main_input_tt_csv_path_pattern" "$main_input_sd_csv_path_pattern" \

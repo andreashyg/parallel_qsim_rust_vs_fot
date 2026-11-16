@@ -2,8 +2,8 @@ import sys
 
 from matplotlib import pyplot as plt
 
-from setup import PlotParameters, get_file_name_end_and_common_plots_patterns_from_global_config
-from utils import plot_boxplot_over_beta, compute_deviation_to_reference_df, ExperimentSet
+from python_plotting.braess.setup import PlotParameters, get_file_name_end_and_common_plots_patterns_from_global_config
+from python_plotting.braess.utils import plot_boxplot_over_beta, compute_deviation_to_reference_df, ExperimentSet
 
 plot_type_specific_tt_path_pattern = "{common_plots_pattern}/deviations{which_deviation}/ttAvgDeviation{which_deviation}Boxplots/ttAvgDeviation{which_deviation}Boxplot.pdf"
 plot_type_specific_sd_path_pattern = "{common_plots_pattern}/deviations{which_deviation}/sdAvgDeviation{which_deviation}Boxplots/sdAvgDeviation{which_deviation}Boxplot.pdf"

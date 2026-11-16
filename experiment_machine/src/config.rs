@@ -498,6 +498,14 @@ pub struct PlotTtAndSdDeviationToDiffRunBoxplotsOverBeta {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+pub struct PlotLinkTravelTimeDeviationToSpecificRunBoxplot {
+    pub overwrites: Option<HashMap<String, Value>>,
+    pub secondary_input_tt_csv_path_pattern: Option<String>,
+    pub which_deviation: String,
+    pub tt_ylims: [f64; 2],
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct PlotTtAndSdDeviationToDiffRunScatterplotsOverBeta {
     pub overwrites: Option<HashMap<String, Value>>,
     pub secondary_input_tt_csv_path_pattern: Option<String>,
@@ -1407,6 +1415,78 @@ impl Module for PlotTtAndSdDeviationToDiffRunBoxplotsOverBeta {
         // each plot contains all betas, so replace the beta array by a single value "UseAll"
         // (it will never be read, but the important part is that it is only one value)
         overwrites.insert("betas".to_string(), "betas=(UseAll)".to_string());
+        Some(overwrites)
+    }
+
+    fn get_expset_config_overwrites(&self) -> Option<HashMap<String, Value>> {
+        self.overwrites.clone()
+    }
+}
+
+#[typetag::serde]
+impl Module for PlotLinkTravelTimeDeviationToSpecificRunBoxplot {
+    fn get_bash_function(&self) -> BashFunction {
+        BashFunction::new(
+            "plot_avg_link_tt_deviation_to_diff_run_boxplot",
+            "./experiments/compare_braess_to_java/runnable_modules/plot_avg_link_tt_deviation_to_diff_run_over_beta.sh",
+            "python",
+        )
+    }
+
+    /// The extra string arguments for this module are:
+    /// 1. `tt_csv_input_path_pattern` (read from expset-configs globals, or from the module's overwrites, if existing)
+    /// 3. `secondary_input_tt_csv_path_pattern` (read from module field)
+    /// 5. `seeds_to_use_as_space_sep_str` (read from expset-config param sweep,
+    ///     based on the module's `seeds_to_avg_over` field, and converted to a space-separated string)
+    /// 6. `betas_to_use_as_space_sep_str` (read from expset-config param sweep, and converted to a space-separated string)
+    /// 7. `which_deviation` (read from module field)
+    /// 10. `tt_ybotlim` (read from module field `tt_ylims`)
+    /// 11. `tt_ytoplim` (read from module field `tt_ylims`)
+    fn get_extra_str_args(
+        &self,
+        config: &Config,
+        global_config: &GlobalConfig,
+    ) -> Result<Option<Vec<String>>, String> {
+        let (_avg_link_tt_per_le_time_path_pattern, avg_link_tt_path_pattern) =
+            get_avg_link_tt_per_le_time_and_avg_tt_csv_path_patterns(config, global_config, self)?;
+        let secondary_input_tt_csv_path_pattern = global_config.replace_common_pattern(
+            self.secondary_input_tt_csv_path_pattern
+                .as_ref()
+                .ok_or("secondary_input_tt_csv_path_pattern must be set")?,
+        )?;
+
+        let seeds_to_use_as_space_sep_str =
+            SeedsToAvgOver::UseRandomSeeds.get_seeds_to_use_as_str(config)?;
+
+        let betas_to_use_as_space_sep_str = get_betas_to_use_as_space_sep_str(config)?;
+        Ok(Some(vec![
+            avg_link_tt_path_pattern,
+            secondary_input_tt_csv_path_pattern,
+            seeds_to_use_as_space_sep_str,
+            betas_to_use_as_space_sep_str,
+            self.which_deviation.clone(),
+            self.tt_ylims[0].to_string(),
+            self.tt_ylims[1].to_string(),
+        ]))
+    }
+
+    /// The param sweep overwrites for this module are:
+    /// 1. `use_random_seeds` or `read_from_random_seed_indices` will be overwritten to
+    ///     contain only the value "UseAll", since the plotting function will use all those
+    ///     seeds itself.
+    /// 2. The `betas` parameter will be overwritten to contain only the value "UseAll", since
+    ///     the plotting function will use all those betas itself.
+    /// Motivation: the plotting function uses all betas and seeds_to_avg_over itself, so the bash
+    /// function should only be called once per cartesian product of the other parameters.
+    fn get_param_sweep_overwrites(&self) -> Option<HashMap<String, String>> {
+        let mut overwrites = SeedsToAvgOver::UseRandomSeeds.get_param_sweep_overwrites("UseAll");
+        // each plot contains all betas, so replace the beta array by a single value "UseAll"
+        // (it will never be read, but the important part is that it is only one value)
+        overwrites.insert("betas".to_string(), "betas=(UseAll)".to_string());
+        overwrites.insert(
+            "read_from_random_seed_indices".to_string(),
+            "read_from_random_seed_indices=(None)".to_string(),
+        );
         Some(overwrites)
     }
 

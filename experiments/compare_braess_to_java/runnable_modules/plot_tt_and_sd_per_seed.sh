@@ -23,7 +23,7 @@ plot_per_seed_case() {
 
 
   # Plot the average travel times and summed departures.
-  if ! python python_plotting/braess/tt_and_sd_single_seed.py \
+  if ! python -m python_plotting.braess.tt_and_sd_single_seed \
     "$beta" "$java_seed_index" "$rust_seed" "${experiment_set_name}" "${base_output_dir}" \
     "${input_tt_csv_path_pattern}" "${input_sd_csv_path_pattern}" "${global_config_path}" \
     "$sd_ybotlim" "$sd_ytoplim" "$tt_ybotlim" "$tt_ytoplim"

@@ -2,8 +2,9 @@ import sys
 
 from matplotlib import pyplot as plt
 
-from setup import PlotParameters, get_file_name_end_and_common_plots_patterns_from_global_config
-from utils import plot_scatter_over_beta, compute_deviation_to_reference_series_but_avg_first, ExperimentSet
+from python_plotting.braess.setup import PlotParameters, get_file_name_end_and_common_plots_patterns_from_global_config
+from python_plotting.braess.utils import plot_scatter_over_beta, compute_deviation_to_reference_series_but_avg_first, \
+    ExperimentSet
 
 plot_type_specific_tt_path_pattern = "{common_plots_pattern}/deviationsToNash/ttAvgFirstDeviationToNashScatterplots/ttAvgFirstDeviationToNashScatterplot.pdf"
 plot_type_specific_sd_path_pattern = "{common_plots_pattern}/deviationsToNash/sdAvgFirstDeviationToNashScatterplots/sdAvgFirstDeviationToNashScatterplot.pdf"

@@ -2,8 +2,9 @@ import sys
 
 import matplotlib.pyplot as plt
 
-from setup import PlotParameters, get_file_name_end_and_common_plots_patterns_from_global_config
-from utils import plot_nash_lines, plot_extracted_sd_over_time, plot_extracted_tt_over_time, get_elementwise_avg_df, \
+from python_plotting.braess.setup import PlotParameters, get_file_name_end_and_common_plots_patterns_from_global_config
+from python_plotting.braess.utils import plot_nash_lines, plot_extracted_sd_over_time, plot_extracted_tt_over_time, \
+    get_elementwise_avg_df, \
     ExperimentSet
 
 # This is the pattern for the paths to the plots created by this script.

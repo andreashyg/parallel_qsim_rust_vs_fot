@@ -3,8 +3,9 @@ import sys
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from setup import PlotParameters, get_file_name_end_and_common_plots_patterns_from_global_config
-from utils import plot_nash_lines, plot_extracted_sd_over_time, plot_extracted_tt_over_time, ExperimentSet
+from python_plotting.braess.setup import PlotParameters, get_file_name_end_and_common_plots_patterns_from_global_config
+from python_plotting.braess.utils import plot_nash_lines, plot_extracted_sd_over_time, plot_extracted_tt_over_time, \
+    ExperimentSet
 
 # This is the pattern for the paths to the plots created by this script.
 plot_type_specific_tt_path_pattern = "{common_plots_pattern}/perSeed/ttPerPathOverDeptime/ttPerPathOverDeptime{file_name_end}.pdf"

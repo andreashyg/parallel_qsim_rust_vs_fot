@@ -4,8 +4,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from setup import PlotParameters, get_file_name_end_and_common_plots_patterns_from_global_config
-from utils import plot_extracted_sd_over_time, plot_extracted_tt_over_time, get_elementwise_avg_df, \
+from python_plotting.braess.setup import PlotParameters, get_file_name_end_and_common_plots_patterns_from_global_config
+from python_plotting.braess.utils import plot_extracted_sd_over_time, plot_extracted_tt_over_time, \
+    get_elementwise_avg_df, \
     get_elementwise_difference_df, plot_value_count_table, plot_textbox, ExperimentSet, save_value_count_table_as_csv
 
 plot_type_specific_tt_path_pattern = "{common_plots_pattern}/avgOverSeeds/ttPerPathOverDeptimeMinus{minus_what}/ttPerPathOverDeptimeMinus{minus_what}{file_name_end}.pdf"

@@ -22,7 +22,7 @@ modules:
       type: RunDresdenScenario
       iterations: 500
       sample_size: 0.01
-      overwrite_mode: DeleteDirectoryIfExists
+      overwrite_mode: FailIfDirectoryExists
       num_parts: 3
 
   - extract_avg_link_tt_from_events_with_bin_size_10:
@@ -32,7 +32,6 @@ modules:
       num_parts: 3
       bin_size: 10
       overwrites:
-        resume_failed: false
         avg_link_tts_over_le_time_csv_path_pattern: "{common_extracted_data_pattern}/avgLinkTtsOverLeTimeWithBinSize10{file_name_end}.csv"
         avg_link_tts_csv_path_pattern: "{common_extracted_data_pattern}/avgLinkTtsWithBinSize10{file_name_end}.csv"
 
@@ -43,7 +42,6 @@ modules:
       num_parts: 3
       bin_size: 1
       overwrites:
-        resume_failed: false
         avg_link_tts_over_le_time_csv_path_pattern: "{common_extracted_data_pattern}/avgLinkTtsOverLeTimeWithBinSize1{file_name_end}.csv"
         avg_link_tts_csv_path_pattern: "{common_extracted_data_pattern}/avgLinkTtsWithBinSize1{file_name_end}.csv"
 
@@ -54,6 +52,13 @@ modules:
       num_parts: 3
       bin_size: 0.5
       overwrites:
-        resume_failed: false
         avg_link_tts_over_le_time_csv_path_pattern: "{common_extracted_data_pattern}/avgLinkTtsOverLeTimeWithBinSize0_5{file_name_end}.csv"
         avg_link_tts_csv_path_pattern: "{common_extracted_data_pattern}/avgLinkTtsWithBinSize0_5{file_name_end}.csv"
+
+  - plot_avg_link_tt_deviation_to_beta8_run_boxplot:
+      type: PlotLinkTravelTimeDeviationToSpecificRunBoxplot
+      secondary_input_tt_csv_path_pattern: "{base_output_dir}/running-500-rust-iters-beta-8/analysis/extractedData/avgLinkTtsWithBinSize1Beta8UseRandomSeed42.csv"
+      which_deviation: "ToBeta8"
+      tt_ylims: [ 0.0, 3.05 ]
+      overwrites:
+        resume_failed: false

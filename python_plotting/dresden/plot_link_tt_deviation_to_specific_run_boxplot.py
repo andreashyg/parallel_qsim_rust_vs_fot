@@ -7,7 +7,7 @@ import pandas as pd
 from matplotlib import pyplot as plt
 
 from python_plotting.braess.setup import PlotParameters, get_file_name_end_and_common_plots_patterns_from_global_config
-from python_plotting.braess.utils import plot_boxplot_over_beta, compute_deviation_to_reference_df, ExperimentSet
+from python_plotting.braess.utils import plot_boxplot_over_beta, ExperimentSet
 
 plot_type_specific_tt_path_pattern = "{common_plots_pattern}/deviations{which_deviation}/avgLinkTtDeviation{which_deviation}Boxplots/avgLinkTtDeviation{which_deviation}Boxplot.pdf"
 
@@ -104,7 +104,7 @@ if __name__ == '__main__':
                                                              seeds=seeds_to_use,
                                                              reference_values_path=tt_path_2)
 
-    plot_boxplot_over_beta(tt_df, ax_tt, "avg_link_tt", betas_to_use, plot_params=tt_plot_parameters)
+    plot_boxplot_over_beta(tt_df, ax_tt, "avg_link_tt", betas_to_use, plot_params=tt_plot_parameters, showmeans=True)
 
     tt_plot_dir = os.path.dirname(experiment_set.get_tt_plot_path("", "", ""))
     os.makedirs(tt_plot_dir, exist_ok=True)

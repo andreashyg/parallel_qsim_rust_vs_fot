@@ -92,7 +92,8 @@ def plot_extracted_tt_over_time(ax: plt.Axes, tt_df: pd.DataFrame, per_path: boo
     ax.legend(fontsize=plot_params.LEGEND_FONT_SIZE)
 
 
-def plot_boxplot_over_beta(df: pd.DataFrame, ax: plt.Axes, mode: str, betas: List[int], plot_params: PlotParameters):
+def plot_boxplot_over_beta(df: pd.DataFrame, ax: plt.Axes, mode: str, betas: List[int], plot_params: PlotParameters,
+                           showmeans: bool = False):
     if mode == "tt":
         ylabel = "avg. travel time deviation [s]"
     elif mode == "sd":
@@ -103,6 +104,7 @@ def plot_boxplot_over_beta(df: pd.DataFrame, ax: plt.Axes, mode: str, betas: Lis
         raise ValueError("Mode must be either tt or sd or avg_link_tt")
 
     bplot = ax.boxplot(x=df,
+                       showmeans=showmeans,
                        patch_artist=True)
     ax.set_xlabel("time step size [s]", fontsize=plot_params.FONT_SIZE)
     ax.set_ylabel(ylabel, fontsize=plot_params.FONT_SIZE)

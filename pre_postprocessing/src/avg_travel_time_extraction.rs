@@ -365,6 +365,13 @@ impl AvgTravelTimeExtractor {
         )
         .expect("Failed to create DataFrame for average travel time over all measured durations");
 
+        let mut avg_tt_nobins_df = df!(
+            "avg_travel_time_secs" => vec![CountedAverageDuration::get_avg_of_averages(
+                &self.measured_durations_over_time.values().collect::<Vec<&CountedAverageDuration>>()
+            )],
+        )
+        .expect("Failed to create DataFrame for average travel time over all measured durations without binning");
+
         create_dir_all(
             &self
                 .avg_tt_output_path
@@ -380,6 +387,22 @@ impl AvgTravelTimeExtractor {
             .include_header(false) // don't include header, as we only have one row and one column
             .finish(&mut avg_tt_df)
             .expect("Failed to write average travel time CSV file");
+
+        let mut avg_tt_csv_nobins_file = File::create(
+            self.avg_tt_output_path
+                .file_stem()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_string()
+                + "_nobins.csv",
+        )
+        .expect("Failed to create average travel time NOBINS CSV file");
+
+        CsvWriter::new(&mut avg_tt_csv_nobins_file)
+            .include_header(false) // don't include header, as we only have one row and one column
+            .finish(&mut avg_tt_nobins_df)
+            .expect("Failed to write average travel time NOBINS CSV file");
     }
 
     pub fn register_fn(

@@ -1,0 +1,59 @@
+# Setup
+globals:
+  experiment_set_name: running-500-rust-iters-beta-4
+  base_output_dir: ./../../runs-svn/Abschlussarbeiten/2026/andreas-hygrell-rust-vs-fot/dresden-scenario/dresden-1pct
+  max_parallel_jobs: 20
+  # the following two patterns are used in multiple modules, so they are defined here to avoid repetition.
+  # they don't need to be overwritten in modules, since I will only read from this in the original experiment set itself,
+  # except for when doing comparisons (but there I specify the secondary path pattern explicitly anyway).
+  # If needed, it is however possible to overwrite by adding it to the optional overwrites fields in the modules.
+  tt_csv_path_pattern: "{common_extracted_data_pattern}/averageRouteTtsPerDeptime{file_name_end}.csv"
+  sd_csv_path_pattern: "{common_extracted_data_pattern}/summedDepsPerTime{file_name_end}.csv"
+
+param_sweep:
+  betas: [ 4 ]
+  read_from_random_seed_indices: [ 123456 ]  # This is not used, but I need a number here until I fixed the experiment machine
+  use_random_seeds: [ 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61 ]
+
+# What to actually run in this experiment set:
+modules:
+
+  - run_dresden_scenario:
+      type: RunDresdenScenario
+      iterations: 500
+      sample_size: 0.01
+      overwrite_mode: DeleteDirectoryIfExists
+      num_parts: 3
+
+  - extract_avg_link_tt_from_events_with_bin_size_10:
+      type: ExtractAvgLinkTravelTimeFromEvents
+      input_file_stem_pattern: "{common_output_from_runs_pattern}/events/events"
+      input_file_format: xml.zst
+      num_parts: 3
+      bin_size: 10
+      overwrites:
+        resume_failed: false
+        avg_link_tts_over_le_time_csv_path_pattern: "{common_extracted_data_pattern}/avgLinkTtsOverLeTimeWithBinSize10{file_name_end}.csv"
+        avg_link_tts_csv_path_pattern: "{common_extracted_data_pattern}/avgLinkTtsWithBinSize10{file_name_end}.csv"
+
+  - extract_avg_link_tt_from_events_with_bin_size_1:
+      type: ExtractAvgLinkTravelTimeFromEvents
+      input_file_stem_pattern: "{common_output_from_runs_pattern}/events/events"
+      input_file_format: xml.zst
+      num_parts: 3
+      bin_size: 1
+      overwrites:
+        resume_failed: false
+        avg_link_tts_over_le_time_csv_path_pattern: "{common_extracted_data_pattern}/avgLinkTtsOverLeTimeWithBinSize1{file_name_end}.csv"
+        avg_link_tts_csv_path_pattern: "{common_extracted_data_pattern}/avgLinkTtsWithBinSize1{file_name_end}.csv"
+
+  - extract_avg_link_tt_from_events_with_bin_size_1_4:
+      type: ExtractAvgLinkTravelTimeFromEvents
+      input_file_stem_pattern: "{common_output_from_runs_pattern}/events/events"
+      input_file_format: xml.zst
+      num_parts: 3
+      bin_size: 0.25
+      overwrites:
+        resume_failed: false
+        avg_link_tts_over_le_time_csv_path_pattern: "{common_extracted_data_pattern}/avgLinkTtsOverLeTimeWithBinSize0_25{file_name_end}.csv"
+        avg_link_tts_csv_path_pattern: "{common_extracted_data_pattern}/avgLinkTtsWithBinSize0_25{file_name_end}.csv"

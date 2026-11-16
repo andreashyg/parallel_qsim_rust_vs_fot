@@ -9,6 +9,9 @@ globals:
   # If needed, it is however possible to overwrite by adding it to the optional overwrites fields in the modules.
   tt_csv_path_pattern: "{common_extracted_data_pattern}/averageRouteTtsPerDeptime{file_name_end}.csv"
   sd_csv_path_pattern: "{common_extracted_data_pattern}/summedDepsPerTime{file_name_end}.csv"
+  # These are currently not used, since I overwrite them in all cases in the modules below.
+  avg_link_tts_over_le_time_csv_path_pattern: "{common_extracted_data_pattern}/avgLinkTtsOverLeTime{file_name_end}.csv"
+  avg_link_tts_csv_path_pattern: "{common_extracted_data_pattern}/avgLinkTts{file_name_end}.csv"
 
 param_sweep:
   betas: [ 1, 2 ]

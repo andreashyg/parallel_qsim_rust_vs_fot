@@ -75,7 +75,8 @@ if __name__ == '__main__':
     plot_scatter_over_beta(tt_avg_series, ax_tt_avg, "tt", betas_to_use, plot_params=tt_plot_parameters
                            )
 
-    fig_tt_avg.savefig(experiment_set.get_tt_plot_path("{beta}", read_random, use_random))
+    fig_tt_avg.savefig(experiment_set.get_tt_plot_path("{beta}", read_random, use_random),
+                       bbox_inches="tight")
 
     ### SD
     sd_plot_parameters = PlotParameters.load_from_global_config(experiment_set.global_config_path, ybotlim=sd_ybotlim,
@@ -87,4 +88,5 @@ if __name__ == '__main__':
 
     plot_scatter_over_beta(sd_avg_series, ax_sd_avg, "sd", betas_to_use, plot_params=sd_plot_parameters)
 
-    fig_sd_avg.savefig(experiment_set.get_sd_plot_path("{beta}", read_random, use_random))
+    fig_sd_avg.savefig(experiment_set.get_sd_plot_path("{beta}", read_random, use_random),
+                       bbox_inches="tight")

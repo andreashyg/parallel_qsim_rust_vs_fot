@@ -86,7 +86,8 @@ if __name__ == '__main__':
     plot_extracted_tt_over_time(ax_tt, tt_df, per_path=False, plot_params=tt_plot_parameters)
 
     fig_tt.savefig(
-        experiment_set.get_tt_plot_path(beta, read_random, use_random))
+        experiment_set.get_tt_plot_path(beta, read_random, use_random),
+        bbox_inches="tight")
 
     ### SD
     sd_plot_parameters = PlotParameters.load_from_global_config(experiment_set.global_config_path, sd_ybotlim,
@@ -98,4 +99,6 @@ if __name__ == '__main__':
     plot_extracted_sd_over_time(ax_sd, sd_df, plot_params=sd_plot_parameters)
 
     fig_sd.savefig(
-        experiment_set.get_sd_plot_path(beta, read_random, use_random))
+        experiment_set.get_sd_plot_path(beta, read_random, use_random),
+        bbox_inches="tight"
+    )

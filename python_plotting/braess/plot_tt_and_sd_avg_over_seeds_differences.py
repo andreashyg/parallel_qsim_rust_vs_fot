@@ -156,7 +156,8 @@ if __name__ == '__main__':
     plot_textbox(ax_tt, f"Average difference: {tt_avg_diff:.4f}\nAverage absolute difference: {tt_avg_abs_diff:.4f}",
                  x=0.01, y=0.11, plot_params=tt_plot_parameters)
 
-    fig_tt.savefig(experiment_set.get_tt_plot_path(beta, read_random, use_random))
+    fig_tt.savefig(experiment_set.get_tt_plot_path(beta, read_random, use_random),
+                   bbox_inches="tight")
 
     ### SD
     sd_plot_parameters = PlotParameters.load_from_global_config(experiment_set.global_config_path, sd_ybotlim,
@@ -194,4 +195,5 @@ if __name__ == '__main__':
     # include this as a table in the plot, with the difference in the first column, the count in the second column, and the percentage in the third column
     plot_value_count_table(ax_sd, sd_diff_counts, plot_params=sd_plot_parameters, val_col_name="Sign")
 
-    fig_sd.savefig(experiment_set.get_sd_plot_path(beta, read_random, use_random))
+    fig_sd.savefig(experiment_set.get_sd_plot_path(beta, read_random, use_random),
+                   bbox_inches="tight")

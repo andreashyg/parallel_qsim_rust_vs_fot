@@ -72,7 +72,8 @@ if __name__ == '__main__':
 
     plot_boxplot_over_beta(tt_df, ax_tt, "tt", betas_to_use, plot_params=tt_plot_parameters)
 
-    fig_tt.savefig(experiment_set.get_tt_plot_path("{beta}", read_random, use_random))
+    fig_tt.savefig(experiment_set.get_tt_plot_path("{beta}", read_random, use_random),
+                   bbox_inches="tight")
 
     ### SD
     sd_plot_parameters = PlotParameters.load_from_global_config(experiment_set.global_config_path, ybotlim=sd_ybotlim,
@@ -83,4 +84,5 @@ if __name__ == '__main__':
 
     plot_boxplot_over_beta(sd_df, ax_sd, "sd", betas_to_use, plot_params=sd_plot_parameters)
 
-    fig_sd.savefig(experiment_set.get_sd_plot_path("{beta}", read_random, use_random))
+    fig_sd.savefig(experiment_set.get_sd_plot_path("{beta}", read_random, use_random),
+                   bbox_inches="tight")

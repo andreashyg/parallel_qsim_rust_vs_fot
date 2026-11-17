@@ -526,7 +526,12 @@ pub struct ReformatOriginalExtractedMeasurements {
 fn get_delete_output_dir_if_existing_extra_str_arg(overwrite_mode: OverwriteFiles) -> String {
     let delete_output_dir_if_existing = match overwrite_mode {
         OverwriteFiles::DeleteDirectoryIfExists => "true".to_string(),
-        _ => "false".to_string(),
+        OverwriteFiles::OverwriteExistingFiles => {
+            panic!(
+                "OverwriteExistingFiles mode is not supported. Use DeleteDirectoryIfExists or FailIfDirectoryExists instead."
+            )
+        }
+        OverwriteFiles::FailIfDirectoryExists => "false".to_string(),
     };
     delete_output_dir_if_existing
 }

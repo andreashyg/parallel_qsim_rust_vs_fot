@@ -19,7 +19,7 @@ use matsim_rust::simulation::replanning::{
 use pre_postprocessing::utils::replace_placeholders_in_path_pattern;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tracing::info;
+use tracing::{info, warn};
 
 // FIXME I will need to change how scoring parameters are read, and select the queue dynamics,
 //  and where the vehicle names smth come from. These were breaking changes in some PRs.
@@ -276,10 +276,29 @@ fn main() {
     //     .scoring_mut()
     //     .fraction_of_iterations_to_start_score_msa = Some(0.8);
 
-    // config.
     if args.delete_output_dir_if_existing {
+        warn!(
+            "OverwriteFiles mode set to DeleteDirectoryIfExists, so the output directory {} will be deleted if it already exists.",
+            config.output().output_dir.display()
+        );
         config.output_mut().overwrite_files = OverwriteFiles::DeleteDirectoryIfExists;
+    } else {
+        info!(
+            "OverwriteFiles mode not set to DeleteDirectoryIfExists, so using default FailIfDirectoryExists.\
+                If the output directory {} already exists, the simulation will fail.",
+            config.output().output_dir.display()
+        );
+        if config.output().overwrite_files != OverwriteFiles::FailIfDirectoryExists {
+            warn!(
+                "OverwriteFiles mode is set to {:?}. This should not happen, the default is FailIfDirectoryExists.",
+                config.output().overwrite_files
+            );
+            panic!(
+                "OverwriteFiles mode is not set to FailIfDirectoryExists, which is the default. This should not happen."
+            );
+        }
     }
+
     config.controller_mut().last_iteration = args.iterations as u32;
 
     config.routing_mut().mode = UsePlans;

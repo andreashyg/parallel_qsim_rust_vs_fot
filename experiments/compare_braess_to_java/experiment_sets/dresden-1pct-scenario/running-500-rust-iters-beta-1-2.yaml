@@ -14,30 +14,30 @@ globals:
   avg_link_tts_csv_path_pattern: "{common_extracted_data_pattern}/avgLinkTts{file_name_end}.csv"
 
 param_sweep:
-  betas: [ 1, 2 ]
+  betas: [ 1, 2, 4 ]
   read_from_random_seed_indices: [ 123456 ]  # This is not used, but I need a number here until I fixed the experiment machine
   use_random_seeds: [ 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61 ]
 
 # What to actually run in this experiment set:
 modules:
 
-  - run_dresden_scenario:
-      type: RunDresdenScenario
-      iterations: 500
-      sample_size: 0.01
-      overwrite_mode: FailIfDirectoryExists
-      num_parts: 3
-
-  - extract_avg_link_tt_from_events_with_bin_size_10:
-      type: ExtractAvgLinkTravelTimeFromEvents
-      input_file_stem_pattern: "{common_output_from_runs_pattern}/events/events"
-      input_file_format: xml.zst
-      num_parts: 3
-      bin_size: 10
-      overwrites:
-        avg_link_tts_over_le_time_csv_path_pattern: "{common_extracted_data_pattern}/avgLinkTtsOverLeTimeWithBinSize10{file_name_end}.csv"
-        avg_link_tts_csv_path_pattern: "{common_extracted_data_pattern}/avgLinkTtsWithBinSize10{file_name_end}.csv"
-
+  #  - run_dresden_scenario:
+  #      type: RunDresdenScenario
+  #      iterations: 500
+  #      sample_size: 0.01
+  #      overwrite_mode: FailIfDirectoryExists
+  #      num_parts: 3
+  #
+  #  - extract_avg_link_tt_from_events_with_bin_size_10:
+  #      type: ExtractAvgLinkTravelTimeFromEvents
+  #      input_file_stem_pattern: "{common_output_from_runs_pattern}/events/events"
+  #      input_file_format: xml.zst
+  #      num_parts: 3
+  #      bin_size: 10
+  #      overwrites:
+  #        avg_link_tts_over_le_time_csv_path_pattern: "{common_extracted_data_pattern}/avgLinkTtsOverLeTimeWithBinSize10{file_name_end}.csv"
+  #        avg_link_tts_csv_path_pattern: "{common_extracted_data_pattern}/avgLinkTtsWithBinSize10{file_name_end}.csv"
+  #
   - extract_avg_link_tt_from_events_with_bin_size_1:
       type: ExtractAvgLinkTravelTimeFromEvents
       input_file_stem_pattern: "{common_output_from_runs_pattern}/events/events"
@@ -48,17 +48,17 @@ modules:
         resume_failed: false
         avg_link_tts_over_le_time_csv_path_pattern: "{common_extracted_data_pattern}/avgLinkTtsOverLeTimeWithBinSize1{file_name_end}.csv"
         avg_link_tts_csv_path_pattern: "{common_extracted_data_pattern}/avgLinkTtsWithBinSize1{file_name_end}.csv"
-
-  - extract_avg_link_tt_from_events_with_bin_size_0_5:
-      type: ExtractAvgLinkTravelTimeFromEvents
-      input_file_stem_pattern: "{common_output_from_runs_pattern}/events/events"
-      input_file_format: xml.zst
-      num_parts: 3
-      bin_size: 0.5
-      overwrites:
-        resume_failed: false
-        avg_link_tts_over_le_time_csv_path_pattern: "{common_extracted_data_pattern}/avgLinkTtsOverLeTimeWithBinSize0_5{file_name_end}.csv"
-        avg_link_tts_csv_path_pattern: "{common_extracted_data_pattern}/avgLinkTtsWithBinSize0_5{file_name_end}.csv"
+  #
+  #  - extract_avg_link_tt_from_events_with_bin_size_0_5:
+  #      type: ExtractAvgLinkTravelTimeFromEvents
+  #      input_file_stem_pattern: "{common_output_from_runs_pattern}/events/events"
+  #      input_file_format: xml.zst
+  #      num_parts: 3
+  #      bin_size: 0.5
+  #      overwrites:
+  #        resume_failed: false
+  #        avg_link_tts_over_le_time_csv_path_pattern: "{common_extracted_data_pattern}/avgLinkTtsOverLeTimeWithBinSize0_5{file_name_end}.csv"
+  #        avg_link_tts_csv_path_pattern: "{common_extracted_data_pattern}/avgLinkTtsWithBinSize0_5{file_name_end}.csv"
 
   - plot_avg_link_tt_deviation_to_beta8_run_boxplot:
       type: PlotLinkTravelTimeDeviationToSpecificRunBoxplot

@@ -384,6 +384,8 @@ pub struct RunDresdenScenario {
     pub iterations: usize,
     pub sample_size: f64,
     pub num_parts: usize,
+    pub bin_size: f64,
+    pub multiply_bin_size_by_one_over_beta: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -707,6 +709,8 @@ impl Module for RunDresdenScenario {
             self.iterations.to_string(),
             self.sample_size.to_string(),
             self.num_parts.to_string(),
+            self.bin_size.to_string(),
+            self.multiply_bin_size_by_one_over_beta.to_string(),
         ]))
     }
 

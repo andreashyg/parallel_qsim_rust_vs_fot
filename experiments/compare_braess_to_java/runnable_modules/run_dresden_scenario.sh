@@ -16,12 +16,19 @@ run_dresden_experiment_case() {
   local num_iterations="$8"
   local sample_size="${9}"
   local num_parts="${10}"
+  local bin_size="${11}"
+  local multiply_bin_size_by_one_over_beta="${12}"
 
   echo "Running rust simulation with parameters: beta=${beta}, rust_seed=${rust_seed}, num_iterations=${num_iterations}, sample_size=${sample_size}, num_parts=${num_parts}"
 
   local delete_output_dir_arg=()
   if [ "$delete_output_dir_if_existing" = true ]; then
     delete_output_dir_arg=(--delete-output-dir-if-existing)
+  fi
+
+  local multiply_bin_size_by_one_over_beta_arg=()
+  if [ "$multiply_bin_size_by_one_over_beta" = true ]; then
+    multiply_bin_size_by_one_over_beta_arg=(--multiply-bin-size-by-one-over-beta)
   fi
 
   # Run the Rust simulation; failures are reported but do not stop the batch.
@@ -34,6 +41,8 @@ run_dresden_experiment_case() {
     --global-config-path "$global_config_path" \
     --sample-size "$sample_size" \
     --num-parts "$num_parts" \
+    --bin-size "$bin_size" \
+    "${multiply_bin_size_by_one_over_beta_arg[@]}" \
     "${delete_output_dir_arg[@]}"
   then
     echo "Experiment failed, continuing with next case." >&2

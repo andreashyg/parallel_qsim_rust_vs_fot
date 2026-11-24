@@ -62,6 +62,12 @@ struct CommandLineArgs {
     /// number of partitions that rust_qsim should use
     #[arg(long)]
     num_parts: usize,
+    /// bin size of the travel time calculator, in seconds
+    #[arg(long)]
+    bin_size: f64,
+    /// whether or not to multiply the bin size by 1/beta, where beta is the time step parameter.
+    #[arg(long)]
+    multiply_bin_size_by_one_over_beta: bool,
 }
 
 fn main() {
@@ -407,11 +413,13 @@ fn main() {
 
     // Note: we are missing the transit router, but should be fine, since we don't want to reroute pt
 
-    config.set_travel_time_calculator(TravelTimeCalculator {
-        bin_size: 900.0,
-        // TODO: how should I handle this? in my braess experiments, I used 1/beta seconds, but in the original java experiments, they used 900 seconds. I could scale this down with beta, but it might lead to crazy slowdown.
-        //  I think it is fine to keep it as it is, since it is not dependent on the time step anyway. It was just necessary in braess.
-    });
+    let bin_size = if args.multiply_bin_size_by_one_over_beta {
+        args.bin_size / beta as f64
+    } else {
+        args.bin_size
+    };
+
+    config.set_travel_time_calculator(TravelTimeCalculator { bin_size });
 
     config.computational_setup_mut().random_seed = seed_rust as u64;
 

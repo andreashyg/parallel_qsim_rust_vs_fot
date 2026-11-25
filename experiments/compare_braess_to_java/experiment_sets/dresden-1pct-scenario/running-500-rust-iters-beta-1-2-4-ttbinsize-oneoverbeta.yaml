@@ -14,16 +14,16 @@ globals:
   avg_link_tts_csv_path_pattern: "{common_extracted_data_pattern}/avgLinkTts{file_name_end}.csv"
 
 param_sweep:
-  betas: [ 1, 2, 4 ]
+  betas: [ 1 ] #, 2, 4 ]
   read_from_random_seed_indices: [ 123456 ]  # This is not used, but I need a number here until I fixed the experiment machine
-  use_random_seeds: [ 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61 ]
+  use_random_seeds: [ 42 ] #, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61 ]
 
 # What to actually run in this experiment set:
 modules:
 
   - run_dresden_scenario:
       type: RunDresdenScenario
-      iterations: 500
+      iterations: 1 # 500
       sample_size: 0.01
       overwrite_mode: FailIfDirectoryExists
       num_parts: 3

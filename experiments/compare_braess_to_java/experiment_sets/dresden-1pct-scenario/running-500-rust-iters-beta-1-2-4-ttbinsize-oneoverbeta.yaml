@@ -25,7 +25,7 @@ modules:
       type: RunDresdenScenario
       iterations: 1 # 500
       sample_size: 0.01
-      overwrite_mode: FailIfDirectoryExists
+      overwrite_mode: DeleteDirectoryIfExists
       num_parts: 3
       bin_size: 1.0
       multiply_bin_size_by_one_over_beta: true
